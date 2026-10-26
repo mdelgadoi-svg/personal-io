@@ -1,0 +1,278 @@
+// Personal IO planning rules.
+// Everything here is plain logic with no screens and no storage,
+// so it can be tested on its own (see tests/rules.test.js).
+
+export const PRIORITIES = {
+  both:      { label: 'Important + urgent', mark: '★!', cap: 2 },
+  important: { label: 'Important',          mark: '★',  cap: 4 },
+  urgent:    { label: 'Urgent',             mark: '!',  cap: 3 },
+  nice:      { label: 'Nice to have',       mark: '🤔', cap: Infinity },
+};
+
+export const PRIORITY_ORDER = ['both', 'urgent', 'important', 'nice'];
+
+export const PLACES = {
+  everywhere: 'Everywhere',
+  silent: 'Requires silent space',
+  commute: 'Requires commuting',
+};
+
+export const REASONS = [
+  'Unclear next step',
+  'Low energy',
+  'Urgent thing came up',
+  'Took longer',
+  'Other',
+];
+
+export const DEFAULT_SETTINGS = {
+  commuteMinutes: 30,          // added before every task that requires commuting
+  blockStarts: ['08:00', '14:30'], // when deep work blocks start
+  maxBlockMinutes: 240,        // a block is at most 4 hours
+  minBlockMinutes: 120,        // and ideally at least 2 hours
+  daySlots: 3,                 // task slots shown for a new day
+  daySlotsMax: 7,              // the most a day can hold
+  maxGoals: 10,
+  urgentWindowDays: 2,         // "urgent" = deadline in less than 2 days
+  staleDays: 21,               // ask "still important?" after this long untouched
+};
+
+// ---------- dates ----------
+
+export function toDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function parseDateKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function addDays(key, days) {
+  const date = parseDateKey(key);
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
+export function daysUntil(deadlineKey, todayKey) {
+  const ms = parseDateKey(deadlineKey) - parseDateKey(todayKey);
+  return Math.round(ms / 86400000);
+}
+
+export function toMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+export function toHHMM(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// ---------- priorities and limits ----------
+
+export function openTasks(tasks) {
+  return tasks.filter((t) => t.status === 'open');
+}
+
+export function countByPriority(tasks) {
+  const counts = { both: 0, important: 0, urgent: 0, nice: 0 };
+  for (const t of openTasks(tasks)) counts[t.priority] += 1;
+  return counts;
+}
+
+export function isUrgentByDate(task, todayKey, settings = DEFAULT_SETTINGS) {
+  if (!task.deadline) return false;
+  return daysUntil(task.deadline, todayKey) < settings.urgentWindowDays;
+}
+
+// Returns a list of problems. An empty list means the task can be saved.
+export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTINGS) {
+  const problems = [];
+  if (!task.title || !task.title.trim()) problems.push('Give the task a name.');
+  if (!task.goalId) problems.push('Every task belongs to a goal. Pick one.');
+  if (!task.deadline) problems.push('Every task needs a deadline.');
+  if (!task.minutes || task.minutes <= 0) problems.push('Say how long it will take.');
+  if (task.place === 'commute' && !(task.destination || '').trim()) {
+    problems.push('Say where you need to go.');
+  }
+  if (task.priority === 'both' && task.deadline && !isUrgentByDate(task, todayKey, settings)) {
+    problems.push('★! means the deadline is today or tomorrow. Use ★ for later deadlines.');
+  }
+  const others = allTasks.filter((t) => t.id !== task.id);
+  const counts = countByPriority(others);
+  const info = PRIORITIES[task.priority];
+  if (info && counts[task.priority] >= info.cap) {
+    problems.push(`${info.mark} ${info.label} is full (${info.cap} of ${info.cap}). Finish one or move one down a level first.`);
+  }
+  return problems;
+}
+
+// Important tasks whose deadline is now close become important + urgent,
+// as long as there is room. Returns the changed tasks and messages.
+export function promoteDueTasks(tasks, todayKey, settings = DEFAULT_SETTINGS) {
+  const messages = [];
+  let bothCount = countByPriority(tasks).both;
+  const updated = tasks.map((t) => {
+    if (t.status !== 'open' || t.priority !== 'important') return t;
+    if (!isUrgentByDate(t, todayKey, settings)) return t;
+    if (bothCount < PRIORITIES.both.cap) {
+      bothCount += 1;
+      messages.push(`"${t.title}" is due soon, so it moved up to ★!.`);
+      return { ...t, priority: 'both', promotionBlocked: false };
+    }
+    if (!t.promotionBlocked) {
+      messages.push(`"${t.title}" is due soon, but ★! is full. Decide what moves down.`);
+    }
+    return { ...t, promotionBlocked: true };
+  });
+  return { tasks: updated, messages };
+}
+
+export function isStale(task, todayKey, settings = DEFAULT_SETTINGS) {
+  if (task.status !== 'open') return false;
+  if (task.priority !== 'important' && task.priority !== 'both') return false;
+  const since = task.lastTouchedAt || task.createdAt;
+  if (!since) return false;
+  return daysUntil(todayKey, since.slice(0, 10)) >= settings.staleDays;
+}
+
+export function sortForPlanning(tasks) {
+  return [...tasks].sort((a, b) => {
+    const p = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
+    if (p !== 0) return p;
+    return (a.deadline || '9999').localeCompare(b.deadline || '9999');
+  });
+}
+
+// ---------- time needed for a day ----------
+
+export function taskTotalMinutes(task, settings = DEFAULT_SETTINGS) {
+  const commute = task.place === 'commute' ? settings.commuteMinutes : 0;
+  return (task.minutes || 0) + commute;
+}
+
+export function dayTimeNeeded(tasks, settings = DEFAULT_SETTINGS) {
+  let work = 0;
+  let commute = 0;
+  for (const t of tasks) {
+    work += t.minutes || 0;
+    if (t.place === 'commute') commute += settings.commuteMinutes;
+  }
+  return { work, commute, total: work + commute };
+}
+
+// ---------- calendar colors ----------
+
+// Blue = do it now / really important. Green = should do, flexible.
+// Yellow = might be useful.
+export function colorForTasks(tasks) {
+  if (tasks.some((t) => t.priority === 'both' || t.priority === 'urgent')) return 'blue';
+  if (tasks.some((t) => t.priority === 'important')) return 'green';
+  return 'yellow';
+}
+
+// ---------- building the day ----------
+
+// Tasks with a fixed time (and every commuting task) become their own events.
+// Everything else is packed into deep work blocks of 2 to 4 hours.
+export function buildDay(tasks, settings = DEFAULT_SETTINGS) {
+  const events = [];
+  const needsTime = [];
+  const flexible = [];
+
+  for (const t of tasks) {
+    if (t.fixedTime) {
+      const start = toMinutes(t.fixedTime);
+      if (t.place === 'commute') {
+        events.push({
+          kind: 'commute', taskId: t.id,
+          start: toHHMM(start - settings.commuteMinutes), minutes: settings.commuteMinutes,
+          title: `Commute to ${t.destination || 'the meeting'}`,
+        });
+      }
+      events.push({ kind: 'task', taskId: t.id, start: t.fixedTime, minutes: t.minutes, title: t.title });
+    } else if (t.place === 'commute') {
+      needsTime.push(t.id);
+    } else {
+      flexible.push(t);
+    }
+  }
+
+  const busy = events.map((e) => [toMinutes(e.start), toMinutes(e.start) + e.minutes]);
+  const blocks = [];
+  const didNotFit = [];
+  const queue = sortForPlanning(flexible);
+
+  for (const startText of settings.blockStarts) {
+    if (queue.length === 0) break;
+    let start = toMinutes(startText);
+    // Skip past anything already scheduled at the block's start.
+    for (const [a, b] of busy) if (start >= a && start < b) start = b;
+    // The block can run until the next fixed event, or the maximum length.
+    let limit = start + settings.maxBlockMinutes;
+    for (const [a] of busy) if (a > start && a < limit) limit = a;
+    const room = limit - start;
+
+    // Take tasks in priority order, skipping any that don't fit in what's left.
+    const inBlock = [];
+    let used = 0;
+    for (let i = 0; i < queue.length; ) {
+      if (used + queue[i].minutes <= room) {
+        const [t] = queue.splice(i, 1);
+        inBlock.push(t);
+        used += t.minutes;
+      } else {
+        i += 1;
+      }
+    }
+    if (inBlock.length > 0) {
+      const minutes = Math.min(room, Math.max(used, Math.min(settings.minBlockMinutes, room)));
+      blocks.push({
+        start: toHHMM(start), minutes,
+        taskIds: inBlock.map((t) => t.id),
+        color: colorForTasks(inBlock),
+      });
+    }
+  }
+  for (const t of queue) didNotFit.push(t.id);
+  return { blocks, events, needsTime, didNotFit };
+}
+
+// ---------- end of block review ----------
+
+// outcomes: { [taskId]: { result: 'done' | 'working' | 'not_started', reason } }
+export function applyReview(tasks, outcomes, nowIso) {
+  const log = [];
+  const updated = tasks.map((t) => {
+    const o = outcomes[t.id];
+    if (!o) return t;
+    log.push({ at: nowIso, taskId: t.id, title: t.title, result: o.result, reason: o.reason || null });
+    if (o.result === 'done') {
+      return { ...t, status: 'done', doneAt: nowIso, lastTouchedAt: nowIso };
+    }
+    if (o.result === 'working') {
+      return { ...t, lastTouchedAt: nowIso, lastReason: o.reason || null };
+    }
+    return {
+      ...t,
+      pushCount: (t.pushCount || 0) + 1,
+      lastReason: o.reason || null,
+    };
+  });
+  return { tasks: updated, log };
+}
+
+// ---------- small helpers for words ----------
+
+export function formatMinutes(total) {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}

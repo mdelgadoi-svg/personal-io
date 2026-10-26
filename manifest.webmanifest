@@ -1,0 +1,16 @@
+{
+  "name": "Personal IO",
+  "short_name": "Personal IO",
+  "description": "Goals, tasks and deep work blocks. Plan the day, start in one minute.",
+  "start_url": "./#start",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F5F6F8",
+  "theme_color": "#17202A",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
