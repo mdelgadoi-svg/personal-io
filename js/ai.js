@@ -48,6 +48,60 @@ function parseJson(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
+async function ask(prompt) {
+  const key = getKey();
+  if (!key) throw new Error('Add your Claude API key in Settings first.');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 6000,
+      output_config: { effort: 'medium' },
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Claude did not accept the API key. Check it in Settings.');
+    throw new Error('Claude could not answer right now.');
+  }
+  const data = await res.json();
+  return parseJson((data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n'));
+}
+
+// Turns a spoken or typed brain dump into short tasks, each matched to a goal if one fits.
+export async function tasksFromDump(text, goals) {
+  const goalList = goals.map((g) => `- ${g.id}: ${g.title}`).join('\n');
+  const out = await ask(`Turn this brain dump into short, concrete tasks.
+
+Brain dump:
+"""${text}"""
+
+Goals (id: title):
+${goalList}
+
+Reply with JSON only:
+{ "tasks": [ { "title": "...", "goalId": "...", "minutes": 30 } ] }
+
+Rules:
+- One task per distinct thing to do. Skip feelings, opinions and repeats.
+- Title: start with a verb, under 10 words. No em dashes.
+- goalId: the id of the goal it serves, or "life" if none fits.
+- minutes: a realistic guess (15, 30, 45, 60, 90 or 120).
+- At most 20 tasks.`);
+  const ids = new Set(goals.map((g) => g.id));
+  return (out.tasks || []).slice(0, 20).map((t) => ({
+    title: String(t.title || '').trim(),
+    goalId: ids.has(t.goalId) ? t.goalId : 'life',
+    minutes: [15, 30, 45, 60, 90, 120].includes(Number(t.minutes)) ? Number(t.minutes) : 30,
+  })).filter((t) => t.title);
+}
+
 export async function suggestForTask(input) {
   const key = getKey();
   if (!key) throw new Error('Add your Claude API key in Settings first.');

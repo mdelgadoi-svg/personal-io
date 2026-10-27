@@ -176,11 +176,34 @@ export function colorForTasks(tasks) {
   return 'yellow';
 }
 
+// ---------- your own calendar events ----------
+
+// event: { id, title, date: 'YYYY-MM-DD', start: 'HH:MM', minutes, mode: 'online' | 'in_person',
+//          commute: boolean, repeat: 'none' | 'weekly' }
+export function eventsOn(events, dateKey) {
+  const weekday = parseDateKey(dateKey).getDay();
+  return (events || []).filter((e) => {
+    if (e.date === dateKey) return true;
+    if (e.repeat !== 'weekly' || e.date > dateKey) return false;
+    if (e.until && dateKey > e.until) return false;
+    return parseDateKey(e.date).getDay() === weekday;
+  }).sort((a, b) => a.start.localeCompare(b.start));
+}
+
+// Time taken by calendar events, including the commute before in-person ones.
+export function busyFromEvents(events, settings = DEFAULT_SETTINGS) {
+  return events.map((e) => {
+    const start = toMinutes(e.start) - (e.commute ? settings.commuteMinutes : 0);
+    return [start, toMinutes(e.start) + e.minutes];
+  });
+}
+
 // ---------- building the day ----------
 
 // Tasks with a fixed time (and every commuting task) become their own events.
-// Everything else is packed into deep work blocks of 2 to 4 hours.
-export function buildDay(tasks, settings = DEFAULT_SETTINGS) {
+// Everything else is packed into deep work blocks of 2 to 4 hours,
+// avoiding anything already on the calendar (calendarEvents).
+export function buildDay(tasks, settings = DEFAULT_SETTINGS, calendarEvents = []) {
   const events = [];
   const needsTime = [];
   const flexible = [];
@@ -203,7 +226,10 @@ export function buildDay(tasks, settings = DEFAULT_SETTINGS) {
     }
   }
 
-  const busy = events.map((e) => [toMinutes(e.start), toMinutes(e.start) + e.minutes]);
+  const busy = [
+    ...events.map((e) => [toMinutes(e.start), toMinutes(e.start) + e.minutes]),
+    ...busyFromEvents(calendarEvents, settings),
+  ].sort((a, b) => a[0] - b[0]);
   const blocks = [];
   const didNotFit = [];
   const queue = sortForPlanning(flexible);
@@ -211,8 +237,12 @@ export function buildDay(tasks, settings = DEFAULT_SETTINGS) {
   for (const startText of settings.blockStarts) {
     if (queue.length === 0) break;
     let start = toMinutes(startText);
-    // Skip past anything already scheduled at the block's start.
-    for (const [a, b] of busy) if (start >= a && start < b) start = b;
+    // Skip past anything already scheduled at the block's start (repeat for back-to-back events).
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const [a, b] of busy) if (start >= a && start < b) { start = b; moved = true; }
+    }
     // The block can run until the next fixed event, or the maximum length.
     let limit = start + settings.maxBlockMinutes;
     for (const [a] of busy) if (a > start && a < limit) limit = a;
@@ -265,6 +295,31 @@ export function applyReview(tasks, outcomes, nowIso) {
     };
   });
   return { tasks: updated, log };
+}
+
+// ---------- first steps without AI ----------
+
+// A plain template so "first minute" always has something, even without Claude.
+export function templateSteps(title, place) {
+  const setup = {
+    silent: 'Find a quiet spot and put your phone face down',
+    commute: `Check the route and when you need to leave`,
+    everywhere: 'Close other windows and tabs',
+  }[place] || 'Close other windows and tabs';
+  const name = (title || 'the task').trim();
+  return [setup, `Open what you need for: ${name}`, 'Do the first small piece for 60 seconds'];
+}
+
+// ---------- brain dump without AI ----------
+
+// Splits free text into short task-like lines (one per sentence or line).
+export function splitDump(text) {
+  return String(text || '')
+    .split(/\n|(?<=[.!?;])\s+|\s+(?:and then|also|then)\s+/i)
+    .map((s) => s.replace(/^[\s\-*•\d.)]+/, '').replace(/[.;]+$/, '').trim())
+    .filter((s) => s.split(/\s+/).length >= 2)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .slice(0, 25);
 }
 
 // ---------- small helpers for words ----------

@@ -132,3 +132,32 @@ test('review: done closes the task, not started counts a push and keeps the reas
   assert.equal(out[1].lastReason, 'Unclear next step');
   assert.equal(log.length, 2);
 });
+
+// ---------- calendar events, template steps, brain dump ----------
+import { eventsOn, templateSteps, splitDump } from '../js/rules.js';
+
+test('weekly events repeat on the same weekday', () => {
+  const evs = [{ id: 'c', title: 'Class', date: '2026-10-20', start: '09:00', minutes: 90, repeat: 'weekly' }];
+  assert.equal(eventsOn(evs, '2026-10-27').length, 1); // also a Tuesday
+  assert.equal(eventsOn(evs, '2026-10-28').length, 0);
+  assert.equal(eventsOn(evs, '2026-10-13').length, 0); // before it started
+});
+
+test('blocks avoid calendar events and the commute before them', () => {
+  const t = task({ id: 't', minutes: 60 });
+  const cls = { id: 'c', title: 'Class', date: '2026-10-27', start: '08:30', minutes: 90, commute: true };
+  // Commute starts 08:00, class ends 10:00, so the block starts at 10:00.
+  const day = buildDay([t], DEFAULT_SETTINGS, [cls]);
+  assert.equal(day.blocks[0].start, '10:00');
+});
+
+test('template steps always give three steps', () => {
+  const s = templateSteps('Write the essay', 'silent');
+  assert.equal(s.length, 3);
+  assert.ok(s[1].includes('Write the essay'));
+});
+
+test('brain dump splits sentences into task lines', () => {
+  const lines = splitDump('Email the professor about the paper. Buy a suit for the wedding\nok\ncall the bank and then book flights');
+  assert.deepEqual(lines, ['Email the professor about the paper', 'Buy a suit for the wedding', 'Call the bank', 'Book flights']);
+});

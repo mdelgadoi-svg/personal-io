@@ -142,6 +142,7 @@ function render() {
   renderNowPill();
   afterRender = [];
   if (tab === 'today') view.innerHTML = renderToday();
+  else if (tab === 'calendar') view.innerHTML = renderCalendar();
   else if (tab === 'goals') view.innerHTML = renderGoals();
   else if (tab === 'backlog') view.innerHTML = renderBacklog();
   else view.innerHTML = renderStart();
@@ -171,28 +172,59 @@ function keyHTML() {
 
 // ----- calendar drawing (shared) -----
 
-// items: [{ start: minutes, minutes, title, sub, cls, lane: 'plan' | 'google' }]
-function timelineHTML(items, { startHour = 7, endHour = 23, px = 56, nowLine = false, lanes = false } = {}) {
-  const top = (m) => ((m - startHour * 60) / 60) * px;
+// items: [{ start: minutes, minutes, title, sub, cls, lane: 'plan' | 'google', action, id }]
+function hoursHTML({ startHour = 7, endHour = 23, px = 56 } = {}) {
   const height = (endHour - startHour) * px;
   const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => `<span style="top:${i * px}px">${startHour + i}:00</span>`).join('');
+  return `<div class="hours" aria-hidden="true" style="height:${height}px">${hours}</div>`;
+}
+
+function gridHTML(items, { startHour = 7, endHour = 23, px = 56, nowLine = false, lanes = false } = {}) {
+  const top = (m) => ((m - startHour * 60) / 60) * px;
+  const height = (endHour - startHour) * px;
   const boxes = items
     .filter((it) => it.start + it.minutes > startHour * 60 && it.start < endHour * 60)
     .map((it) => {
       const lane = !lanes ? 'left:0; right:0' : it.lane === 'google' ? 'left:52%; right:0' : 'left:0; right:50%';
-      const h = Math.max((it.minutes / 60) * px - 2, 20);
-      return `<div class="ev ${it.cls}" style="top:${top(it.start)}px; height:${h}px; ${lane}">${esc(it.title)}${it.sub ? `<span class="sub">${esc(it.sub)}</span>` : ''}</div>`;
+      const h = Math.max((it.minutes / 60) * px - 2, 18);
+      const style = `top:${Math.max(top(it.start), 0)}px; height:${h}px; ${lane}`;
+      const inner = `${esc(it.title)}${it.sub ? `<span class="sub">${esc(it.sub)}</span>` : ''}`;
+      return it.action
+        ? `<button type="button" class="ev ${it.cls}" style="${style}" data-action="${it.action}" data-id="${esc(it.id)}">${inner}</button>`
+        : `<div class="ev ${it.cls}" style="${style}">${inner}</div>`;
     }).join('');
   const now = nowMinutes();
   const line = nowLine && now >= startHour * 60 && now <= endHour * 60 ? `<div class="now-line" style="top:${top(now)}px" aria-label="Now"></div>` : '';
-  const laneHead = lanes ? '<div class="lane-head"><span>Personal IO plan</span><span>Your Google Calendar</span></div>' : '';
-  return `${laneHead}<div class="timeline-wrap"><div class="hours" aria-hidden="true" style="height:${height}px">${hours}</div>
-    <div class="grid" style="height:${height}px; background-size: 100% ${px}px; background-image: repeating-linear-gradient(to bottom, var(--line-2) 0, var(--line-2) 1px, transparent 1px, transparent ${px}px)">${boxes}${line}</div></div>`;
+  return `<div class="grid" style="height:${height}px; background-image: repeating-linear-gradient(to bottom, var(--line-2) 0, var(--line-2) 1px, transparent 1px, transparent ${px}px)">${boxes}${line}</div>`;
 }
 
-function planItems(key) {
+function timelineHTML(items, opts = {}) {
+  const laneHead = opts.lanes ? '<div class="lane-head"><span>Personal IO</span><span>Google Calendar</span></div>' : '';
+  return `${laneHead}<div class="timeline-wrap">${hoursHTML(opts)}${gridHTML(items, opts)}</div>`;
+}
+
+// Your own events for a day, plus the commute before in-person ones.
+function eventItems(key, clickable = false) {
+  const items = [];
+  R.eventsOn(state.events, key).forEach((e) => {
+    const start = R.toMinutes(e.start);
+    if (e.commute) {
+      items.push({ start: start - S().commuteMinutes, minutes: S().commuteMinutes, lane: 'plan', cls: 'ev-commute', title: `Commute · ${S().commuteMinutes} min` });
+    }
+    items.push({
+      start, minutes: e.minutes, lane: 'plan', cls: 'ev-fixed',
+      title: `${e.start} ${e.title}`,
+      sub: e.mode === 'online' ? 'online' : e.commute ? 'in person · commute' : 'in person',
+      action: clickable ? 'edit-event' : null, id: e.id,
+    });
+  });
+  return items;
+}
+
+function planItems(key, clickable = false) {
   const day = state.days[key];
-  if (!day || !day.plan) return [];
+  const fromEvents = eventItems(key, clickable);
+  if (!day || !day.plan) return fromEvents;
   const items = day.plan.blocks.map((b) => ({
     start: R.toMinutes(b.start), minutes: b.minutes, lane: 'plan', cls: `ev-${b.color}`,
     title: `Deep work · ${b.taskIds.length} task${b.taskIds.length === 1 ? '' : 's'}`,
@@ -206,7 +238,7 @@ function planItems(key) {
       title: `${e.start} ${e.title}`,
     });
   });
-  return items;
+  return [...fromEvents, ...items];
 }
 
 // Fills an element with the day's calendar: the app's plan plus Google events.
@@ -218,9 +250,10 @@ function calendarBlockHTML(id, key, opts = {}) {
 async function fillCalendar(id, key, opts = {}) {
   const el = document.getElementById(id);
   if (!el) return;
-  const plan = planItems(key);
+  const plan = planItems(key, opts.clickable);
   if (!G.isConfigured()) {
-    el.innerHTML = `<div class="note note-info">Connect Google in <button class="btn-link" data-action="open-settings">Settings</button> to see your calendar here.</div>${timelineHTML(plan, opts)}`;
+    // Google is optional. Your own events and the plan are shown.
+    el.innerHTML = timelineHTML(plan, opts);
     return;
   }
   if (!G.isConnected()) {
@@ -440,6 +473,13 @@ function dayColumnHTML(dayKey) {
     <div class="time-total">${R.formatMinutes(need.total)} ${need.commute ? `<span>of which ${R.formatMinutes(need.commute)} is commute</span>` : ''}</div>
     <div class="bar"><div class="w" style="width:${workPct}%"></div><div class="c" style="width:${100 - workPct}%"></div></div>
   </div>
+  ${(() => {
+    const evs = R.eventsOn(state.events, dayKey);
+    return evs.length ? `<div class="card card-pad" style="display:flex; flex-direction:column; gap:6px">
+      <div class="eyebrow">Already on your calendar</div>
+      ${evs.map((e) => `<div style="font-size:14px"><span class="mono">${e.start}</span> ${esc(e.title)}${e.commute ? ' <span class="chip chip-commute">+ commute</span>' : ''}</div>`).join('')}
+      <span class="hint">Blocks will go around these.</span></div>` : '';
+  })()}
   ${slots}${empties}
   ${day.slots < S().daySlotsMax ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Open another slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
   ${missingTime.length ? `<div class="note note-warn">Add a meeting time for: ${missingTime.map((t) => esc(t.title)).join(', ')}. I'll put ${S().commuteMinutes} minutes of commute before it.</div>` : ''}
@@ -559,7 +599,7 @@ function renderToday() {
           <span><span class="sw" style="background:var(--yellow)"></span>might help</span>
           <span><span class="sw" style="background:var(--purple)"></span>commute</span>
         </span></div>
-      ${calendarBlockHTML('cal-today', key, { nowLine: true, px: 48 })}
+      ${calendarBlockHTML('cal-today', key, { nowLine: true, px: 48, clickable: true })}
     </section>
   </div>`;
 }
@@ -600,6 +640,204 @@ function nowCardHTML(current, next) {
       <div style="display:flex; gap:8px; margin-top:6px">${actions}</div>
     </div>
   </section>`;
+}
+
+// ----- calendar -----
+
+function weekStart(key) {
+  const dow = (R.parseDateKey(key).getDay() + 6) % 7; // Monday = 0
+  return R.addDays(key, -dow);
+}
+
+function renderCalendar() {
+  const phone = window.matchMedia('(max-width: 760px)').matches;
+  const anchor = ui.calDay || todayKey();
+  const days = phone ? [anchor] : Array.from({ length: 7 }, (_, i) => R.addDays(weekStart(anchor), i));
+  const opts = { startHour: 7, endHour: 23, px: phone ? 48 : 44 };
+  const tKey = todayKey();
+  const cols = days.map((key) => `
+    <div class="cal-col">
+      <div class="cal-day ${key === tKey ? 'is-today' : ''}"><span>${esc(fmtDay(key, { weekday: 'short' }))}</span><strong>${R.parseDateKey(key).getDate()}</strong></div>
+      ${gridHTML(planItems(key, true), { ...opts, nowLine: key === tKey })}
+    </div>`).join('');
+  const range = phone ? longDay(anchor) : `${fmtDay(days[0], { month: 'short', day: 'numeric' })} to ${fmtDay(days[6], { month: 'short', day: 'numeric' })}`;
+  return `
+  <section class="page-head">
+    <div><div class="date-line">${esc(range)}</div><h1>Calendar</h1>
+      <div class="sub">Your fixed events (classes, meetings) plus the blocks Personal IO plans around them.</div></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      <button class="btn" data-action="cal-move" data-step="${phone ? -1 : -7}" aria-label="Previous">‹</button>
+      <button class="btn" data-action="cal-today">Today</button>
+      <button class="btn" data-action="cal-move" data-step="${phone ? 1 : 7}" aria-label="Next">›</button>
+      <button class="btn btn-dark" data-action="new-event">+ Event</button>
+    </div>
+  </section>
+  <div class="card card-pad">
+    <div class="legend" style="margin-bottom:10px">
+      <span><span class="sw" style="background:#5B6572"></span>your events</span>
+      <span><span class="sw" style="background:var(--purple)"></span>commute</span>
+      <span><span class="sw" style="background:var(--blue)"></span>do now</span>
+      <span><span class="sw" style="background:var(--green)"></span>should do</span>
+      <span><span class="sw" style="background:var(--yellow)"></span>might help</span>
+    </div>
+    <div class="cal-week">
+      <div class="cal-hours"><div class="cal-day spacer"></div>${hoursHTML(opts)}</div>
+      ${cols}
+    </div>
+  </div>
+  ${state.events.length === 0 ? '<div class="note note-info" style="margin-top:14px">Add your classes and meetings with <strong>+ Event</strong>. Use "repeats weekly" for classes. When you build a day, deep work blocks go around them.</div>' : ''}`;
+}
+
+function eventFormHTML(e, dateKey) {
+  const draft = e || { date: dateKey || todayKey(), start: '09:00', minutes: 60, mode: 'in_person', commute: false, repeat: 'none' };
+  const end = R.toHHMM(R.toMinutes(draft.start) + draft.minutes);
+  const where = draft.mode === 'online' ? 'online' : draft.commute ? 'commute' : 'nearby';
+  const pressed = (v) => `aria-pressed="${v === where}"`;
+  return `
+  <form class="modal" data-form="event" data-id="${e ? e.id : ''}" novalidate>
+    <div class="modal-head"><h2 id="modal-title">${e ? 'Edit event' : 'New event'}</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <div class="errors" hidden></div>
+    <div class="field"><label for="e-title">What is it?</label>
+      <input class="input" id="e-title" name="title" value="${esc(draft.title || '')}" placeholder="Meeting with professor"></div>
+    <div class="row">
+      <div class="field"><label for="e-date">Day</label><input class="input" type="date" id="e-date" name="date" value="${esc(draft.date)}"></div>
+      <div class="field"><label for="e-start">Starts</label><input class="input" type="time" id="e-start" name="start" value="${esc(draft.start)}"></div>
+      <div class="field"><label for="e-end">Ends</label><input class="input" type="time" id="e-end" name="end" value="${esc(end)}"></div>
+    </div>
+    <div class="field"><span class="field-label">Where</span>
+      <div class="pills" data-group="where">
+        <button type="button" data-value="online" ${pressed('online')}>Online</button>
+        <button type="button" data-value="nearby" ${pressed('nearby')}>In person, nearby</button>
+        <button type="button" data-value="commute" ${pressed('commute')}>Requires commuting (+${S().commuteMinutes} min before)</button>
+      </div></div>
+    <label style="display:flex; gap:10px; align-items:center; font-size:14px; min-height:44px">
+      <input type="checkbox" name="repeat" ${draft.repeat === 'weekly' ? 'checked' : ''} style="width:20px; height:20px"> Repeats every week (for classes)
+    </label>
+    <div class="modal-foot">
+      ${e ? '<button type="button" class="btn" data-action="delete-event" style="margin-right:auto; color: var(--bang)">Delete</button>' : ''}
+      <button type="button" class="btn" data-action="close-modal">Cancel</button>
+      <button type="submit" class="btn btn-dark">Save event</button>
+    </div>
+  </form>`;
+}
+
+// ----- brain dump -----
+
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognizer = null;
+
+function dumpHTML() {
+  return `
+  <div class="modal" data-form="dump">
+    <div class="modal-head"><h2 id="modal-title">Brain dump</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <div class="dump-warning" role="note">
+      <div class="big">A brain dump can bury what matters.</div>
+      <div>Everything you dump goes in as <strong>🤔 Nice to have: not important yet.</strong> Promote only what truly matters.</div>
+    </div>
+    <div class="field">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
+        <label for="dump-text" class="field-label">Say or type everything on your mind</label>
+        ${SpeechRec ? `<div style="display:flex; gap:6px; align-items:center">
+          <label class="visually-hidden" for="dump-lang">Language</label>
+          <select class="input" id="dump-lang" style="min-height:40px; width:auto; padding:6px 10px"><option value="en-US">English</option><option value="es-PE">Español</option></select>
+          <button type="button" class="btn btn-small mic" data-action="mic" aria-pressed="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v5"></path></svg>
+            <span>Start talking</span></button></div>` : '<span class="hint">Voice works in Chrome. Typing works everywhere.</span>'}
+      </div>
+      <textarea class="input" id="dump-text" style="min-height:160px" placeholder="Email the professor about the paper. Buy a suit. Call the bank and then book flights..."></textarea>
+    </div>
+    <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center">
+      <span class="hint dump-status">${AI.hasKey() ? 'Claude will split it into tasks and match each one to a goal.' : 'Each sentence becomes a task under "Keep life running". With a Claude key, they get matched to your goals.'}</span>
+      <button type="button" class="btn btn-dark" data-action="dump-split">Turn into tasks</button>
+    </div>
+    <div class="dump-preview"></div>
+  </div>`;
+}
+
+let dumpDraft = [];
+
+function dumpPreviewHTML() {
+  if (!dumpDraft.length) return '';
+  return `
+  <div class="card list">
+    ${dumpDraft.map((t, i) => `<div class="item">
+      <div class="item-main"><span class="item-title">${esc(t.title)}</span>
+      <div class="item-meta"><span class="chip chip-goal">${esc(goal(t.goalId)?.title || 'Keep life running')}</span><span>${R.formatMinutes(t.minutes)}</span>${markHTML('nice')}</div></div>
+      <button type="button" class="btn btn-small" data-action="dump-remove" data-index="${i}" aria-label="Remove">Remove</button>
+    </div>`).join('')}
+  </div>
+  <div class="modal-foot">
+    <button type="button" class="btn btn-dark" data-action="dump-add">Add all ${dumpDraft.length} to backlog as 🤔</button>
+  </div>`;
+}
+
+function stopMic() {
+  if (recognizer) { recognizer.onend = null; recognizer.stop(); recognizer = null; }
+  const btn = modal.querySelector('[data-action="mic"]');
+  if (btn) { btn.setAttribute('aria-pressed', 'false'); btn.querySelector('span').textContent = 'Start talking'; }
+}
+
+function toggleMic() {
+  if (recognizer) { stopMic(); return; }
+  const box = modal.querySelector('#dump-text');
+  const btn = modal.querySelector('[data-action="mic"]');
+  let committed = box.value ? box.value.trim() + ' ' : '';
+  recognizer = new SpeechRec();
+  recognizer.lang = modal.querySelector('#dump-lang').value;
+  recognizer.continuous = true;
+  recognizer.interimResults = true;
+  recognizer.onresult = (ev) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const piece = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal) committed += piece.trim() + '. ';
+      else interim += piece;
+    }
+    box.value = committed + interim;
+  };
+  recognizer.onerror = (ev) => { toast(ev.error === 'not-allowed' ? 'Microphone permission was blocked.' : 'Voice stopped. You can keep typing.'); stopMic(); };
+  recognizer.onend = () => stopMic();
+  recognizer.start();
+  btn.setAttribute('aria-pressed', 'true');
+  btn.querySelector('span').textContent = 'Stop';
+}
+
+async function splitDumpText() {
+  const text = modal.querySelector('#dump-text').value.trim();
+  const status = modal.querySelector('.dump-status');
+  if (!text) { status.textContent = 'Say or type something first.'; return; }
+  stopMic();
+  if (AI.hasKey()) {
+    status.textContent = 'Claude is sorting it...';
+    try {
+      dumpDraft = await AI.tasksFromDump(text, state.goals);
+    } catch (err) {
+      status.textContent = `${err.message} Using a simple split instead.`;
+      dumpDraft = R.splitDump(text).map((title) => ({ title, goalId: 'life', minutes: 30 }));
+    }
+  } else {
+    dumpDraft = R.splitDump(text).map((title) => ({ title, goalId: 'life', minutes: 30 }));
+  }
+  if (!dumpDraft.length) status.textContent = 'No tasks found. Try short sentences, one thing each.';
+  else if (!status.textContent.includes('simple split')) status.textContent = `${dumpDraft.length} tasks found. Remove any you don't want, then add them all at once.`;
+  modal.querySelector('.dump-preview').innerHTML = dumpPreviewHTML();
+}
+
+function addDump() {
+  const nowIso = new Date().toISOString();
+  const deadline = R.addDays(todayKey(), 14);
+  dumpDraft.forEach((t) => state.tasks.push({
+    id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0,
+    title: t.title, goalId: goal(t.goalId) ? t.goalId : 'life', priority: 'nice', deadline,
+    minutes: t.minutes, firstSteps: [], firstStep: '', stepsBy: 'me', place: 'everywhere',
+    destination: '', fixedDate: '', fixedTime: null, needs: [], source: 'brain-dump',
+  }));
+  const n = dumpDraft.length;
+  dumpDraft = [];
+  closeModal();
+  persist([`${n} tasks added as 🤔 Nice to have. Deadlines set 2 weeks out; adjust the ones that matter.`]);
 }
 
 // ----- goals -----
@@ -718,7 +956,7 @@ function taskFormHTML(t, opts) {
         <button type="button" class="btn btn-small" data-action="ask-claude">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>
           ${steps.length ? 'Suggest again' : 'Suggest steps'}</button>
-        <span class="hint claude-status">${AI.hasKey() ? 'Claude Sonnet 5.5 reads the task name and its goal, and fills the steps and what it needs.' : 'Add your Claude API key in Settings to use this.'}</span>
+        <span class="hint claude-status">${AI.hasKey() ? 'Claude Sonnet 5.5 reads the task name and its goal, and fills the steps and what it needs.' : 'No Claude key yet, so this fills a simple template you can edit.'}</span>
       </div>
       ${[0, 1, 2].map((i) => `
         <div class="step-input"><span class="step-n">${i + 1}</span>
@@ -785,6 +1023,14 @@ async function askClaude() {
   if (!title) { status.textContent = 'Write the task name first.'; return; }
   const g = goal(form.querySelector('#f-goal').value);
   const place = pressedValue(form, 'place');
+  if (!AI.hasKey()) {
+    // No Claude key: fill a simple template so there is always a way to start.
+    R.templateSteps(title, place).forEach((s, i) => { form.querySelector(`#f-step${i}`).value = s; });
+    const needs = form.querySelector('#f-needs');
+    if (!needs.value.trim()) needs.value = AI.FALLBACK_NEEDS;
+    status.textContent = 'Simple template filled in. Edit it to fit. (With a Claude key in Settings, these get smarter.)';
+    return;
+  }
   status.textContent = 'Asking Claude...';
   const btn = form.querySelector('[data-action="ask-claude"]');
   btn.disabled = true;
@@ -917,6 +1163,16 @@ function addToDay(taskId, dayKey) {
   persist();
 }
 
+// A changed event may overlap blocks already built; flag those days to rebuild.
+function markPlansStale(e) {
+  if (!e) return;
+  const from = todayKey();
+  Object.entries(state.days).forEach(([key, day]) => {
+    if (key < from || !day.plan) return;
+    if (R.eventsOn([e], key).length) day.planStale = true;
+  });
+}
+
 function googleItemsFor(day) {
   const items = day.plan.blocks.map((b) => {
     const tasks = b.taskIds.map(task).filter(Boolean);
@@ -981,7 +1237,7 @@ const actions = {
     const key = el.dataset.day;
     const day = getDay(key);
     const tasks = day.taskIds.map(task).filter((t) => t && t.status === 'open');
-    day.plan = R.buildDay(tasks, S());
+    day.plan = R.buildDay(tasks, S(), R.eventsOn(state.events, key));
     day.planStale = false;
     day.set = false;
     day.reviewed = {};
@@ -1027,6 +1283,24 @@ const actions = {
     closeModal();
     persist(['Goal deleted.']);
   },
+  'cal-move': (el) => { ui.calDay = R.addDays(ui.calDay || todayKey(), Number(el.dataset.step)); render(); },
+  'cal-today': () => { ui.calDay = todayKey(); render(); },
+  'new-event': () => openModal(eventFormHTML(null, ui.calDay)),
+  'edit-event': (el) => { const e = state.events.find((x) => x.id === el.dataset.id); if (e) openModal(eventFormHTML(e)); },
+  'delete-event': () => {
+    const id = modal.querySelector('form').dataset.id;
+    const e = state.events.find((x) => x.id === id);
+    if (!confirm(e && e.repeat === 'weekly' ? 'Delete this event and all its weekly repeats?' : 'Delete this event?')) return;
+    state.events = state.events.filter((x) => x.id !== id);
+    markPlansStale(e);
+    closeModal();
+    persist(['Event deleted.']);
+  },
+  'open-dump': () => { dumpDraft = []; openModal(dumpHTML(), false); },
+  'mic': () => toggleMic(),
+  'dump-split': () => splitDumpText(),
+  'dump-remove': (el) => { dumpDraft.splice(Number(el.dataset.index), 1); modal.querySelector('.dump-preview').innerHTML = dumpPreviewHTML(); },
+  'dump-add': () => addDump(),
   'review': (el) => openModal(reviewHTML(Number(el.dataset.block))),
   'open-settings': () => openModal(settingsHTML()),
   'export': () => exportBackup(state),
@@ -1047,7 +1321,7 @@ document.addEventListener('click', (e) => {
       const row = modal.querySelector('.claude-row');
       row.hidden = pick.dataset.value !== 'claude';
       const empty = [0, 1, 2].every((i) => !modal.querySelector(`#f-step${i}`).value.trim());
-      if (pick.dataset.value === 'claude' && empty && AI.hasKey() && modal.querySelector('#f-title').value.trim()) askClaude();
+      if (pick.dataset.value === 'claude' && empty && modal.querySelector('#f-title').value.trim()) askClaude();
     }
     if (name.startsWith('result-')) {
       const reason = group.closest('.review-task').querySelector('.reason');
@@ -1177,6 +1451,33 @@ modal.addEventListener('submit', (e) => {
     persist([back ? `Saved. ${back} task${back === 1 ? '' : 's'} back in your backlog.` : 'Saved. Everything done.']);
   }
 
+  if (kind === 'event') {
+    const title = String(data.get('title') || '').trim();
+    const date = data.get('date');
+    const start = data.get('start');
+    const end = data.get('end');
+    const where = pressedValue(form, 'where') || 'nearby';
+    const problems = [];
+    if (!title) problems.push('Name the event.');
+    if (!date) problems.push('Pick the day.');
+    if (!start || !end) problems.push('Add when it starts and ends.');
+    const minutes = start && end ? R.toMinutes(end) - R.toMinutes(start) : 0;
+    if (start && end && minutes <= 0) problems.push('The end time must be after the start.');
+    if (problems.length) { showErrors(form, problems); return; }
+    const before = form.dataset.id ? { ...state.events.find((x) => x.id === form.dataset.id) } : null;
+    const draft = {
+      id: form.dataset.id || newId(), title, date, start, minutes,
+      mode: where === 'online' ? 'online' : 'in_person',
+      commute: where === 'commute',
+      repeat: data.get('repeat') ? 'weekly' : 'none',
+    };
+    if (before) Object.assign(state.events.find((x) => x.id === draft.id), draft); else state.events.push(draft);
+    markPlansStale(before);
+    markPlansStale(draft);
+    closeModal();
+    persist(['Event saved.']);
+  }
+
   if (kind === 'settings') {
     const starts = String(data.get('blockStarts')).split(',').map((s) => s.trim()).filter((s) => /^\d{1,2}:\d{2}$/.test(s))
       .map((s) => s.padStart(5, '0')).sort();
@@ -1198,7 +1499,7 @@ modal.addEventListener('submit', (e) => {
   }
 });
 
-modal.addEventListener('close', () => { modal.innerHTML = ''; modal.classList.remove('wide'); });
+modal.addEventListener('close', () => { stopMic(); modal.innerHTML = ''; modal.classList.remove('wide'); });
 
 // ---------- start ----------
 

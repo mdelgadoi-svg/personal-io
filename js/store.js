@@ -19,6 +19,7 @@ function emptyState() {
       { id: 'life', title: 'Keep life running', why: 'Errands and admin that keep everything else possible.', createdAt: new Date().toISOString() },
     ],
     tasks: [],
+    events: [], // your own calendar: classes, meetings, appointments
     days: {},  // 'YYYY-MM-DD' -> { intention, taskIds, slots, plan: { blocks, events, needsTime, didNotFit }, reviewed: {} }
     log: [],   // record of what was done or not, and why
   };
