@@ -11,7 +11,7 @@ A personal planning app built around how an ADHD brain actually starts work.
    a **first-minute step**, and where it can be done:
    *Everywhere*, *Requires silent space*, or *Requires commuting* (adds 30 min before).
 3. **Priorities and limits** (open tasks):
-   - ★! Important + urgent: max 2, deadline today or tomorrow
+   - ★! Important + urgent: max 3, deadline today or tomorrow
    - ★ Important: max 4
    - ! Urgent: max 3
    - 🤔 Nice to have: no limit

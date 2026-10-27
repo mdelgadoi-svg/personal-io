@@ -26,8 +26,8 @@ test('a task needs a name, goal, deadline and time', () => {
   assert.equal(problems.length, 4);
 });
 
-test('★! is limited to 2 open tasks', () => {
-  const existing = [task({ priority: 'both', deadline: '2026-10-27' }), task({ priority: 'both', deadline: '2026-10-26' })];
+test('★! is limited to 3 open tasks', () => {
+  const existing = [1, 2, 3].map(() => task({ priority: 'both', deadline: '2026-10-27' }));
   const problems = validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today);
   assert.ok(problems.some((p) => p.includes('full')));
 });
@@ -65,11 +65,12 @@ test('promotion is blocked when ★! is full', () => {
   const tasks = [
     task({ priority: 'both', deadline: '2026-10-26' }),
     task({ priority: 'both', deadline: '2026-10-27' }),
+    task({ priority: 'both', deadline: '2026-10-27' }),
     task({ priority: 'important', deadline: '2026-10-27' }),
   ];
   const { tasks: out } = promoteDueTasks(tasks, today);
-  assert.equal(out[2].priority, 'important');
-  assert.equal(out[2].promotionBlocked, true);
+  assert.equal(out[3].priority, 'important');
+  assert.equal(out[3].promotionBlocked, true);
 });
 
 test('important tasks untouched for 21 days are stale', () => {

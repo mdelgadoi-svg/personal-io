@@ -3,7 +3,7 @@
 // so it can be tested on its own (see tests/rules.test.js).
 
 export const PRIORITIES = {
-  both:      { label: 'Important + urgent', mark: '★!', cap: 2 },
+  both:      { label: 'Important + urgent', mark: '★!', cap: 3 },
   important: { label: 'Important',          mark: '★',  cap: 4 },
   urgent:    { label: 'Urgent',             mark: '!',  cap: 3 },
   nice:      { label: 'Nice to have',       mark: '🤔', cap: Infinity },
