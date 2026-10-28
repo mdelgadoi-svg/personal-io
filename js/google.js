@@ -128,6 +128,18 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
   return events;
 }
 
+// Timed events for several days, each with its date: [{ date, id, title, start, minutes, ... }].
+// Skips all-day items and the blocks this app wrote.
+export async function eventsAhead(startKey, days) {
+  const keys = Array.from({ length: days }, (_, i) => {
+    const [y, m, d] = startKey.split('-').map(Number);
+    const dt = new Date(y, m - 1, d + i);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  });
+  const lists = await Promise.all(keys.map((k) => eventsForDay(k)));
+  return lists.flatMap((list, i) => list.filter((e) => !e.allDay && !e.fromApp).map((e) => ({ ...e, date: keys[i] })));
+}
+
 // Google Calendar colors: 9 Blueberry, 10 Basil, 5 Banana, 3 Grape.
 const COLOR_ID = { blue: '9', green: '10', yellow: '5', commute: '3' };
 

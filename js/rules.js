@@ -85,6 +85,16 @@ export function countByPriority(tasks) {
   return counts;
 }
 
+export function normalTitle(title) {
+  return String(title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function sameTitle(title, tasks) {
+  const n = normalTitle(title);
+  if (!n) return null;
+  return tasks.find((t) => normalTitle(t.title) === n) || null;
+}
+
 export function isUrgentByDate(task, todayKey, settings = DEFAULT_SETTINGS) {
   if (!task.deadline) return false;
   return daysUntil(task.deadline, todayKey) < settings.urgentWindowDays;
@@ -95,7 +105,7 @@ export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTIN
   const problems = [];
   if (!task.title || !task.title.trim()) problems.push('Give the task a name.');
   if (!task.goalId) problems.push('Every task belongs to a goal. Pick one.');
-  if (!task.deadline) problems.push('Every task needs a deadline.');
+  if (!task.deadline && task.priority !== 'nice') problems.push('This task needs a deadline. (Only 🤔 nice-to-have can skip it.)');
   if (!task.minutes || task.minutes <= 0) problems.push('Say how long it will take.');
   if (task.place === 'commute' && !(task.destination || '').trim()) {
     problems.push('Say where you need to go.');
@@ -104,6 +114,8 @@ export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTIN
     problems.push('★! means the deadline is today or tomorrow. Use ★ for later deadlines.');
   }
   const others = allTasks.filter((t) => t.id !== task.id);
+  const sameName = sameTitle(task.title, others.filter((t) => t.status === 'open'));
+  if (sameName) problems.push(`"${sameName.title}" is already in your backlog. Use a different name, or open that one.`);
   const counts = countByPriority(others);
   const info = PRIORITIES[task.priority];
   if (info && counts[task.priority] >= info.cap) {
@@ -203,7 +215,7 @@ export function busyFromEvents(events, settings = DEFAULT_SETTINGS) {
 // Tasks with a fixed time (and every commuting task) become their own events.
 // Everything else is packed into deep work blocks of 2 to 4 hours,
 // avoiding anything already on the calendar (calendarEvents).
-export function buildDay(tasks, settings = DEFAULT_SETTINGS, calendarEvents = []) {
+export function buildDay(tasks, settings = DEFAULT_SETTINGS, calendarEvents = [], { keepOrder = false } = {}) {
   const events = [];
   const needsTime = [];
   const flexible = [];
@@ -232,7 +244,8 @@ export function buildDay(tasks, settings = DEFAULT_SETTINGS, calendarEvents = []
   ].sort((a, b) => a[0] - b[0]);
   const blocks = [];
   const didNotFit = [];
-  const queue = sortForPlanning(flexible);
+  // Your own order (dragged in the plan) wins; otherwise most pressing first.
+  const queue = keepOrder ? [...flexible] : sortForPlanning(flexible);
 
   for (const startText of settings.blockStarts) {
     if (queue.length === 0) break;
@@ -320,6 +333,36 @@ export function splitDump(text) {
     .filter((s) => s.split(/\s+/).length >= 2)
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .slice(0, 25);
+}
+
+// ---------- 12-hour time ----------
+
+// '14:30' -> '2:30 PM'
+export function to12h(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ap}`;
+}
+
+// (2, 30, 'PM') -> '14:30'
+export function from12h(h12, minute, ap) {
+  let h = Number(h12) % 12;
+  if (ap === 'PM') h += 12;
+  return `${String(h).padStart(2, '0')}:${String(Number(minute)).padStart(2, '0')}`;
+}
+
+// Reads '2:30 PM', '2 pm', '14:30' or '8:00' -> '14:30' / '08:00'. Returns null if unclear.
+export function parseTime(text) {
+  const t = String(text || '').trim().toUpperCase();
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2] || 0);
+  if (min > 59) return null;
+  if (m[3]) return h >= 1 && h <= 12 ? from12h(h, min, m[3]) : null;
+  return h <= 23 ? `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` : null;
 }
 
 // ---------- small helpers for words ----------

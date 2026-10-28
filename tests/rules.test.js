@@ -22,25 +22,37 @@ test('daysUntil counts calendar days', () => {
 });
 
 test('a task needs a name, goal, deadline and time', () => {
-  const problems = validateTask({ priority: 'nice' }, [], today);
+  const problems = validateTask({ priority: 'important' }, [], today);
   assert.equal(problems.length, 4);
 });
 
+test('nice to have can skip the deadline', () => {
+  assert.deepEqual(validateTask(task({ priority: 'nice', deadline: '' }), [], today), []);
+});
+
+test('two open tasks cannot share a name (ignoring case and spaces)', () => {
+  const existing = [task({ title: 'Write the essay' })];
+  const problems = validateTask(task({ title: '  write  the ESSAY ' }), existing, today);
+  assert.ok(problems.some((p) => p.includes('already in your backlog')));
+  // A finished task with the same name is fine.
+  assert.deepEqual(validateTask(task({ title: 'Write the essay' }), [task({ title: 'Write the essay', status: 'done' })], today), []);
+});
+
 test('★! is limited to 3 open tasks', () => {
-  const existing = [1, 2, 3].map(() => task({ priority: 'both', deadline: '2026-10-27' }));
+  const existing = [1, 2, 3].map((i) => task({ title: `T${i}`, priority: 'both', deadline: '2026-10-27' }));
   const problems = validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today);
   assert.ok(problems.some((p) => p.includes('full')));
 });
 
 test('done tasks do not count toward the limit', () => {
-  const existing = [task({ priority: 'both', deadline: '2026-10-27', status: 'done' }), task({ priority: 'both', deadline: '2026-10-27' })];
+  const existing = [task({ title: 'A', priority: 'both', deadline: '2026-10-27', status: 'done' }), task({ title: 'B', priority: 'both', deadline: '2026-10-27' })];
   assert.deepEqual(validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today), []);
 });
 
 test('★ is limited to 4 and ! to 3', () => {
-  const four = [1, 2, 3, 4].map(() => task({ priority: 'important' }));
+  const four = [1, 2, 3, 4].map((i) => task({ title: `I${i}`, priority: 'important' }));
   assert.ok(validateTask(task({ priority: 'important' }), four, today).length > 0);
-  const three = [1, 2, 3].map(() => task({ priority: 'urgent' }));
+  const three = [1, 2, 3].map((i) => task({ title: `U${i}`, priority: 'urgent' }));
   assert.ok(validateTask(task({ priority: 'urgent' }), three, today).length > 0);
 });
 
@@ -160,4 +172,24 @@ test('template steps always give three steps', () => {
 test('brain dump splits sentences into task lines', () => {
   const lines = splitDump('Email the professor about the paper. Buy a suit for the wedding\nok\ncall the bank and then book flights');
   assert.deepEqual(lines, ['Email the professor about the paper', 'Buy a suit for the wedding', 'Call the bank', 'Book flights']);
+});
+
+import { to12h, from12h, parseTime } from '../js/rules.js';
+
+test('12-hour time converts both ways', () => {
+  assert.equal(to12h('14:30'), '2:30 PM');
+  assert.equal(to12h('00:05'), '12:05 AM');
+  assert.equal(to12h('12:00'), '12:00 PM');
+  assert.equal(from12h(12, 0, 'AM'), '00:00');
+  assert.equal(from12h(2, 30, 'PM'), '14:30');
+  assert.equal(parseTime('2:30 pm'), '14:30');
+  assert.equal(parseTime('8:00'), '08:00');
+  assert.equal(parseTime('13 PM'), null);
+});
+
+test('buildDay can keep your own order', () => {
+  const low = task({ id: 'low', priority: 'nice', minutes: 60 });
+  const high = task({ id: 'high', priority: 'both', deadline: '2026-10-27', minutes: 60 });
+  assert.deepEqual(buildDay([low, high]).blocks[0].taskIds, ['high', 'low']);
+  assert.deepEqual(buildDay([low, high], DEFAULT_SETTINGS, [], { keepOrder: true }).blocks[0].taskIds, ['low', 'high']);
 });
