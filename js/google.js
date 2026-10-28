@@ -69,7 +69,7 @@ export async function connect() {
       },
       error_callback: () => reject(new Error('Google sign-in was closed.')),
     });
-    tokenClient.requestAccessToken({ prompt: '' });
+    tokenClient.requestAccessToken({ prompt: 'select_account' }); // always let you pick the account (Berkeley or personal)
   });
 }
 
