@@ -658,14 +658,30 @@ function renderCalendar() {
   const cols = days.map((key) => `
     <div class="cal-col">
       <div class="cal-day ${key === tKey ? 'is-today' : ''}"><span>${esc(fmtDay(key, { weekday: 'short' }))}</span><strong>${R.parseDateKey(key).getDate()}</strong></div>
-      ${gridHTML(planItems(key, true), { ...opts, nowLine: key === tKey })}
+      <div id="calcol-${key}">${gridHTML(planItems(key, true), { ...opts, nowLine: key === tKey })}</div>
     </div>`).join('');
+  // Once Google is connected, its events are added to each day.
+  if (G.isConnected()) {
+    afterRender.push(() => days.forEach(async (key) => {
+      try {
+        const google = (await G.eventsForDay(key)).filter((e) => !e.allDay && !e.fromApp).map((e) => ({
+          start: R.toMinutes(e.start), minutes: e.minutes, cls: 'ev-google', title: `${e.start} ${e.title}`, sub: e.online ? 'online' : '',
+        }));
+        const el = document.getElementById(`calcol-${key}`);
+        if (el) el.innerHTML = gridHTML([...planItems(key, true), ...google], { ...opts, nowLine: key === tKey });
+      } catch { /* sign-in expired; the button below reconnects */ }
+    }));
+  }
+  const googleBar = !G.isConfigured() ? ''
+    : G.isConnected() ? '<span class="chip chip-done">Google Calendar connected</span>'
+    : '<button class="btn" data-action="connect-google">Connect Google</button>';
   const range = phone ? longDay(anchor) : `${fmtDay(days[0], { month: 'short', day: 'numeric' })} to ${fmtDay(days[6], { month: 'short', day: 'numeric' })}`;
   return `
   <section class="page-head">
     <div><div class="date-line">${esc(range)}</div><h1>Calendar</h1>
       <div class="sub">Your fixed events (classes, meetings) plus the blocks Personal IO plans around them.</div></div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+      ${googleBar}
       <button class="btn" data-action="cal-move" data-step="${phone ? -1 : -7}" aria-label="Previous">‹</button>
       <button class="btn" data-action="cal-today">Today</button>
       <button class="btn" data-action="cal-move" data-step="${phone ? 1 : 7}" aria-label="Next">›</button>
@@ -675,6 +691,7 @@ function renderCalendar() {
   <div class="card card-pad">
     <div class="legend" style="margin-bottom:10px">
       <span><span class="sw" style="background:#5B6572"></span>your events</span>
+      ${G.isConfigured() ? '<span><span class="sw" style="background:#9AA3AF"></span>Google Calendar</span>' : ''}
       <span><span class="sw" style="background:var(--purple)"></span>commute</span>
       <span><span class="sw" style="background:var(--blue)"></span>do now</span>
       <span><span class="sw" style="background:var(--green)"></span>should do</span>
@@ -1233,15 +1250,25 @@ const actions = {
     if (day.slots < S().daySlotsMax) day.slots += 1;
     persist();
   },
-  'build-day': (el) => {
+  'build-day': async (el) => {
     const key = el.dataset.day;
     const day = getDay(key);
     const tasks = day.taskIds.map(task).filter((t) => t && t.status === 'open');
-    day.plan = R.buildDay(tasks, S(), R.eventsOn(state.events, key));
+    const busy = R.eventsOn(state.events, key);
+    let googleNote = '';
+    if (G.isConnected()) {
+      // Blocks also go around what's already in Google Calendar (not the ones this app wrote).
+      try {
+        const google = (await G.eventsForDay(key, { fresh: true })).filter((e) => !e.allDay && !e.fromApp);
+        busy.push(...google.map((e) => ({ start: e.start, minutes: e.minutes, commute: false })));
+        googleNote = ` Planned around ${google.length} Google event${google.length === 1 ? '' : 's'}.`;
+      } catch { googleNote = ' (Google sign-in expired, so Google events were not checked.)'; }
+    }
+    day.plan = R.buildDay(tasks, S(), busy);
     day.planStale = false;
     day.set = false;
     day.reviewed = {};
-    const msgs = [`Built ${day.plan.blocks.length} deep work block${day.plan.blocks.length === 1 ? '' : 's'}. Check them, then set the plan.`];
+    const msgs = [`Built ${day.plan.blocks.length} deep work block${day.plan.blocks.length === 1 ? '' : 's'}.${googleNote} Check them, then set the plan.`];
     if (day.plan.didNotFit.length) msgs.push(`${day.plan.didNotFit.length} task(s) didn't fit. Add another block time in Settings or move them.`);
     persist(msgs);
   },
