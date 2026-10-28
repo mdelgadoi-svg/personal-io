@@ -1140,6 +1140,9 @@ function settingsHTML() {
       <span class="hint">${gState} The Client ID comes from your own Google Cloud project. It is saved only on this device.</span>
       <div class="field"><label for="s-gid">Google Client ID</label>
         <input class="input" id="s-gid" name="googleClientId" value="${esc(G.getClientId())}" placeholder="1234...apps.googleusercontent.com" autocomplete="off"></div>
+      <div class="field"><label for="s-calid">Which calendar (optional)</label>
+        <input class="input" id="s-calid" name="googleCalendarId" value="${esc(G.getCalendarId())}" placeholder="Leave empty for your main calendar" autocomplete="off">
+        <span class="hint">Only for Plan B: the email of a calendar shared with you, like your Berkeley address.</span></div>
       ${G.isConfigured() && !G.isConnected() ? '<div><button type="button" class="btn btn-small" data-action="connect-google">Connect Google</button></div>' : ''}
     </div>
 
@@ -1520,6 +1523,8 @@ modal.addEventListener('submit', (e) => {
       staleDays: Math.max(3, Number(data.get('staleDays')) || 21),
     };
     if (gid !== G.getClientId()) G.setClientId(gid);
+    const calId = String(data.get('googleCalendarId') || '').trim();
+    if (calId !== G.getCalendarId()) G.setCalendarId(calId);
     AI.setKey(String(data.get('claudeKey') || ''));
     closeModal();
     persist(['Settings saved.']);

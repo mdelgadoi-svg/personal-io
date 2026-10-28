@@ -5,7 +5,20 @@
 
 const CLIENT_KEY = 'personal-io:google-client-id';
 const SCOPES = 'https://www.googleapis.com/auth/calendar.events';
-const API = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+const CAL_KEY = 'personal-io:google-calendar-id';
+
+// Which calendar to use: blank means the signed-in account's main calendar.
+// Set it to another address (like a Berkeley calendar shared with you) to use that one.
+export function getCalendarId() {
+  try { return localStorage.getItem(CAL_KEY) || ''; } catch { return ''; }
+}
+export function setCalendarId(id) {
+  try { if (id) localStorage.setItem(CAL_KEY, id.trim()); else localStorage.removeItem(CAL_KEY); } catch { /* storage blocked */ }
+  cache.clear();
+}
+function apiBase() {
+  return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(getCalendarId() || 'primary')}/events`;
+}
 
 let token = null;
 let tokenExpires = 0;
@@ -86,7 +99,7 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
     timeMin: start.toISOString(), timeMax: end.toISOString(),
     singleEvents: 'true', orderBy: 'startTime', maxResults: '100',
   });
-  const data = await call(`${API}?${params}`);
+  const data = await call(`${apiBase()}?${params}`);
   const events = (data.items || []).filter((e) => e.status !== 'cancelled').map((e) => {
     if (e.start?.date) return { id: e.id, title: e.summary || '(no title)', allDay: true };
     const s = new Date(e.start.dateTime);
@@ -121,7 +134,7 @@ function toIso(dateKey, hhmm, addMinutes = 0) {
 // items: [{ title, start, minutes, color, description }]
 export async function writeDay(dateKey, items, previousIds = []) {
   for (const id of previousIds) {
-    try { await call(`${API}/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch { /* already gone */ }
+    try { await call(`${apiBase()}/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch { /* already gone */ }
   }
   const ids = [];
   for (const it of items) {
@@ -134,7 +147,7 @@ export async function writeDay(dateKey, items, previousIds = []) {
       reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] },
       extendedProperties: { private: { personalIo: '1' } },
     };
-    const created = await call(API, { method: 'POST', body: JSON.stringify(body) });
+    const created = await call(apiBase(), { method: 'POST', body: JSON.stringify(body) });
     ids.push(created.id);
   }
   cache.delete(dateKey);
