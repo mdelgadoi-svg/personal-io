@@ -673,7 +673,7 @@ function renderCalendar() {
     }));
   }
   const googleBar = !G.isConfigured() ? ''
-    : G.isConnected() ? '<span class="chip chip-done">Google Calendar connected</span>'
+    : G.isConnected() ? `<span class="chip chip-done">Connected${G.connectedName() ? ': ' + esc(G.connectedName()) : ''}</span>`
     : '<button class="btn" data-action="connect-google">Connect Google</button>';
   const range = phone ? longDay(anchor) : `${fmtDay(days[0], { month: 'short', day: 'numeric' })} to ${fmtDay(days[6], { month: 'short', day: 'numeric' })}`;
   return `
@@ -1137,13 +1137,35 @@ function settingsHTML() {
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
       <strong>Google Calendar</strong>
-      <span class="hint">${gState} The Client ID comes from your own Google Cloud project. It is saved only on this device.</span>
-      <div class="field"><label for="s-gid">Google Client ID</label>
-        <input class="input" id="s-gid" name="googleClientId" value="${esc(G.getClientId())}" placeholder="1234...apps.googleusercontent.com" autocomplete="off"></div>
-      <div class="field"><label for="s-calid">Which calendar (optional)</label>
-        <input class="input" id="s-calid" name="googleCalendarId" value="${esc(G.getCalendarId())}" placeholder="Leave empty for your main calendar" autocomplete="off">
-        <span class="hint">Only for Plan B: the email of a calendar shared with you, like your Berkeley address.</span></div>
-      ${G.isConfigured() && !G.isConnected() ? '<div><button type="button" class="btn btn-small" data-action="connect-google">Connect Google</button></div>' : ''}
+      <div class="step-box" style="align-items:flex-start">
+        <span class="step-n">1</span>
+        <div style="flex:1; display:flex; flex-direction:column; gap:6px">
+          <strong>Register the app</strong>
+          <span class="hint">The Client ID from your Google Cloud project. It's only the app's name tag; it does not open any calendar.</span>
+          <label class="visually-hidden" for="s-gid">Google Client ID</label>
+          <input class="input" id="s-gid" name="googleClientId" value="${esc(G.getClientId())}" placeholder="1234...apps.googleusercontent.com" autocomplete="off">
+          ${G.isConfigured() ? '<span class="chip chip-done" style="align-self:flex-start">Registered</span>' : ''}
+        </div>
+      </div>
+      <div class="step-box" style="align-items:flex-start">
+        <span class="step-n">2</span>
+        <div style="flex:1; display:flex; flex-direction:column; gap:6px">
+          <strong>Connect your calendar</strong>
+          <span class="hint">Click Connect and pick the account whose calendar you want, for example your @berkeley.edu.</span>
+          ${G.isConnected()
+            ? `<span class="chip chip-done" style="align-self:flex-start">Connected${G.connectedName() ? ' to ' + esc(G.connectedName()) : ''}</span>
+               <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="connect-google">Switch account</button>`
+            : G.isConfigured()
+              ? '<button type="button" class="btn btn-dark btn-small" style="align-self:flex-start" data-action="connect-google">Connect Google Calendar</button>'
+              : '<span class="hint">Do step 1 and save first.</span>'}
+        </div>
+      </div>
+      <details>
+        <summary class="hint" style="cursor:pointer">Plan B: use a calendar shared with you</summary>
+        <div class="field" style="margin-top:8px"><label for="s-calid">Which calendar</label>
+          <input class="input" id="s-calid" name="googleCalendarId" value="${esc(G.getCalendarId())}" placeholder="Leave empty for the connected account's own calendar" autocomplete="off">
+          <span class="hint">Only if Berkeley blocks step 2: share your Berkeley calendar with your personal Gmail, connect with the personal one, and write your Berkeley email here.</span></div>
+      </details>
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
@@ -1277,7 +1299,12 @@ const actions = {
   },
   'set-plan': (el) => setPlan(el.dataset.day),
   'connect-google': async () => {
-    try { await G.connect(); toast('Google connected.'); render(); refreshSideCalendar(); } catch (err) { toast(err.message); }
+    try {
+      await G.connect();
+      toast(G.connectedName() ? `Connected to ${G.connectedName()}.` : 'Google Calendar connected.');
+      if (modal.querySelector('form[data-form="settings"]')) openModal(settingsHTML());
+      render(); refreshSideCalendar();
+    } catch (err) { toast(err.message); }
   },
   'new-task': (el) => {
     if (state.goals.length === 0) { openModal(goalFormHTML(null)); return; }

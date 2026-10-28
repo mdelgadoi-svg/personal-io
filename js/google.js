@@ -23,6 +23,7 @@ function apiBase() {
 let token = null;
 let tokenExpires = 0;
 let tokenClient = null;
+let connectedAs = '';
 let gisLoading = null;
 const cache = new Map(); // dateKey -> events
 
@@ -37,6 +38,7 @@ export function setClientId(id) {
 }
 export function isConfigured() { return getClientId().endsWith('.apps.googleusercontent.com'); }
 export function isConnected() { return !!token && Date.now() < tokenExpires; }
+export function connectedName() { return isConnected() ? connectedAs : ''; }
 
 function loadGis() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -65,7 +67,12 @@ export async function connect() {
         token = resp.access_token;
         tokenExpires = Date.now() + (Number(resp.expires_in) - 60) * 1000;
         cache.clear();
-        resolve();
+        // Ask which calendar this is, so the app can show "Connected to: ...".
+        fetch(`${apiBase()}?maxResults=1`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { connectedAs = d && d.summary ? d.summary : ''; })
+          .catch(() => { connectedAs = ''; })
+          .finally(() => resolve());
       },
       error_callback: () => reject(new Error('Google sign-in was closed.')),
     });
