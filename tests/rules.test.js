@@ -193,3 +193,20 @@ test('buildDay can keep your own order', () => {
   assert.deepEqual(buildDay([low, high]).blocks[0].taskIds, ['high', 'low']);
   assert.deepEqual(buildDay([low, high], DEFAULT_SETTINGS, [], { keepOrder: true }).blocks[0].taskIds, ['low', 'high']);
 });
+
+import { lastActiveDay, daySummary } from '../js/rules.js';
+
+test('last active day looks at opens, plans and logs before today', () => {
+  const days = { '2026-10-24': { taskIds: ['a'] }, '2026-10-31': { taskIds: ['b'] } };
+  const log = [{ date: '2026-10-25', result: 'done', title: 'X' }];
+  assert.equal(lastActiveDay('2026-10-30', { lastOpen: '2026-10-22', days, log }), '2026-10-22');
+  assert.equal(lastActiveDay('2026-10-30', { days, log }), '2026-10-25');
+  assert.equal(lastActiveDay('2026-10-30', {}), null);
+});
+
+test('day summary lists wins and counts what is still open', () => {
+  const tasks = [{ id: 'a', status: 'done', title: 'A' }, { id: 'b', status: 'open', title: 'B' }];
+  const days = { '2026-10-25': { taskIds: ['a', 'b'] } };
+  const log = [{ date: '2026-10-25', result: 'done', title: 'A' }, { date: '2026-10-25', result: 'done', title: 'Logged win' }];
+  assert.deepEqual(daySummary('2026-10-25', { days, log, tasks }), { planned: 2, done: ['A', 'Logged win'], open: 1 });
+});

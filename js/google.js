@@ -121,12 +121,16 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
       minutes: Math.max(15, Math.round(endMin - startMin)),
       allDay: false,
       online: hasVideo,
+      color: e.colorId || null,
       fromApp: e.extendedProperties?.private?.personalIo === '1',
     };
   });
   cache.set(dateKey, events);
   return events;
 }
+
+// What was last fetched for a day, without asking Google again (null if never fetched).
+export function cachedDay(dateKey) { return cache.get(dateKey) || null; }
 
 // Timed events for several days, each with its date: [{ date, id, title, start, minutes, ... }].
 // Skips all-day items and the blocks this app wrote.

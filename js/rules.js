@@ -374,3 +374,25 @@ export function formatMinutes(total) {
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
 }
+
+// ---------- coming back after time away ----------
+
+// The last day before today you actually used the app. Falls back to the latest day
+// with a log entry or plan when the app has not recorded opens yet.
+export function lastActiveDay(todayKey, { lastOpen = null, days = {}, log = [] } = {}) {
+  if (lastOpen && lastOpen < todayKey) return lastOpen;
+  const seen = [];
+  Object.entries(days).forEach(([key, day]) => {
+    if (key < todayKey && day && (day.taskIds || []).length) seen.push(key);
+  });
+  log.forEach((l) => { if (l.date && l.date < todayKey) seen.push(l.date); });
+  return seen.sort().pop() || null;
+}
+
+// What happened on one day: what got done (wins first) and how much is still open.
+export function daySummary(dateKey, { days = {}, log = [], tasks = [] } = {}) {
+  const planned = ((days[dateKey] && days[dateKey].taskIds) || []).map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
+  const done = [...new Set(log.filter((l) => l.date === dateKey && l.result === 'done').map((l) => l.title))];
+  const open = planned.filter((t) => t.status === 'open').length;
+  return { planned: planned.length, done, open };
+}

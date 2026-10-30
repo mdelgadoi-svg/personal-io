@@ -22,6 +22,9 @@ function emptyState() {
     events: [], // your own calendar: classes, meetings, appointments
     days: {},  // 'YYYY-MM-DD' -> { intention, taskIds, slots, plan: { blocks, events, needsTime, didNotFit }, reviewed: {} }
     log: [],   // record of what was done or not, and why
+    journal: [], // day notes from the welcome-back screen
+    returns: [], // each time you came back after a day or more away
+    lastOpenDate: null,
   };
 }
 
