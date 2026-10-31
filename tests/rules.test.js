@@ -250,3 +250,21 @@ test('steps differ for computer and non-computer tasks', () => {
   assert.ok(templateSteps('Email Ana', 'everywhere', true)[0].includes('Close all windows'));
   assert.ok(!templateSteps('Buy a suit', 'everywhere', false)[0].includes('windows'));
 });
+
+import { cleanListLine } from '../js/rules.js';
+
+test('a task already at a full level can still be edited', () => {
+  const old = [1, 2, 3].map((i) => task({ id: `b${i}`, title: `B${i}`, priority: 'both', deadline: '2026-10-27' }));
+  assert.deepEqual(validateTask({ ...old[2], title: 'B3 fixed' }, old, today), []);
+  // moving another task up to a full level is still blocked
+  assert.ok(validateTask(task({ id: 'x', priority: 'both', deadline: '2026-10-27' }), old, today).length > 0);
+});
+
+test('pasted lines lose bullets, not real words', () => {
+  assert.equal(cleanListLine('- Reply to Andre'), 'Reply to Andre');
+  assert.equal(cleanListLine('2. Book flights'), 'Book flights');
+  assert.equal(cleanListLine('- [x] Pay rent'), 'Pay rent');
+  assert.equal(cleanListLine('Xerox the forms'), 'Xerox the forms');
+  assert.equal(cleanListLine('2027 budget review'), '2027 budget review');
+  assert.equal(cleanListLine('10 min call with Andrew'), '10 min call with Andrew');
+});

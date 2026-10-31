@@ -120,7 +120,7 @@ function readTime(root, name) {
 // ---------- calendar items: your own events plus Google ----------
 
 function linkedTask(src, id, date) {
-  return state.tasks.find((t) => t.eventRef && t.eventRef.src === src && t.eventRef.id === id && t.eventRef.date === date) || null;
+  return state.tasks.find((t) => t.status !== 'trashed' && t.eventRef && t.eventRef.src === src && t.eventRef.id === id && t.eventRef.date === date) || null;
 }
 
 function calendarItems(key) {
@@ -143,7 +143,7 @@ function loadGoogleAhead(force = false) {
     .catch(() => {})
     .finally(() => {
       ui.gLoading = false;
-      const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
+      const typing = !!recognizer || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
       if (ui.gAhead && !modal.open && !typing) render();
     });
 }
@@ -169,7 +169,8 @@ function dailyCheck() {
   const key = todayKey();
   if (state.lastDailyCheck === key) return [];
   const { tasks, messages } = R.promoteDueTasks(state.tasks, key, S());
-  state.tasks = tasks;
+  const cutoff = Date.now() - 30 * 86400000;
+  state.tasks = tasks.filter((t) => t.status !== 'trashed' || !t.trashedAt || Date.parse(t.trashedAt) > cutoff);
   state.lastDailyCheck = key;
   save(state);
   return messages;
@@ -1154,7 +1155,17 @@ function toggleMic(btn) {
 }
 
 // Saves the note, finds tasks you named, asks Claude for (at most 3) suggestions, then shows a short review.
+// Opens the review, unless you moved on to something else while waiting: then a toast offers it.
+function showTalkReview(origin) {
+  if (origin && !origin.isConnected && modal.open) {
+    toast('Your note had possible tasks.', { label: 'Review', data: { action: 'talk-review-open' } });
+    return;
+  }
+  openModal(talkReviewHTML());
+}
+
 async function handleTalk(text, { about = null, source = 'talk', button = null, prefix = '', after = () => {} } = {}) {
+  const origin = modal.querySelector('.modal');
   stopMic();
   state.journal = state.journal || [];
   state.journal.push({ id: newId(), date: todayKey(), about, text, source, at: new Date().toISOString() });
@@ -1176,14 +1187,14 @@ async function handleTalk(text, { about = null, source = 'talk', button = null, 
   }
   named.forEach((n) => { n.taken = !!R.sameTitle(n.title, open); if (n.taken) n.pick = false; });
   if (!named.length && !suggested.length) {
-    closeModal();
+    if (!origin || origin.isConnected) closeModal();
     after();
     render();
     toast(`${prefix}Note saved.${aiNote ? ` (${aiNote})` : ''}`);
     return;
   }
   talkDraft = { named, suggested, after, prefix };
-  openModal(talkReviewHTML(), false);
+  showTalkReview(origin);
 }
 
 function talkRowHTML(t, i, kind) {
@@ -1225,7 +1236,7 @@ function readTalkReview() {
 function addTalkTasks() {
   const picks = readTalkReview();
   const box = modal.querySelector('.form-errors');
-  if (!picks.length) { box.hidden = false; box.textContent = 'Nothing ticked. Tick a task, or choose "Just keep the note".'; return; }
+  if (!picks.length) { box.hidden = false; box.textContent = `Nothing ticked. Tick a task, or choose "${talkDraft.heading ? 'Add none' : 'Just keep the note'}".`; return; }
   const nowIso = new Date().toISOString();
   const fresh = [];
   const problems = [];
@@ -1352,7 +1363,8 @@ function maybeAutoStart() {
   if (!current || current.type !== 'block' || nowMinutes() - current.start > 10) return;
   const day = getDay(todayKey());
   day.startShown = day.startShown || {};
-  if (day.startShown[current.index]) return;
+  const blockKey = current.block.start;
+  if (day.startShown[blockKey]) return;
   const t = current.block.taskIds.map(task).find((x) => x && x.status === 'open');
   if (!t) return;
   const first = (stepsOf(t)[0] || R.templateSteps(t.title, t.place, t.computer !== false)[0]);
@@ -1362,7 +1374,7 @@ function maybeAutoStart() {
   }
   if (!modal.open) { openStarter(t); shown = true; }
   if (!shown) return; // something else is open; try again next minute
-  day.startShown[current.index] = true;
+  day.startShown[blockKey] = true;
   save(state);
 }
 
@@ -1394,22 +1406,24 @@ function emailHTML() {
 }
 
 async function scanEmail(btn) {
+  const origin = modal.querySelector('[data-form="email"]');
   const status = modal.querySelector('.email-status');
   btn.disabled = true;
   try {
     if (!G.gmailConnected()) { status.textContent = 'Waiting for Google...'; await G.connectGmail(); }
     status.textContent = 'Reading subjects and previews...';
     const emails = await G.recentEmails(14, 40);
-    if (!emails.length) { status.textContent = 'No emails found in the last 2 weeks.'; return; }
+    if (!emails.length) { if (origin.isConnected) status.textContent = 'No emails found in the last 2 weeks.'; return; }
     status.textContent = `Claude is reading ${emails.length} emails...`;
     const open = R.openTasks(state.tasks);
     const found = (await AI.tasksFromEmails(emails, state.goals, open.map((t) => t.title)))
       .filter((t) => !R.sameTitle(t.title, open))
       .map((t) => ({ ...t, priority: 'nice', pick: false, source: 'email' }));
-    if (!found.length) { status.textContent = 'No clear tasks found. That is good news.'; return; }
+    if (!found.length) { if (origin.isConnected) status.textContent = 'No clear tasks found. That is good news.'; else toast('No clear tasks found in your email.'); return; }
     talkDraft = { named: [], suggested: found, after: () => {}, prefix: '', heading: 'Tasks found in your email', suggestLabel: 'Tick the ones that are real tasks for you.' };
-    openModal(talkReviewHTML());
+    showTalkReview(origin);
   } catch (err) {
+    if (!origin.isConnected) { toast(`Email check stopped: ${err.message === 'not-connected' ? 'Google sign-in expired.' : err.message}`); return; }
     status.textContent = err.message === 'not-connected' ? 'Google sign-in expired. Try again.' : err.message;
   } finally {
     if (btn.isConnected) btn.disabled = false;
@@ -1422,7 +1436,7 @@ function reviewPasted() {
   const fallbackGoal = goal(ui.lastGoal) ? ui.lastGoal : 'life';
   const seen = [];
   const named = text.split('\n')
-    .map((l) => l.replace(/^[\s\-*•\d.)\[\]x]+/i, '').trim())
+    .map(R.cleanListLine)
     .filter((l) => l.length > 1)
     .filter((l) => { if (seen.some((x) => R.normalTitle(x) === R.normalTitle(l))) return false; seen.push(l); return true; })
     .slice(0, 20)
@@ -1465,6 +1479,7 @@ function renderGoals() {
 
 function renderBacklog() {
   const done = state.tasks.filter((t) => t.status === 'done').sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
+  const trashed = state.tasks.filter((t) => t.status === 'trashed').sort((a, b) => (b.trashedAt || '').localeCompare(a.trashedAt || ''));
   const log = [...state.log].reverse().slice(0, 30);
   const resultWord = { done: 'Done', working: 'Still working', not_started: 'Not started' };
   return `
@@ -1485,6 +1500,9 @@ function renderBacklog() {
       </div>
       ${(state.journal || []).length ? `<div class="col-head"><h2>Day notes</h2></div>
       <div class="card list">${[...state.journal].reverse().slice(0, 10).map((j) => `<div class="item"><div class="item-main"><span class="mono">${esc(fmtDay(j.date))}</span><span>${esc(j.text)}</span></div></div>`).join('')}</div>` : ''}
+      ${trashed.length ? `<div class="col-head"><h2>Trash</h2><span class="meta">Emptied after 30 days</span></div>
+      <div class="card list">${trashed.slice(0, 10).map((t) => `<div class="item"><div class="item-main"><span class="item-title" style="color: var(--ink-2)">${esc(t.title)}</span></div>
+        <button class="btn btn-small" data-action="untrash-task" data-id="${t.id}">Restore</button></div>`).join('')}</div>` : ''}
       <div class="col-head"><h2>Done</h2><span class="meta">${done.length} tasks</span></div>
       <div class="card list">${done.slice(0, ui.showDone ? 200 : 5).map((t) => `
         <div class="item"><div class="item-main"><span class="item-title" style="text-decoration: line-through; color: var(--muted)">${esc(t.title)}</span>
@@ -1588,7 +1606,7 @@ function taskFormHTML(t, opts) {
               ${timePickerHTML('fixedTime', draft.fixedTime, { id: 'f-time', optional: true })}</div>
           </div>
           <span class="hint">Only if it must happen at a set time, like a meeting. Drag on the calendar to pick the time and length. Leave it empty and the plan puts it in a deep work block.</span>
-          ${draft.fixedTime ? '<button type="button" class="btn-link" data-action="clear-fixed">Clear the fixed time</button>' : ''}
+          <button type="button" class="btn-link" data-action="clear-fixed">Clear the fixed time</button>
         </td></tr>
         <tr><th scope="row">To get it done</th><td>
           <div class="field"><label class="visually-hidden" for="f-needs">To get it done</label>
@@ -1603,7 +1621,8 @@ function taskFormHTML(t, opts) {
         <strong id="side-cal-title">${esc(fmtDay(calDay, { weekday: 'long', month: 'short', day: 'numeric' }))}</strong>
         <button type="button" class="btn btn-ghost icon-btn" data-action="side-cal-move" data-step="1" aria-label="Next day">›</button>
       </div>
-      <span class="hint">Drag on an empty spot to set the time and length.</span>
+      <span class="hint side-hint">Press and drag down to set the time and length.</span>
+      <div class="side-note" hidden></div>
       <div id="side-cal" data-day="${calDay}"></div>
     </aside>
     </div>
@@ -1642,6 +1661,14 @@ function refreshSideCalendar() {
   if (!el) return;
   const key = el.dataset.day;
   const extra = draftCalendarItem(key);
+  const note = modal.querySelector('.side-note');
+  const fixedDate = modal.querySelector('#f-date')?.value;
+  const fixedTime = modal.querySelector('form[data-form="task"]') ? readTime(modal.querySelector('form[data-form="task"]'), 'fixedTime') : null;
+  if (note) {
+    const away = fixedDate && fixedTime && fixedDate !== key;
+    note.hidden = !away;
+    note.innerHTML = away ? `This task is set for ${esc(fmtDay(fixedDate))} at ${t12(fixedTime)}. <button type="button" class="btn-link" data-action="side-cal-fixed">Show that day</button>` : '';
+  }
   const cached = G.isConnected() ? G.cachedDay(key) : null;
   el.innerHTML = timelineHTML([...ioItems(key), ...extra, ...(cached ? googleItems(key, cached) : [])], SIDE);
   fillCalendar('side-cal', key, { ...SIDE, extra });
@@ -1690,6 +1717,8 @@ async function askClaude() {
   status.textContent = 'Asking Claude...';
   const btn = form.querySelector('[data-action="ask-claude"]');
   btn.disabled = true;
+  const inputs = [0, 1, 2].map((i) => form.querySelector(`#f-step${i}`));
+  const before = inputs.map((inp) => inp.value);
   try {
     const out = await AI.suggestForTask({
       title, goal: g?.title, why: g?.why,
@@ -1697,12 +1726,20 @@ async function askClaude() {
       place: R.PLACES[place] || null,
       computer,
     });
-    out.firstSteps.forEach((s, i) => { const inp = form.querySelector(`#f-step${i}`); if (inp) { inp.value = s; inp.dataset.auto = s; } });
+    if (!form.isConnected || form.querySelector('#f-title').value.trim() !== title) return; // the name changed; a newer answer will come
+    let kept = 0;
+    out.firstSteps.forEach((s, i) => {
+      const inp = inputs[i];
+      if (!inp) return;
+      if (inp.value !== before[i]) { kept += 1; return; } // you typed here while Claude was thinking
+      inp.value = s; inp.dataset.auto = s;
+    });
+    if (kept) { status.textContent = 'Done. Your own steps were kept.'; return; }
     const needs = form.querySelector('#f-needs');
     if (!needs.value.trim()) needs.value = out.toGetItDone.join('\n');
     status.textContent = 'Done. Edit anything that does not fit.';
   } catch (err) {
-    status.textContent = err.message;
+    if (form.isConnected) status.textContent = err.message;
   } finally {
     btn.disabled = false;
   }
@@ -2044,10 +2081,17 @@ const actions = {
   'untrash-task': (el) => {
     const t = task(el.dataset.id);
     if (!t || t.status !== 'trashed') return;
+    const check = (priority) => R.validateTask({ ...t, priority, status: 'open' }, state.tasks, todayKey(), S());
+    let note = '';
+    if (check(t.priority).length) {
+      if (check('nice').length) { toast(check(t.priority)[0]); return; }
+      note = ` ${R.PRIORITIES[t.priority].mark} is full now, so it came back as 🤔 Tasks for later.`;
+      t.priority = 'nice';
+    }
     t.status = 'open';
     (t.trashedFrom || []).forEach((key) => { const d = state.days[key]; if (d && !d.taskIds.includes(t.id) && d.taskIds.length < d.slots) { d.taskIds.push(t.id); if (d.plan) d.planStale = true; } });
     delete t.trashedFrom;
-    persist([`Back in your list: ${t.title}`]);
+    persist([`Back in your list: ${t.title}.${note}`]);
   },
   'busy-prio': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
@@ -2092,6 +2136,8 @@ const actions = {
     } catch (err) { status.textContent = err.message; }
   },
   'open-email': () => openModal(emailHTML()),
+  'talk-review-open': () => { if (talkDraft) openModal(talkReviewHTML()); },
+  'side-cal-fixed': () => setSideDay(modal.querySelector('#f-date').value),
   'email-scan': (el) => scanEmail(el),
   'email-paste': () => reviewPasted(),
   'quick-add': () => quickCapture(false),
@@ -2554,6 +2600,11 @@ document.addEventListener('pointerup', () => {
   sel.remove();
   const form = modal.querySelector('form[data-form="task"]');
   if (!form) return;
+  if (!moved || Math.abs(to - from) < 15) {
+    const hint = modal.querySelector('.side-hint');
+    if (hint) hint.textContent = 'Press and drag down over the time you want (a click does nothing).';
+    return;
+  }
   const start = Math.min(from, to);
   const hhmm = R.toHHMM(start);
   const [h, m] = hhmm.split(':').map(Number);
@@ -2562,9 +2613,12 @@ document.addEventListener('pointerup', () => {
   form.querySelector('[name="fixedTime_ap"]').value = h >= 12 ? 'PM' : 'AM';
   const day = modal.querySelector('#side-cal').dataset.day;
   form.querySelector('#f-date').value = day;
-  if (moved && Math.abs(to - from) >= 15) form.querySelector('#f-minutes').value = Math.abs(to - from);
+  form.querySelector('#f-minutes').value = Math.abs(to - from);
   const deadline = form.querySelector('#f-deadline');
-  if (!deadline.value) deadline.value = day;
+  if (!deadline.value && pressedValue(form, 'priority') !== 'nice') deadline.value = day;
+  const end = start + Math.abs(to - from);
+  const clash = calendarItems(day).find((c) => R.toMinutes(c.start) < end && R.toMinutes(c.start) + c.minutes > start);
+  if (clash) toast(`Heads up: this overlaps "${clash.title}" at ${t12(clash.start)}.`);
   refreshSideCalendar();
 });
 
@@ -2580,7 +2634,7 @@ maybeAutoStart();
 
 // Keep the "now" line and current block fresh, without disturbing typing.
 setInterval(() => {
-  const busy = view.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  const busy = !!recognizer || (view.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
   if (!busy && !modal.open) {
     const msgs = dailyCheck();
     render();

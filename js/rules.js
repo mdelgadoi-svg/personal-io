@@ -105,7 +105,7 @@ export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTIN
   const problems = [];
   if (!task.title || !task.title.trim()) problems.push('Give the task a name.');
   if (!task.goalId) problems.push('Every task belongs to a goal. Pick one.');
-  if (!task.deadline && task.priority !== 'nice') problems.push('This task needs a deadline. (Only 🤔 nice-to-have can skip it.)');
+  if (!task.deadline && task.priority !== 'nice') problems.push('This task needs a deadline. (Only 🤔 tasks for later can skip it.)');
   if (!task.minutes || task.minutes <= 0) problems.push('Say how long it will take.');
   if (task.place === 'commute' && !(task.destination || '').trim()) {
     problems.push('Say where you need to go.');
@@ -118,7 +118,11 @@ export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTIN
   if (sameName) problems.push(`"${sameName.title}" is already in your backlog. Use a different name, or open that one.`);
   const counts = countByPriority(others);
   const info = PRIORITIES[task.priority];
-  if (info && counts[task.priority] >= info.cap) {
+  // Editing a task that already holds this level never counts against the limit
+  // (so tasks from before a limit changed can still be fixed).
+  const before = allTasks.find((t) => t.id === task.id);
+  const keepsLevel = before && before.status === 'open' && before.priority === task.priority;
+  if (info && !keepsLevel && counts[task.priority] >= info.cap) {
     problems.push(`${info.mark} ${info.label} is full (${info.cap} of ${info.cap}). Finish one or move one down a level first.`);
   }
   return problems;
@@ -362,6 +366,11 @@ export function busyMinutes(items, fromHour = 8, toHour = 22) {
     if (a >= end) { total += b - a; end = b; } else if (b > end) { total += b - end; end = b; }
   }
   return total;
+}
+
+// Removes list markers only: "- ", "* ", "• ", "1. ", "2) ", "[ ] ", "[x] ". Keeps "2027 budget" or "Xerox".
+export function cleanListLine(line) {
+  return String(line || '').replace(/^\s*(?:[-*•]\s+)?(?:\d+[.)]\s+)?(?:\[[ xX]?\]\s*)?/, '').trim();
 }
 
 // ---------- talking: notes first, tasks only when named ----------

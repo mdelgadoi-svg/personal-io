@@ -440,3 +440,6 @@ dialog:not(.wide) .modal-side { display: none; }
   .welcome .big { font-size: 20px; }
 }
 .starter .modal-head { align-self: stretch; }
+.item-actions .btn-small { white-space: nowrap; }
+.side-note { background: var(--gold-soft); border-radius: 10px; padding: 6px 10px; font-size: 13px; color: var(--ink); }
+@media (max-width: 760px) { .item-actions { flex-wrap: nowrap; } }
