@@ -3,10 +3,10 @@
 // so it can be tested on its own (see tests/rules.test.js).
 
 export const PRIORITIES = {
-  both:      { label: 'Important + urgent', mark: '★!', cap: 3 },
-  important: { label: 'Important',          mark: '★',  cap: 4 },
+  both:      { label: 'Important + urgent', mark: '★!', cap: 2 },
+  important: { label: 'Important',          mark: '★',  cap: 3 },
   urgent:    { label: 'Urgent',             mark: '!',  cap: 3 },
-  nice:      { label: 'Nice to have',       mark: '🤔', cap: Infinity },
+  nice:      { label: 'Tasks for later',    mark: '🤔', cap: Infinity },
 };
 
 export const PRIORITY_ORDER = ['both', 'urgent', 'important', 'nice'];
@@ -313,14 +313,18 @@ export function applyReview(tasks, outcomes, nowIso) {
 // ---------- first steps without AI ----------
 
 // A plain template so "first minute" always has something, even without Claude.
-export function templateSteps(title, place) {
-  const setup = {
-    silent: 'Find a quiet spot and put your phone face down',
-    commute: `Check the route and when you need to leave`,
-    everywhere: 'Close other windows and tabs',
-  }[place] || 'Close other windows and tabs';
+// Two kinds of first minutes: at a computer, or away from one.
+export function templateSteps(title, place, computer = place !== 'commute') {
   const name = (title || 'the task').trim();
-  return [setup, `Open what you need for: ${name}`, 'Do the first small piece for 60 seconds'];
+  if (computer) {
+    const setup = place === 'silent' ? 'Find a quiet spot, close all windows and tabs' : 'Close all windows and tabs, phone face down';
+    return [setup, `Open only what you need for: ${name}`, 'Do the first small piece for 60 seconds'];
+  }
+  const setup = {
+    commute: 'Check the route and when you need to leave',
+    silent: 'Find a quiet spot and put your phone away',
+  }[place] || 'Put your phone away and clear your space';
+  return [setup, `Get out what you need for: ${name}`, 'Do the first small piece for 60 seconds'];
 }
 
 // ---------- brain dump without AI ----------
@@ -333,6 +337,31 @@ export function splitDump(text) {
     .filter((s) => s.split(/\s+/).length >= 2)
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .slice(0, 25);
+}
+
+// "Write the essay" -> "Part 2 of Write the essay"; "Part 2 of X" -> "Part 3 of X". Skips names already taken.
+export function nextPartTitle(title, tasks = []) {
+  const m = String(title || '').trim().match(/^part (\d+) of (.+)$/i);
+  const base = m ? m[2] : String(title || '').trim();
+  let n = m ? Number(m[1]) + 1 : 2;
+  while (sameTitle(`Part ${n} of ${base}`, openTasks(tasks))) n += 1;
+  return `Part ${n} of ${base}`;
+}
+
+// Minutes of calendar time booked between two hours (overlaps counted once).
+export function busyMinutes(items, fromHour = 8, toHour = 22) {
+  const lo = fromHour * 60;
+  const hi = toHour * 60;
+  const spans = items
+    .map((i) => [Math.max(lo, toMinutes(i.start) - (i.commute ? (i.commuteMinutes || 0) : 0)), Math.min(hi, toMinutes(i.start) + i.minutes)])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  let total = 0;
+  let end = -1;
+  for (const [a, b] of spans) {
+    if (a >= end) { total += b - a; end = b; } else if (b > end) { total += b - end; end = b; }
+  }
+  return total;
 }
 
 // ---------- talking: notes first, tasks only when named ----------

@@ -38,8 +38,8 @@ test('two open tasks cannot share a name (ignoring case and spaces)', () => {
   assert.deepEqual(validateTask(task({ title: 'Write the essay' }), [task({ title: 'Write the essay', status: 'done' })], today), []);
 });
 
-test('★! is limited to 3 open tasks', () => {
-  const existing = [1, 2, 3].map((i) => task({ title: `T${i}`, priority: 'both', deadline: '2026-10-27' }));
+test('★! is limited to 2 open tasks', () => {
+  const existing = [1, 2].map((i) => task({ title: `T${i}`, priority: 'both', deadline: '2026-10-27' }));
   const problems = validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today);
   assert.ok(problems.some((p) => p.includes('full')));
 });
@@ -49,9 +49,9 @@ test('done tasks do not count toward the limit', () => {
   assert.deepEqual(validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today), []);
 });
 
-test('★ is limited to 4 and ! to 3', () => {
-  const four = [1, 2, 3, 4].map((i) => task({ title: `I${i}`, priority: 'important' }));
-  assert.ok(validateTask(task({ priority: 'important' }), four, today).length > 0);
+test('★ is limited to 3 and ! to 3', () => {
+  const full = [1, 2, 3].map((i) => task({ title: `I${i}`, priority: 'important' }));
+  assert.ok(validateTask(task({ priority: 'important' }), full, today).length > 0);
   const three = [1, 2, 3].map((i) => task({ title: `U${i}`, priority: 'urgent' }));
   assert.ok(validateTask(task({ priority: 'urgent' }), three, today).length > 0);
 });
@@ -227,4 +227,26 @@ test('tasks from talking get a starting deadline by priority', () => {
   assert.equal(defaultDeadline('urgent', '2026-10-30'), '2026-10-31');
   assert.equal(defaultDeadline('important', '2026-10-30'), '2026-11-06');
   assert.equal(defaultDeadline('nice', '2026-10-30'), '');
+});
+
+import { nextPartTitle, busyMinutes } from '../js/rules.js';
+
+test('copies are named Part 2, Part 3...', () => {
+  assert.equal(nextPartTitle('Write the essay'), 'Part 2 of Write the essay');
+  assert.equal(nextPartTitle('Part 2 of Write the essay'), 'Part 3 of Write the essay');
+  assert.equal(nextPartTitle('Write the essay', [task({ title: 'Part 2 of Write the essay' })]), 'Part 3 of Write the essay');
+});
+
+test('busy time counts overlaps once and only from 8 AM to 10 PM', () => {
+  const items = [
+    { start: '07:00', minutes: 120 },  // counts 8 to 9
+    { start: '08:30', minutes: 60 },   // overlaps, adds 9 to 9:30
+    { start: '21:00', minutes: 180 },  // counts 21 to 22
+  ];
+  assert.equal(busyMinutes(items), 150);
+});
+
+test('steps differ for computer and non-computer tasks', () => {
+  assert.ok(templateSteps('Email Ana', 'everywhere', true)[0].includes('Close all windows'));
+  assert.ok(!templateSteps('Buy a suit', 'everywhere', false)[0].includes('windows'));
 });

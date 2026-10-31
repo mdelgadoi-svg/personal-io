@@ -320,7 +320,7 @@ button.ev:hover { filter: brightness(.95); box-shadow: 0 0 0 2px var(--ink); }
 .cal-col .ev { font-size: 11px; padding: 2px 6px; }
 
 /* calendar event popover */
-.prio-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.prio-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .prio-btn { border: 2px solid; border-radius: var(--radius-ctl); min-height: 64px; padding: 8px 10px; font-weight: 700; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 14px; }
 .prio-btn .mark { font-size: 20px; }
 .prio-both { background: var(--do); border-color: var(--do); color: #fff; }
@@ -328,9 +328,46 @@ button.ev:hover { filter: brightness(.95); box-shadow: 0 0 0 2px var(--ink); }
 .prio-urgent { background: var(--do-soft); border-color: var(--do); color: var(--primary-ink); }
 .prio-important { background: var(--should-soft); border-color: var(--should); color: var(--should); }
 .prio-important .mark .s { color: var(--should); }
+.prio-nice { background: var(--gold-soft); border-color: var(--gold); color: var(--ink); }
 .prio-btn:hover { filter: brightness(.95); }
 .or-line { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 14px; }
 .or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* ---------- v1.6: trash, capture mic, busy day, task form calendar, start screen ---------- */
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast-btn { margin-left: auto; background: none; border: 2px solid #fff; color: #fff; border-radius: 10px; padding: 4px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.cap-input-row { display: flex; gap: 8px; align-items: stretch; }
+.cap-input-row .input { flex: 1 1 auto; min-width: 0; }
+.mic-icon { flex: 0 0 52px; padding: 0; justify-content: center; }
+.icon-trash { flex-basis: 36px; width: 36px; height: 36px; }
+.item-actions { display: flex; align-items: center; gap: 6px; }
+.draggable-task { cursor: grab; }
+.draggable-task:active { cursor: grabbing; }
+body.dragging-task .col-day { outline: 3px dashed var(--primary); outline-offset: 6px; border-radius: 14px; }
+.col-day.drop-over { background: var(--primary-soft); }
+.busy-card { background: var(--gold-soft); border: 2px solid var(--gold); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; color: var(--ink); }
+.busy-list { display: flex; flex-direction: column; gap: 6px; }
+.busy-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border-radius: 10px; padding: 6px 10px; }
+.busy-btns { display: flex; gap: 6px; }
+.side-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.side-cal-head .icon-btn { font-size: 22px; line-height: 1; }
+#side-cal .grid { cursor: crosshair; touch-action: pan-y; }
+.ev-draft { background: var(--gold-soft); border: 2px dashed var(--ink); color: var(--ink); z-index: 2; }
+.pick-sel { position: absolute; left: 2px; right: 2px; background: rgb(53 88 200 / 22%); border: 2px solid var(--primary); border-radius: 8px; color: var(--ink); font-size: 12px; font-weight: 700; padding: 2px 6px; pointer-events: none; z-index: 3; }
+.starter { align-items: center; text-align: center; gap: 12px; }
+.starter .cat { display: block; margin: 0 auto; }
+.starter-step { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--primary); }
+.starter-text { font-size: 28px; font-weight: 800; line-height: 1.25; color: var(--ink); max-width: 30ch; }
+.starter-task, .starter-title { color: var(--ink-2); font-size: 16px; }
+.starter-title { font-weight: 700; color: var(--ink); font-size: 20px; }
+.starter-timer { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.starter-timer .prog { width: 100%; height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.starter-timer .prog > div { height: 100%; background: var(--primary); transition: width 1s linear; }
+.starter-left { font-weight: 700; color: var(--ink); }
+.starter-plan { text-align: left; width: 100%; max-width: 420px; background: var(--ground); border-radius: 14px; padding: 12px 16px; }
+.starter-plan ul { margin: 6px 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.starter-plan li.is-done { text-decoration: line-through; color: var(--ink-2); }
+.btn-big { min-height: 56px; font-size: 18px; padding: 0 28px; }
 
 /* ---------- welcome back ---------- */
 .welcome .big { font-size: 26px; font-weight: 700; }
@@ -402,3 +439,4 @@ dialog:not(.wide) .modal-side { display: none; }
   .prio-grid { grid-template-columns: 1fr; }
   .welcome .big { font-size: 20px; }
 }
+.starter .modal-head { align-self: stretch; }

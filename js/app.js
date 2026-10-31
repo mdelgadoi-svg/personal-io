@@ -31,13 +31,22 @@ function persist(messages = []) {
   messages.forEach(toast);
 }
 
-function toast(text) {
+function toast(text, button = null) {
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = text;
+  if (button) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-btn';
+    b.textContent = button.label;
+    Object.entries(button.data || {}).forEach(([k, v]) => { b.dataset[k] = v; });
+    b.addEventListener('click', () => el.remove());
+    el.appendChild(b);
+  }
   toasts.appendChild(el);
   while (toasts.children.length > 2) toasts.firstElementChild.remove();
-  setTimeout(() => el.remove(), 4000);
+  setTimeout(() => el.remove(), button ? 8000 : 4000);
 }
 
 function goal(id) { return state.goals.find((g) => g.id === id); }
@@ -56,7 +65,7 @@ function markHTML(priority) {
     case 'both': return '<span class="mark" aria-label="Important and urgent"><span class="s">★</span><span class="b">!</span></span>';
     case 'important': return '<span class="mark" aria-label="Important"><span class="s">★</span></span>';
     case 'urgent': return '<span class="mark" aria-label="Urgent"><span class="b">!</span></span>';
-    default: return '<span class="mark" aria-label="Nice to have">🤔</span>';
+    default: return '<span class="mark" aria-label="Tasks for later">🤔</span>';
   }
 }
 
@@ -240,7 +249,7 @@ function keyHTML() {
     <span>${markHTML('both')} Important + urgent <span class="muted">· ${c.both} of ${cap('both')} · due today or tomorrow</span></span>
     <span>${markHTML('important')} Important <span class="muted">· ${c.important} of ${cap('important')}</span></span>
     <span>${markHTML('urgent')} Urgent <span class="muted">· ${c.urgent} of ${cap('urgent')}</span></span>
-    <span>${markHTML('nice')} Nice to have <span class="muted">· no limit</span></span>
+    <span>${markHTML('nice')} Tasks for later <span class="muted">· no limit</span></span>
   </section>`;
 }
 
@@ -361,7 +370,8 @@ function calendarBlockHTML(id, key, opts = {}) {
 async function fillCalendar(id, key, opts = {}) {
   const el = document.getElementById(id);
   if (!el) return;
-  const io = ioItems(key);
+  el.dataset.want = key;
+  const io = [...ioItems(key), ...(opts.extra || [])];
   if (!G.isConfigured()) { el.innerHTML = calendarLegendHTML() + timelineHTML(io, opts); return; }
   if (!G.isConnected()) {
     el.innerHTML = `<div class="note note-info" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
@@ -372,11 +382,11 @@ async function fillCalendar(id, key, opts = {}) {
     const events = await G.eventsForDay(key);
     const allDay = events.filter((e) => e.allDay).map((e) => esc(e.title));
     const still = document.getElementById(id);
-    if (!still) return;
+    if (!still || still.dataset.want !== key) return; // you moved to another day meanwhile
     still.innerHTML = `${allDay.length ? `<div class="hint" style="margin-bottom:6px">All day: ${allDay.join(', ')}</div>` : ''}${calendarLegendHTML()}${timelineHTML([...io, ...googleItems(key, events)], opts)}`;
   } catch (err) {
     const still = document.getElementById(id);
-    if (still) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${calendarLegendHTML()}${timelineHTML(io, opts)}`;
+    if (still && still.dataset.want === key) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${calendarLegendHTML()}${timelineHTML(io, opts)}`;
   }
 }
 
@@ -411,11 +421,12 @@ function calItemHTML(c) {
   <div class="modal" data-form="calitem" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${esc(c.date)}">
     ${head}
     <div class="errors" hidden></div>
-    <div class="field"><span class="field-label">Keep it in mind as</span>
+    <div class="field"><span class="field-label">Turn it into a task:</span>
       <div class="prio-grid">
         <button type="button" class="prio-btn prio-both" data-action="cal-prioritize" data-priority="both">${markHTML('both')}<span>Important + urgent</span></button>
         <button type="button" class="prio-btn prio-urgent" data-action="cal-prioritize" data-priority="urgent">${markHTML('urgent')}<span>Urgent</span></button>
         <button type="button" class="prio-btn prio-important" data-action="cal-prioritize" data-priority="important">${markHTML('important')}<span>Important</span></button>
+        <button type="button" class="prio-btn prio-nice" data-action="cal-prioritize" data-priority="nice">${markHTML('nice')}<span>For later</span></button>
       </div>
     </div>
     <div class="field"><label for="ci-goal">For which goal?</label>
@@ -475,8 +486,11 @@ function captureHTML() {
     <div class="capture-row">
       <div class="field" style="flex: 1 1 280px">
         <label for="cap-text">Task, or something you already did</label>
-        <input class="input" id="cap-text" type="text" placeholder="e.g., Send my application" autocomplete="off" aria-describedby="cap-hint">
-        <span class="hint" id="cap-hint">Press Enter to add it to 🤔 Nice to have.</span>
+        <div class="cap-input-row">
+          <input class="input" id="cap-text" type="text" placeholder="e.g., Send my application" autocomplete="off" aria-describedby="cap-hint">
+          ${SpeechRec ? `<button type="button" class="btn mic mic-icon" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}<span class="visually-hidden">Start talking</span></button>` : ''}
+        </div>
+        <span class="hint" id="cap-hint">Type or tap the mic and say it. Press Enter to add it to 🤔 Tasks for later. · <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
       </div>
       <div class="capture-actions">
         <button type="button" class="btn btn-dark" data-action="quick-add">Add task</button>
@@ -509,9 +523,10 @@ function renderStart() {
   </section>
   ${captureHTML()}
   ${goalsStripHTML()}
+  ${busyDayHTML(dayKey)}
   <div class="cols plan-cols">
-    <section class="col col-backlog" aria-label="Priorities">
-      <div class="col-head"><h2>Priorities</h2>
+    <section class="col col-backlog" aria-label="Tasks and their priorities">
+      <div class="col-head"><h2>Tasks and their priorities</h2>
         <button class="btn btn-small" data-action="new-task">+ Task with details</button>
       </div>
       ${ui.goalFilter ? `<div class="hint">Goal: ${esc(goal(ui.goalFilter)?.title || '')} (plus urgent) · <button class="btn-link" data-action="clear-filter">Show all</button></div>` : ''}
@@ -522,10 +537,37 @@ function renderStart() {
     </section>
     <section class="col col-cal card card-pad" aria-label="Calendar">
       <div class="col-head"><h2>Calendar</h2><span class="meta">${esc(fmtDay(dayKey))}</span></div>
-      <span class="hint">Click an event to keep it in mind or mark it done.</span>
+      <span class="hint">Click an event to turn it into a task, or mark it done.</span>
       ${calendarBlockHTML('cal-plan', dayKey, { px: 28, startHour: 7, endHour: 22, nowLine: dayKey === tKey })}
     </section>
   </div>`;
+}
+
+// When the calendar already holds more than 10 hours between 8 AM and 10 PM,
+// ask which of those things really matter. Being busy is not the same as doing what matters.
+function busyDayHTML(dayKey) {
+  const day = getDay(dayKey);
+  if (day.busyOk) return '';
+  const items = calendarItems(dayKey);
+  const busy = R.busyMinutes(items.map((c) => ({ ...c, commuteMinutes: S().commuteMinutes })));
+  if (busy <= 600) return '';
+  const free = items.filter((c) => !c.task);
+  const rows = free.slice(0, 12).map((c) => `
+    <div class="busy-row">
+      <span><span class="mono">${t12(c.start)}</span> ${esc(c.title)} <span class="hint">${R.formatMinutes(c.minutes)}</span></span>
+      <span class="busy-btns">
+        <button type="button" class="btn btn-small" data-action="busy-prio" data-priority="both" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)} is important and urgent">${markHTML('both')}</button>
+        <button type="button" class="btn btn-small" data-action="busy-prio" data-priority="urgent" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)} is urgent">${markHTML('urgent')}</button>
+        <button type="button" class="btn btn-small" data-action="busy-prio" data-priority="important" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)} is important">${markHTML('important')}</button>
+      </span>
+    </div>`).join('');
+  return `
+  <section class="busy-card" aria-label="Busy day check">
+    <div><strong>${esc(fmtDay(dayKey, { weekday: 'long' }))} already has ${R.formatMinutes(busy)} on your calendar between 8 AM and 10 PM.</strong>
+    <div>Being busy is not the same as doing what matters. Are all of these important or urgent? Mark the ones that are, and they go to your task list.</div></div>
+    ${rows ? `<div class="busy-list">${rows}</div>` : '<div class="hint">Everything here is already in your task list.</div>'}
+    <div><button type="button" class="btn-link" data-action="busy-ok" data-day="${dayKey}">They're fine as they are</button></div>
+  </section>`;
 }
 
 function goalsStripHTML() {
@@ -590,8 +632,9 @@ function taskRowHTML(t, { addTo, day, tKey, full }) {
       <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Edit</button>`;
   }
   const when = t.eventRef ? `<span>${CAL_ICON} ${esc(fmtDay(t.eventRef.date))} · ${t12(t.fixedTime)}</span>` : deadlineHTML(t);
+  const canDrag = addTo && !inDay && !(t.eventRef && t.eventRef.date === addTo);
   return `
-  <div class="item" style="${stale ? 'background: var(--gold-soft)' : ''}">
+  <div class="item ${canDrag ? 'draggable-task' : ''}" ${canDrag ? `draggable="true" data-task-drag="${t.id}" title="Drag into ${addTo === tKey ? 'today' : 'tomorrow'}"` : ''} style="${stale ? 'background: var(--gold-soft)' : ''}">
     <div class="item-main">
       <button class="task-name" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button>
       <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${when}${placeChip(t)}</div>
@@ -602,10 +645,11 @@ function taskRowHTML(t, { addTo, day, tKey, full }) {
           <button class="btn btn-small" data-action="keep-task" data-id="${t.id}">Keep</button>
           <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">Move to 🤔</button></div>` : ''}
     </div>
-    <div class="item-actions">${actions}</div>
+    <div class="item-actions">${actions}<button type="button" class="icon-x icon-trash" data-action="trash-task" data-id="${t.id}" aria-label="Trash ${esc(t.title)}: no longer a task" title="No longer a task">${TRASH_ICON}</button></div>
   </div>`;
 }
 
+const TRASH_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"></path></svg>';
 const DRAG_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>';
 const X_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
 
@@ -624,6 +668,7 @@ function slotHTML(t, dayKey, word) {
         ${t.place === 'commute' && !t.eventRef ? `<div class="field"><span class="field-label">Meeting time</span>
           ${timePickerHTML(`slottime-${t.id}`, t.fixedTime, { id: `time-${t.id}`, optional: true, change: 'set-time', dataId: t.id })}</div>` : ''}
       </div>
+      ${done ? '' : `<button type="button" class="btn btn-small slot-start" data-action="start-task" data-id="${t.id}" aria-label="Start ${esc(t.title)}">▶ Start</button>`}
       <button type="button" class="icon-x" data-action="remove-from-day" data-id="${t.id}" data-day="${dayKey}" aria-label="Remove ${esc(t.title)} from ${word}">${X_ICON}</button>
     </div>
   </article>`;
@@ -711,7 +756,8 @@ function todayTaskRowHTML(t, key) {
     </div>
     <div class="item-actions">
       <span class="chip ${st.cls}">${st.word}</span>
-      ${t.status !== 'done' ? `<button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
+      ${t.status !== 'done' ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button>
+      <button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
     </div>
   </div>`;
 }
@@ -728,7 +774,7 @@ function renderToday() {
   </section>`;
   const calendar = `
     <section class="col card card-pad" style="flex: 1 1 340px" aria-label="Calendar">
-      <div class="col-head"><h2>Calendar</h2><span class="hint">Click an event to prioritize it</span></div>
+      <div class="col-head"><h2>Calendar</h2><span class="hint">Click an event to turn it into a task</span></div>
       ${calendarBlockHTML('cal-today', key, { nowLine: true, px: 40 })}
     </section>`;
   const extraHTML = extras.length ? `
@@ -816,7 +862,7 @@ function nowCardHTML(current, next) {
       const g = goal(openTask.goalId);
       if (g) goalLine = `For your goal: ${g.title}`;
     }
-    actions = `<button class="btn btn-outline" data-action="review" data-block="${current.index}">End block</button>`;
+    actions = `${openTask ? `<button class="btn btn-outline" data-action="start-task" data-id="${openTask.id}">▶ Start</button>` : ''}<button class="btn btn-outline" data-action="review" data-block="${current.index}">End block</button>`;
   }
   return `
   <section class="now-card" aria-label="Now">
@@ -1036,7 +1082,7 @@ function talkFieldHTML(prefix, label, placeholder, height = 140) {
         <label for="${prefix}-text" class="field-label">${label}</label>
         ${SpeechRec ? `<div style="display:flex; gap:6px; align-items:center">
           <label class="visually-hidden" for="${prefix}-lang">Language</label>
-          <select class="input" id="${prefix}-lang" style="min-height:40px; width:auto; padding:6px 10px"><option value="en-US">English</option><option value="es-PE">Español</option></select>
+          <select class="input" id="${prefix}-lang" style="min-height:40px; width:auto; padding:6px 10px"><option value="en-US">English</option><option value="es-PE" ${voiceLang() === 'es-PE' ? 'selected' : ''}>Español</option></select>
           <button type="button" class="btn btn-small mic" data-action="mic" data-target="${prefix}-text" data-lang="${prefix}-lang" aria-pressed="false">${MIC_ICON}<span>Start talking</span></button></div>` : ''}
       </div>
       <textarea class="input" id="${prefix}-text" style="min-height:${height}px" placeholder="${placeholder}"></textarea>
@@ -1057,34 +1103,54 @@ function talkHTML() {
   </div>`;
 }
 
+const LANG_KEY = 'personal-io:voice-lang';
+function voiceLang() { try { return localStorage.getItem(LANG_KEY) || 'en-US'; } catch { return 'en-US'; } }
+function setVoiceLang(v) { try { localStorage.setItem(LANG_KEY, v); } catch { /* storage blocked */ } }
+
 function stopMic() {
   if (recognizer) { recognizer.onend = null; recognizer.stop(); recognizer = null; }
-  const btn = modal.querySelector('[data-action="mic"]');
-  if (btn) { btn.setAttribute('aria-pressed', 'false'); btn.querySelector('span').textContent = 'Start talking'; }
+  document.querySelectorAll('[data-action="mic"][aria-pressed="true"]').forEach((btn) => {
+    btn.setAttribute('aria-pressed', 'false');
+    const label = btn.querySelector('span');
+    if (label) label.textContent = 'Start talking';
+  });
 }
 
 function toggleMic(btn) {
   if (recognizer) { stopMic(); return; }
-  const box = modal.querySelector(`#${btn.dataset.target}`);
+  const box = document.getElementById(btn.dataset.target);
+  if (!box) return;
+  const single = btn.dataset.single === '1'; // one short line, like a task name
+  const langSel = btn.dataset.lang ? document.getElementById(btn.dataset.lang) : null;
+  const lang = langSel ? langSel.value : voiceLang();
+  if (langSel) setVoiceLang(lang);
   let committed = box.value ? box.value.trim() + ' ' : '';
   recognizer = new SpeechRec();
-  recognizer.lang = modal.querySelector(`#${btn.dataset.lang}`).value;
-  recognizer.continuous = true;
+  recognizer.lang = lang;
+  recognizer.continuous = !single;
   recognizer.interimResults = true;
   recognizer.onresult = (ev) => {
     let interim = '';
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const piece = ev.results[i][0].transcript;
-      if (ev.results[i].isFinal) committed += piece.trim() + '. ';
+      if (ev.results[i].isFinal) committed += piece.trim() + (single ? ' ' : '. ');
       else interim += piece;
     }
-    box.value = committed + interim;
+    box.value = (committed + interim).replace(/\s+$/, single ? '' : ' ');
   };
   recognizer.onerror = (ev) => { toast(ev.error === 'not-allowed' ? 'Microphone permission was blocked.' : 'Voice stopped. You can keep typing.'); stopMic(); };
-  recognizer.onend = () => stopMic();
+  recognizer.onend = () => {
+    stopMic();
+    if (single && box.value.trim()) {
+      box.value = box.value.trim().replace(/[.]$/, '');
+      box.focus();
+      toast('Check it, then press Enter or Add task.');
+    }
+  };
   recognizer.start();
   btn.setAttribute('aria-pressed', 'true');
-  btn.querySelector('span').textContent = 'Stop';
+  const label = btn.querySelector('span');
+  if (label) label.textContent = 'Stop';
 }
 
 // Saves the note, finds tasks you named, asks Claude for (at most 3) suggestions, then shows a short review.
@@ -1125,6 +1191,7 @@ function talkRowHTML(t, i, kind) {
   const prioSel = `<select class="input" data-talk="priority" aria-label="Priority">${['nice', 'important', 'urgent', 'both'].map((p) => `<option value="${p}" ${p === t.priority ? 'selected' : ''}>${R.PRIORITIES[p].mark || ''} ${R.PRIORITIES[p].label}</option>`).join('')}</select>`;
   return `<div class="talk-row" data-kind="${kind}" data-index="${i}">
     <label class="check-row"><input type="checkbox" data-talk="pick" ${t.pick ? 'checked' : ''} ${t.taken ? 'disabled' : ''}> <span class="item-title">${esc(t.title)}</span></label>
+    ${t.from ? `<span class="hint">From the email: ${esc(t.from)}</span>` : ''}
     ${t.taken ? '<span class="hint">Already in your backlog.</span>' : `<div class="talk-pickers">${prioSel}${goalSel}</div>`}
   </div>`;
 }
@@ -1133,13 +1200,13 @@ function talkReviewHTML() {
   const { named, suggested } = talkDraft;
   return `
   <div class="modal" data-form="talk-review">
-    <div class="modal-head"><h2 id="modal-title">Your note is saved</h2>
+    <div class="modal-head"><h2 id="modal-title">${esc(talkDraft.heading || 'Your note is saved')}</h2>
       <button type="button" class="btn btn-ghost icon-btn" data-action="talk-skip" aria-label="Close">✕</button></div>
     ${named.length ? `<div class="talk-group"><strong>Tasks you named</strong>${named.map((t, i) => talkRowHTML(t, i, 'named')).join('')}</div>` : ''}
-    ${suggested.length ? `<div class="talk-group"><strong>Claude noticed these. Tick only what matters.</strong>${suggested.map((t, i) => talkRowHTML(t, i, 'suggested')).join('')}</div>` : ''}
+    ${suggested.length ? `<div class="talk-group"><strong>${esc(talkDraft.suggestLabel || 'Claude noticed these. Tick only what matters.')}</strong>${suggested.map((t, i) => talkRowHTML(t, i, 'suggested')).join('')}</div>` : ''}
     <div class="form-errors" role="alert" hidden></div>
     <div class="modal-foot">
-      <button type="button" class="btn-link" data-action="talk-skip">Just keep the note</button>
+      <button type="button" class="btn-link" data-action="talk-skip">${talkDraft.heading ? 'Add none' : 'Just keep the note'}</button>
       <button type="button" class="btn btn-dark" data-action="talk-add">Add selected</button>
     </div>
   </div>`;
@@ -1167,7 +1234,7 @@ function addTalkTasks() {
       id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0,
       title: p.title, goalId: p.goalId, priority: p.priority, deadline: R.defaultDeadline(p.priority, todayKey()),
       minutes: p.minutes || 30, firstSteps: R.templateSteps(p.title, 'everywhere'), firstStep: '', stepsBy: 'template', place: 'everywhere',
-      destination: '', fixedDate: '', fixedTime: null, needs: [], source: 'talk',
+      destination: '', fixedDate: '', fixedTime: null, needs: [], source: p.source || 'talk', computer: true,
     };
     R.validateTask(t, [...state.tasks, ...fresh], todayKey(), S()).forEach((msg) => problems.push(`${p.title}: ${msg}`));
     fresh.push(t);
@@ -1175,11 +1242,197 @@ function addTalkTasks() {
   if (problems.length) { box.hidden = false; box.innerHTML = problems.map(esc).join('<br>'); return; }
   state.tasks.push(...fresh);
   ui.lastGoal = fresh[fresh.length - 1].goalId;
-  const { after, prefix } = talkDraft;
+  const { after, prefix, heading } = talkDraft;
   talkDraft = null;
   closeModal();
   after();
-  persist([`${prefix}Note saved. ${fresh.length} task${fresh.length === 1 ? '' : 's'} added.`]);
+  persist([`${prefix}${heading ? '' : 'Note saved. '}${fresh.length} task${fresh.length === 1 ? '' : 's'} added.`]);
+}
+
+// ----- start screen: one step at a time, one minute each -----
+// A cat with big eyes waits for you. It looks sad until you start, and cheers up step by step.
+
+let starter = null; // { taskId, steps, i, left, timer }
+
+function catSVG(mood) {
+  const mouth = {
+    sad: 'M86 140 q14 -12 28 0',
+    meh: 'M88 136 h24',
+    ok: 'M86 132 q14 10 28 0',
+    happy: 'M84 130 q8 12 16 0 q8 12 16 0',
+  }[mood];
+  const brows = mood === 'sad'
+    ? '<path d="M54 64 l26 -8 M146 64 l-26 -8" stroke="#18243B" stroke-width="4" stroke-linecap="round"/>'
+    : mood === 'meh' ? '<path d="M56 60 h24 M120 60 h24" stroke="#18243B" stroke-width="4" stroke-linecap="round"/>' : '';
+  const tear = mood === 'sad' ? '<path d="M58 124 q-6 10 0 15 q6 -5 0 -15z" fill="#7FB3FF"/>' : '';
+  const blush = mood === 'happy' || mood === 'ok' ? '<ellipse cx="52" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/><ellipse cx="148" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/>' : '';
+  const eye = (cx) => `<ellipse cx="${cx}" cy="96" rx="21" ry="25" fill="#18243B"/><circle cx="${cx + 7}" cy="85" r="8" fill="#fff"/><circle cx="${cx - 7}" cy="106" r="4" fill="#fff"/>`;
+  const label = { sad: 'A sad cat with big eyes, waiting for you to start', meh: 'The cat looks a little less sad', ok: 'The cat is starting to smile', happy: 'The cat is happy' }[mood];
+  return `<svg class="cat" viewBox="0 0 200 180" width="170" height="153" role="img" aria-label="${label}">
+    <path d="M42 74 L50 16 L86 50 Z" fill="#C3CCDD" stroke="#18243B" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M158 74 L150 16 L114 50 Z" fill="#C3CCDD" stroke="#18243B" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M52 56 L54 30 L72 48 Z M148 56 L146 30 L128 48 Z" fill="#F4A9B8"/>
+    <ellipse cx="100" cy="104" rx="72" ry="62" fill="#C3CCDD" stroke="#18243B" stroke-width="4"/>
+    ${brows}${eye(70)}${eye(130)}${tear}${blush}
+    <path d="M94 120 l6 6 l6 -6 z" fill="#E58FA0" stroke="#18243B" stroke-width="2" stroke-linejoin="round"/>
+    <path d="${mouth}" fill="none" stroke="#18243B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M30 118 l30 4 M28 132 l32 -2 M170 118 l-30 4 M172 132 l-32 -2" stroke="#18243B" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`;
+}
+
+// The tasks in the same deep work block, so the last screen can show the whole plan.
+function blockPlanFor(t) {
+  const day = state.days[todayKey()];
+  const block = day && day.plan ? day.plan.blocks.find((b) => b.taskIds.includes(t.id)) : null;
+  return block ? { block, tasks: block.taskIds.map(task).filter(Boolean) } : null;
+}
+
+function starterHTML() {
+  const t = task(starter.taskId);
+  const n = starter.steps.length;
+  if (starter.i >= n) {
+    const plan = blockPlanFor(t);
+    const rows = plan
+      ? plan.tasks.map((x) => `<li class="${x.status === 'done' ? 'is-done' : ''}">${markHTML(x.priority)} ${esc(x.title)} <span class="hint">${R.formatMinutes(x.minutes || 0)}</span></li>`).join('')
+      : (t.needs || []).map((x) => `<li>${esc(x.text)}</li>`).join('');
+    return `
+    <div class="modal starter" data-form="starter">
+      ${catSVG('happy')}
+      <div class="starter-step">You started. That was the hard part.</div>
+      <div class="starter-title">${esc(t.title)}</div>
+      ${rows ? `<div class="starter-plan"><strong>${plan ? `The plan until ${t12m(R.toMinutes(plan.block.start) + plan.block.minutes)}` : 'To get it done'}</strong><ul>${rows}</ul></div>` : ''}
+      <div class="modal-foot" style="justify-content:center"><button type="button" class="btn btn-dark" data-action="starter-close">Keep going</button></div>
+    </div>`;
+  }
+  const mood = ['sad', 'meh', 'ok'][Math.min(starter.i, 2)];
+  const pct = Math.round(((60 - starter.left) / 60) * 100);
+  return `
+  <div class="modal starter" data-form="starter">
+    <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="starter-close" aria-label="Close">✕</button></div>
+    ${catSVG(mood)}
+    <div class="starter-step">Step ${starter.i + 1} of ${n} · 1 min</div>
+    <div class="starter-text" id="modal-title">${esc(starter.steps[starter.i])}</div>
+    <div class="starter-task">${esc(t.title)}</div>
+    <div class="starter-timer" role="timer" aria-live="off"><div class="prog"><div style="width:${pct}%"></div></div><span class="starter-left">${starter.left ? `${starter.left}s` : 'Time. Ready for the next one?'}</span></div>
+    <div class="modal-foot" style="justify-content:center">
+      <button type="button" class="btn btn-dark btn-big" data-action="starter-next">${starter.i + 1 < n ? 'Done, next step' : 'Done, I started'}</button>
+    </div>
+  </div>`;
+}
+
+function stopStarterTimer() { if (starter && starter.timer) { clearInterval(starter.timer); starter.timer = null; } }
+
+function showStarterStep() {
+  stopStarterTimer();
+  starter.left = 60;
+  openModal(starterHTML());
+  if (starter.i >= starter.steps.length) return;
+  starter.timer = setInterval(() => {
+    if (!starter || !modal.querySelector('[data-form="starter"]')) { stopStarterTimer(); return; }
+    starter.left = Math.max(0, starter.left - 1);
+    const left = modal.querySelector('.starter-left');
+    const bar = modal.querySelector('.starter-timer .prog > div');
+    if (left) left.textContent = starter.left ? `${starter.left}s` : 'Time. Ready for the next one?';
+    if (bar) bar.style.width = `${Math.round(((60 - starter.left) / 60) * 100)}%`;
+    if (!starter.left) stopStarterTimer();
+  }, 1000);
+}
+
+function openStarter(t) {
+  if (!t) return;
+  const steps = stepsOf(t).length ? stepsOf(t) : R.templateSteps(t.title, t.place, t.computer !== false);
+  stopStarterTimer();
+  starter = { taskId: t.id, steps, i: 0, left: 60, timer: null };
+  showStarterStep();
+}
+
+// When a deep work block begins, the start screen opens by itself (once per block).
+function maybeAutoStart() {
+  const { current } = currentAndNext();
+  if (!current || current.type !== 'block' || nowMinutes() - current.start > 10) return;
+  const day = getDay(todayKey());
+  day.startShown = day.startShown || {};
+  if (day.startShown[current.index]) return;
+  const t = current.block.taskIds.map(task).find((x) => x && x.status === 'open');
+  if (!t) return;
+  const first = (stepsOf(t)[0] || R.templateSteps(t.title, t.place, t.computer !== false)[0]);
+  let shown = false;
+  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+    try { new Notification('First step (1 min)', { body: `${first}\nFor: ${t.title}`, tag: 'personal-io-start' }); shown = true; } catch { /* not allowed here */ }
+  }
+  if (!modal.open) { openStarter(t); shown = true; }
+  if (!shown) return; // something else is open; try again next minute
+  day.startShown[current.index] = true;
+  save(state);
+}
+
+// ----- tasks from your email (or a pasted list) -----
+
+function emailHTML() {
+  const ready = G.isConfigured() && AI.hasKey();
+  return `
+  <div class="modal" data-form="email">
+    <div class="modal-head"><h2 id="modal-title">Find tasks in my email</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <div class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
+      <strong>Read my last 2 weeks</strong>
+      <span>Looks at the subject, sender and the short preview of up to 40 emails (skipping promotions and social). Claude, with your key, picks out what you promised or were asked to do. You tick what to add. Nothing else is saved.</span>
+      ${ready ? '' : `<div class="note note-warn">${!G.isConfigured() ? 'Set up Google in Settings first (step 1). ' : ''}${!AI.hasKey() ? 'Add your Claude key in Settings first.' : ''}</div>`}
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        <button type="button" class="btn btn-dark" data-action="email-scan" ${ready ? '' : 'disabled'}>Read my last 2 weeks</button>
+        <span class="hint email-status">Google asks you to pick the account and allow read-only access.</span>
+      </div>
+    </div>
+    <div class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
+      <strong>Or paste a list</strong>
+      <span class="hint">For example, the tasks your Claude project found. One task per line.</span>
+      <label class="visually-hidden" for="paste-text">Tasks, one per line</label>
+      <textarea class="input" id="paste-text" style="min-height:110px" placeholder="Reply to Julia about the deck&#10;Send the TIPC draft to André"></textarea>
+      <div><button type="button" class="btn" data-action="email-paste">Review these</button> <span class="hint paste-status"></span></div>
+    </div>
+  </div>`;
+}
+
+async function scanEmail(btn) {
+  const status = modal.querySelector('.email-status');
+  btn.disabled = true;
+  try {
+    if (!G.gmailConnected()) { status.textContent = 'Waiting for Google...'; await G.connectGmail(); }
+    status.textContent = 'Reading subjects and previews...';
+    const emails = await G.recentEmails(14, 40);
+    if (!emails.length) { status.textContent = 'No emails found in the last 2 weeks.'; return; }
+    status.textContent = `Claude is reading ${emails.length} emails...`;
+    const open = R.openTasks(state.tasks);
+    const found = (await AI.tasksFromEmails(emails, state.goals, open.map((t) => t.title)))
+      .filter((t) => !R.sameTitle(t.title, open))
+      .map((t) => ({ ...t, priority: 'nice', pick: false, source: 'email' }));
+    if (!found.length) { status.textContent = 'No clear tasks found. That is good news.'; return; }
+    talkDraft = { named: [], suggested: found, after: () => {}, prefix: '', heading: 'Tasks found in your email', suggestLabel: 'Tick the ones that are real tasks for you.' };
+    openModal(talkReviewHTML());
+  } catch (err) {
+    status.textContent = err.message === 'not-connected' ? 'Google sign-in expired. Try again.' : err.message;
+  } finally {
+    if (btn.isConnected) btn.disabled = false;
+  }
+}
+
+function reviewPasted() {
+  const text = modal.querySelector('#paste-text').value;
+  const open = R.openTasks(state.tasks);
+  const fallbackGoal = goal(ui.lastGoal) ? ui.lastGoal : 'life';
+  const seen = [];
+  const named = text.split('\n')
+    .map((l) => l.replace(/^[\s\-*•\d.)\[\]x]+/i, '').trim())
+    .filter((l) => l.length > 1)
+    .filter((l) => { if (seen.some((x) => R.normalTitle(x) === R.normalTitle(l))) return false; seen.push(l); return true; })
+    .slice(0, 20)
+    .map((title) => {
+      const taken = !!R.sameTitle(title, open);
+      return { title: title.charAt(0).toUpperCase() + title.slice(1), goalId: fallbackGoal, priority: 'nice', minutes: 30, pick: !taken, taken, source: 'paste' };
+    });
+  if (!named.length) { modal.querySelector('.paste-status').textContent = 'Paste at least one task, one per line.'; return; }
+  talkDraft = { named, suggested: [], after: () => {}, prefix: '', heading: 'Add these tasks?' };
+  openModal(talkReviewHTML());
 }
 
 // ----- goals -----
@@ -1220,7 +1473,7 @@ function renderBacklog() {
   </section>
   <div class="cols">
     <section class="col" style="flex: 1.4 1 420px">
-      <div class="col-head"><h2>Priorities</h2><button class="btn btn-small" data-action="new-task">+ Task with details</button></div>
+      <div class="col-head"><h2>Tasks and their priorities</h2><button class="btn btn-small" data-action="new-task">+ Task with details</button></div>
       ${backlogGroupsHTML({ full: true })}
     </section>
     <section class="col" style="flex: 1 1 320px">
@@ -1258,7 +1511,8 @@ function taskFormHTML(t, opts) {
   const draft = t || { priority: 'important', place: 'everywhere', goalId: opts.goalId || state.goals[0]?.id, minutes: 30, ...(opts.prefill || {}) };
   const pressed = (v, cur) => `aria-pressed="${v === cur}"`;
   const steps = stepsOf(draft);
-  const mode = draft.stepsBy || (AI.hasKey() && !t ? 'claude' : 'me');
+  const mode = draft.stepsBy === 'me' ? 'me' : 'suggest';
+  const computer = draft.computer !== undefined ? !!draft.computer : draft.place !== 'commute';
   const calDay = draft.fixedDate || opts.dayKey || draft.deadline || todayKey();
   return `
   <form class="modal" data-form="task" data-id="${t ? t.id : ''}" data-day="${esc(opts.dayKey || '')}" data-event-ref="${esc(draft.eventRef && !t ? JSON.stringify(draft.eventRef) : '')}" novalidate>
@@ -1277,14 +1531,15 @@ function taskFormHTML(t, opts) {
           <button type="button" data-value="both" ${pressed('both', draft.priority)} aria-label="Important and urgent">${markHTML('both')}</button>
           <button type="button" data-value="important" ${pressed('important', draft.priority)} aria-label="Important">${markHTML('important')}</button>
           <button type="button" data-value="urgent" ${pressed('urgent', draft.priority)} aria-label="Urgent">${markHTML('urgent')}</button>
-          <button type="button" data-value="nice" ${pressed('nice', draft.priority)} aria-label="Nice to have">${markHTML('nice')}</button>
+          <button type="button" data-value="nice" ${pressed('nice', draft.priority)} aria-label="Tasks for later">${markHTML('nice')}</button>
         </div></div>
     </div>
     <div class="row">
       <div class="field"><label for="f-deadline">Deadline</label>
-        <input class="input" type="date" id="f-deadline" name="deadline" value="${esc(draft.deadline || '')}"></div>
+        <input class="input" type="date" id="f-deadline" name="deadline" value="${esc(draft.deadline || '')}" data-change="form-deadline"></div>
       <div class="field"><label for="f-minutes">How long will it take? (minutes)</label>
-        <input class="input" type="number" min="5" step="5" id="f-minutes" name="minutes" value="${esc(draft.minutes || '')}"></div>
+        <input class="input" type="number" min="5" step="5" id="f-minutes" name="minutes" value="${esc(draft.minutes || '')}" data-change="form-cal-redraw">
+        <span class="hint">Your best guess is enough. The plan finds the time.</span></div>
     </div>
 
     ${draft.progress ? `<div class="note note-info"><strong>Last time you left off:</strong> ${esc(draft.progress)}</div>` : ''}
@@ -1293,14 +1548,17 @@ function taskFormHTML(t, opts) {
         <strong>First minute: 3 tiny steps to start</strong>
         <div class="pills" data-group="stepsBy">
           <button type="button" data-value="me" ${pressed('me', mode)}>I'll write them</button>
-          <button type="button" data-value="claude" ${pressed('claude', mode)}>Let Claude suggest</button>
+          <button type="button" data-value="suggest" ${pressed('suggest', mode)}>Suggest it</button>
         </div>
       </div>
-      <div class="claude-row" ${mode === 'claude' ? '' : 'hidden'}>
-        <button type="button" class="btn btn-small" data-action="ask-claude">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>
-          ${steps.length ? 'Suggest again' : 'Suggest steps'}</button>
-        <span class="hint claude-status">${AI.hasKey() ? 'Claude Sonnet 5.5 reads the task name and its goal, and fills the steps and what it needs.' : 'No Claude key yet, so this fills a simple template you can edit.'}</span>
+      <div class="field"><span class="field-label" id="f-comp-l">Is it done on a computer?</span>
+        <div class="pills" role="group" aria-labelledby="f-comp-l" data-group="computer">
+          <button type="button" data-value="yes" ${pressed(true, computer)}>On a computer</button>
+          <button type="button" data-value="no" ${pressed(false, computer)}>Away from the computer</button>
+        </div></div>
+      <div class="claude-row" ${mode === 'suggest' ? '' : 'hidden'}>
+        <button type="button" class="btn btn-small" data-action="ask-claude">Suggest again</button>
+        <span class="hint claude-status">${AI.hasKey() ? 'Steps fill in as you type the name. Claude makes them fit the task.' : 'Steps fill in as you type the name. For smarter ones, add a Claude key in Settings.'}</span>
       </div>
       ${[0, 1, 2].map((i) => `
         <div class="step-input"><span class="step-n">${i + 1}</span>
@@ -1322,14 +1580,15 @@ function taskFormHTML(t, opts) {
           </div>
           <div class="hint commute-fields" ${draft.place === 'commute' ? '' : 'hidden'}>Adds ${S().commuteMinutes} min of commute before it on your calendar.</div>
         </td></tr>
-        <tr><th scope="row">Fixed time?</th><td>
+        <tr><th scope="row">Fixed time? (optional)</th><td>
           <div class="row" style="gap:8px">
             <div class="field" style="flex: 1 1 140px"><label for="f-date">Day</label>
               <input class="input" type="date" id="f-date" name="fixedDate" value="${esc(draft.fixedDate || '')}" data-change="form-cal-day"></div>
             <div class="field" style="flex: 1 1 200px"><span class="field-label">Time</span>
               ${timePickerHTML('fixedTime', draft.fixedTime, { id: 'f-time', optional: true })}</div>
           </div>
-          <span class="hint">Only for meetings or appointments. Check the calendar on the right for a free spot. Leave empty and it goes into a deep work block.</span>
+          <span class="hint">Only if it must happen at a set time, like a meeting. Drag on the calendar to pick the time and length. Leave it empty and the plan puts it in a deep work block.</span>
+          ${draft.fixedTime ? '<button type="button" class="btn-link" data-action="clear-fixed">Clear the fixed time</button>' : ''}
         </td></tr>
         <tr><th scope="row">To get it done</th><td>
           <div class="field"><label class="visually-hidden" for="f-needs">To get it done</label>
@@ -1339,25 +1598,77 @@ function taskFormHTML(t, opts) {
     </section>
     </div>
     <aside class="modal-side" aria-label="Calendar for the day">
-      <div class="col-head"><strong id="side-cal-title">${esc(fmtDay(calDay, { weekday: 'long', month: 'short', day: 'numeric' }))}</strong><span class="hint">Your calendar</span></div>
+      <div class="side-cal-head">
+        <button type="button" class="btn btn-ghost icon-btn" data-action="side-cal-move" data-step="-1" aria-label="Previous day">‹</button>
+        <strong id="side-cal-title">${esc(fmtDay(calDay, { weekday: 'long', month: 'short', day: 'numeric' }))}</strong>
+        <button type="button" class="btn btn-ghost icon-btn" data-action="side-cal-move" data-step="1" aria-label="Next day">›</button>
+      </div>
+      <span class="hint">Drag on an empty spot to set the time and length.</span>
       <div id="side-cal" data-day="${calDay}"></div>
     </aside>
     </div>
     <div class="modal-foot">
-      ${t ? '<button type="button" class="btn" data-action="delete-task" style="margin-right:auto; color: var(--error)">Delete</button>' : ''}
+      ${t ? '<button type="button" class="btn" data-action="delete-task" style="color: var(--error)">Delete</button>' : ''}
+      <button type="button" class="btn" data-action="copy-task" style="margin-right:auto" title="Save, then start a copy named Part 2">Save and copy as Part 2</button>
       <button type="button" class="btn" data-action="close-modal">Cancel</button>
       <button type="submit" class="btn btn-dark">${opts.dayKey ? 'Save and add to day' : 'Save to backlog'}</button>
     </div>
   </form>`;
 }
 
+const SIDE = { px: 28, startHour: 7, endHour: 22 };
+
+// The task you are editing, drawn on the side calendar once it has a fixed day and time.
+function draftCalendarItem(key) {
+  const form = modal.querySelector('form[data-form="task"]');
+  if (!form) return [];
+  const date = form.querySelector('#f-date').value;
+  const time = readTime(form, 'fixedTime');
+  if (date !== key || !time) return [];
+  const minutes = Number(form.querySelector('#f-minutes').value) || 30;
+  return [{ start: R.toMinutes(time), minutes, cls: 'ev-draft', title: form.querySelector('#f-title').value.trim() || 'This task', sub: `${t12(time)} - ${t12m(R.toMinutes(time) + minutes)}` }];
+}
+
+function setSideDay(key) {
+  const side = modal.querySelector('#side-cal');
+  if (!side || !key) return;
+  side.dataset.day = key;
+  modal.querySelector('#side-cal-title').textContent = fmtDay(key, { weekday: 'long', month: 'short', day: 'numeric' });
+  refreshSideCalendar();
+}
+
 function refreshSideCalendar() {
   const el = modal.querySelector('#side-cal');
   if (!el) return;
   const key = el.dataset.day;
-  el.innerHTML = timelineHTML(ioItems(key), { px: 28, startHour: 7, endHour: 22 });
-  el.id = 'side-cal';
-  fillCalendar('side-cal', key, { px: 28, startHour: 7, endHour: 22 });
+  const extra = draftCalendarItem(key);
+  const cached = G.isConnected() ? G.cachedDay(key) : null;
+  el.innerHTML = timelineHTML([...ioItems(key), ...extra, ...(cached ? googleItems(key, cached) : [])], SIDE);
+  fillCalendar('side-cal', key, { ...SIDE, extra });
+}
+
+// Fills the 3 steps from the template, unless you already wrote your own.
+function autoSteps(form, { force = false } = {}) {
+  if (pressedValue(form, 'stepsBy') === 'me') return;
+  const title = form.querySelector('#f-title').value.trim();
+  if (!title) return;
+  const inputs = [0, 1, 2].map((i) => form.querySelector(`#f-step${i}`));
+  const untouched = inputs.every((inp) => !inp.value.trim() || inp.dataset.auto === inp.value);
+  if (!untouched && !force) return;
+  const steps = R.templateSteps(title, pressedValue(form, 'place'), pressedValue(form, 'computer') !== 'no');
+  inputs.forEach((inp, i) => { inp.value = steps[i]; inp.dataset.auto = steps[i]; });
+}
+
+// A second part of the same task, for buffer time: same goal, length and steps, no fixed time.
+function openCopyOf(t) {
+  const prefill = {
+    title: R.nextPartTitle(t.title, state.tasks), goalId: t.goalId, priority: t.priority, deadline: t.deadline,
+    minutes: t.minutes, place: t.place, destination: t.destination, computer: t.computer,
+    firstSteps: [...(t.firstSteps || [])], stepsBy: t.stepsBy, needs: (t.needs || []).map((n) => ({ ...n, done: false })),
+  };
+  openModal(taskFormHTML(null, { prefill }), true);
+  refreshSideCalendar();
+  toast(`Saved. Now the copy: ${prefill.title}.`);
 }
 
 async function askClaude() {
@@ -1367,12 +1678,13 @@ async function askClaude() {
   if (!title) { status.textContent = 'Write the task name first.'; return; }
   const g = goal(form.querySelector('#f-goal').value);
   const place = pressedValue(form, 'place');
+  const computer = pressedValue(form, 'computer') !== 'no';
   if (!AI.hasKey()) {
     // No Claude key: fill a simple template so there is always a way to start.
-    R.templateSteps(title, place).forEach((s, i) => { form.querySelector(`#f-step${i}`).value = s; });
+    autoSteps(form, { force: true });
     const needs = form.querySelector('#f-needs');
     if (!needs.value.trim()) needs.value = AI.FALLBACK_NEEDS;
-    status.textContent = 'Simple template filled in. Edit it to fit. (With a Claude key in Settings, these get smarter.)';
+    status.textContent = 'Simple steps filled in. Edit them to fit. For smarter ones, add a Claude key in Settings.';
     return;
   }
   status.textContent = 'Asking Claude...';
@@ -1383,8 +1695,9 @@ async function askClaude() {
       title, goal: g?.title, why: g?.why,
       minutes: Number(form.querySelector('#f-minutes').value) || null,
       place: R.PLACES[place] || null,
+      computer,
     });
-    out.firstSteps.forEach((s, i) => { const inp = form.querySelector(`#f-step${i}`); if (inp) inp.value = s; });
+    out.firstSteps.forEach((s, i) => { const inp = form.querySelector(`#f-step${i}`); if (inp) { inp.value = s; inp.dataset.auto = s; } });
     const needs = form.querySelector('#f-needs');
     if (!needs.value.trim()) needs.value = out.toGetItDone.join('\n');
     status.textContent = 'Done. Edit anything that does not fit.';
@@ -1498,10 +1811,14 @@ function settingsHTML() {
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
-      <strong>Claude (first-step suggestions)</strong>
-      <span class="hint">Your own Claude API key. Saved only in this browser, never on GitHub. Only the task name, its goal and the goal's why are sent.</span>
+      <strong>Claude (steps, notes and email)</strong>
+      <span class="hint">An API key from <strong>console.anthropic.com</strong> (API keys), not your Claude chat subscription. It starts with <span class="mono">sk-ant-</span> and needs a little credit under Billing. Saved only in this browser profile, never on GitHub.</span>
       <div class="field"><label for="s-key">Claude API key</label>
-        <input class="input" type="password" id="s-key" name="claudeKey" value="${esc(AI.getKey())}" placeholder="sk-ant-..." autocomplete="off"></div>
+        <input class="input" type="password" id="s-key" name="claudeKey" value="${esc(AI.getKey())}" placeholder="sk-ant-api03-..." autocomplete="off"></div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        <button type="button" class="btn btn-small" data-action="test-key">Check the key</button>
+        <span class="hint key-status">${AI.hasKey() ? (AI.looksLikeKey(AI.getKey()) ? 'A key is saved.' : 'The saved key does not look like a Claude API key.') : 'No key saved yet.'}</span>
+      </div>
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
@@ -1563,7 +1880,7 @@ function quickCapture(alreadyDone) {
     if (existing) { input.setAttribute('aria-invalid', 'true'); toast(`"${existing.title}" is already in your list.`); return; }
     state.tasks.push({ id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0, title, goalId: 'life', priority: 'nice', deadline: '', minutes: 30, firstSteps: [], firstStep: '', stepsBy: 'me', place: 'everywhere', destination: '', fixedDate: '', fixedTime: null, needs: [], promotionBlocked: false, source: 'capture' });
     ui.open.nice = true;
-    persist([`Added to 🤔 Nice to have: ${title}. Give it a priority when you are ready.`]);
+    persist([`Added to 🤔 Tasks for later: ${title}. Give it a priority when you are ready.`]);
   }
   document.getElementById('cap-text')?.focus();
 }
@@ -1596,6 +1913,9 @@ function googleItemsFor(day) {
 
 async function setPlan(dayKey) {
   const day = getDay(dayKey);
+  if ('Notification' in window && Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch { /* not supported */ }
+  }
   const msgs = [];
   if (G.isConfigured()) {
     try {
@@ -1707,6 +2027,73 @@ const actions = {
     closeModal();
     persist(['Removed from your list. The calendar event stays.']);
   },
+  'trash-task': (el) => {
+    const t = task(el.dataset.id);
+    if (!t) return;
+    const from = [];
+    Object.entries(state.days).forEach(([key, d]) => {
+      if (!d.taskIds.includes(t.id)) return;
+      from.push(key);
+      d.taskIds = d.taskIds.filter((x) => x !== t.id);
+      if (d.plan) d.planStale = true;
+    });
+    Object.assign(t, { status: 'trashed', trashedAt: new Date().toISOString(), trashedFrom: from });
+    persist();
+    toast(`Trashed: ${t.title}`, { label: 'Undo', data: { action: 'untrash-task', id: t.id } });
+  },
+  'untrash-task': (el) => {
+    const t = task(el.dataset.id);
+    if (!t || t.status !== 'trashed') return;
+    t.status = 'open';
+    (t.trashedFrom || []).forEach((key) => { const d = state.days[key]; if (d && !d.taskIds.includes(t.id) && d.taskIds.length < d.slots) { d.taskIds.push(t.id); if (d.plan) d.planStale = true; } });
+    delete t.trashedFrom;
+    persist([`Back in your list: ${t.title}`]);
+  },
+  'busy-prio': (el) => {
+    const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
+    if (!c) return;
+    const draft = taskFromCalendar(c, { priority: el.dataset.priority, goalId: goal(ui.lastGoal) ? ui.lastGoal : 'life' });
+    const problems = R.validateTask(draft, state.tasks, todayKey(), S());
+    if (problems.length) { toast(problems[0]); return; }
+    state.tasks.push(draft);
+    addCalendarTaskToDay(draft, c.date);
+    persist([`${R.PRIORITIES[draft.priority].mark} ${draft.title} is in your task list. Click it to change the goal.`]);
+  },
+  'busy-ok': (el) => { getDay(el.dataset.day).busyOk = true; persist(); },
+  'start-task': (el) => openStarter(task(el.dataset.id)),
+  'starter-next': () => { if (!starter) return; starter.i += 1; showStarterStep(); },
+  'starter-close': () => { stopStarterTimer(); starter = null; closeModal(); },
+  'copy-task': () => {
+    const form = modal.querySelector('form[data-form="task"]');
+    if (!form) return;
+    form.dataset.thenCopy = '1';
+    form.requestSubmit();
+  },
+  'side-cal-move': (el) => {
+    const side = modal.querySelector('#side-cal');
+    if (side) setSideDay(R.addDays(side.dataset.day, Number(el.dataset.step)));
+  },
+  'clear-fixed': () => {
+    const form = modal.querySelector('form[data-form="task"]');
+    form.querySelector('[name="fixedTime_h"]').value = '';
+    form.querySelector('#f-date').value = '';
+    refreshSideCalendar();
+  },
+  'test-key': async () => {
+    const input = modal.querySelector('#s-key');
+    const status = modal.querySelector('.key-status');
+    const key = input.value.trim();
+    if (!AI.looksLikeKey(key)) { status.textContent = 'That is not a Claude API key. It starts with sk-ant- and comes from console.anthropic.com > API keys.'; return; }
+    status.textContent = 'Checking...';
+    try {
+      await AI.testKey(key);
+      AI.setKey(key);
+      status.textContent = 'It works. Claude is connected in this browser profile.';
+    } catch (err) { status.textContent = err.message; }
+  },
+  'open-email': () => openModal(emailHTML()),
+  'email-scan': (el) => scanEmail(el),
+  'email-paste': () => reviewPasted(),
   'quick-add': () => quickCapture(false),
   'quick-done': () => quickCapture(true),
   'welcome-start': () => closeWelcome(true),
@@ -1749,7 +2136,7 @@ const actions = {
   },
   'reopen-task': (el) => { Object.assign(task(el.dataset.id), { status: 'open', doneAt: null }); persist(); },
   'keep-task': (el) => { task(el.dataset.id).lastTouchedAt = new Date().toISOString(); persist(['Kept. It stays important.']); },
-  'demote-task': (el) => { Object.assign(task(el.dataset.id), { priority: 'nice', lastTouchedAt: new Date().toISOString() }); persist(['Moved to nice to have.']); },
+  'demote-task': (el) => { Object.assign(task(el.dataset.id), { priority: 'nice', lastTouchedAt: new Date().toISOString() }); persist(['Moved to tasks for later.']); },
   'delete-task': () => {
     const id = modal.querySelector('form').dataset.id;
     if (!confirm('Delete this task for good?')) return;
@@ -1792,7 +2179,8 @@ const actions = {
   'talk-skip': () => {
     const after = talkDraft ? talkDraft.after : () => {};
     const prefix = talkDraft ? talkDraft.prefix : '';
-    talkDraft = null; closeModal(); after(); render(); toast(`${prefix}Note saved.`);
+    const wasNote = !(talkDraft && talkDraft.heading);
+    talkDraft = null; closeModal(); after(); render(); toast(wasNote ? `${prefix}Note saved.` : 'Nothing added.');
   },
   'review': (el) => openModal(reviewHTML(Number(el.dataset.block))),
   'open-settings': () => openModal(settingsHTML()),
@@ -1807,14 +2195,15 @@ document.addEventListener('click', (e) => {
     const group = pick.parentElement;
     group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === pick)));
     const name = group.dataset.group;
+    const taskForm = modal.querySelector('form[data-form="task"]');
     if (name === 'place') {
       modal.querySelectorAll('.commute-fields').forEach((n) => { n.hidden = pick.dataset.value !== 'commute'; });
+      if (taskForm) autoSteps(taskForm);
     }
+    if (name === 'computer' && taskForm) autoSteps(taskForm);
     if (name === 'stepsBy') {
-      const row = modal.querySelector('.claude-row');
-      row.hidden = pick.dataset.value !== 'claude';
-      const empty = [0, 1, 2].every((i) => !modal.querySelector(`#f-step${i}`).value.trim());
-      if (pick.dataset.value === 'claude' && empty && modal.querySelector('#f-title').value.trim()) askClaude();
+      modal.querySelector('.claude-row').hidden = pick.dataset.value !== 'suggest';
+      if (pick.dataset.value === 'suggest' && modal.querySelector('#f-title').value.trim()) askClaude();
     }
     if (name.startsWith('result-')) {
       const reason = group.closest('.review-task').querySelector('.reason');
@@ -1823,6 +2212,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   const el = e.target.closest('[data-action]');
+  if (el && el.dataset.action === 'cal-item' && el.closest('#side-cal')) return;
   if (el && actions[el.dataset.action]) {
     e.preventDefault();
     actions[el.dataset.action](el);
@@ -1841,12 +2231,17 @@ document.addEventListener('change', async (e) => {
     if (day) day.planStale = true;
     persist();
   } else if (el.dataset.change === 'form-cal-day') {
-    const side = modal.querySelector('#side-cal');
-    if (side && el.value) {
-      side.dataset.day = el.value;
-      modal.querySelector('#side-cal-title').textContent = fmtDay(el.value, { weekday: 'long', month: 'short', day: 'numeric' });
-      refreshSideCalendar();
-    }
+    if (el.value) setSideDay(el.value); else refreshSideCalendar();
+  } else if (el.dataset.change === 'form-deadline') {
+    if (el.value && !modal.querySelector('#f-date').value) setSideDay(el.value);
+  } else if (el.dataset.change === 'form-cal-redraw' || (el.name && el.name.startsWith('fixedTime_') && el.closest('form[data-form="task"]'))) {
+    refreshSideCalendar();
+  } else if (el.id === 'f-title' && AI.hasKey()) {
+    // With a Claude key, smarter steps arrive once you finish typing the name (unless you wrote your own).
+    const form = el.closest('form');
+    const inputs = [0, 1, 2].map((i) => form.querySelector(`#f-step${i}`));
+    const untouched = inputs.every((inp) => !inp.value.trim() || inp.dataset.auto === inp.value);
+    if (pressedValue(form, 'stepsBy') !== 'me' && untouched && el.value.trim()) askClaude();
   } else if (el.dataset.change === 'import') {
     try {
       state = await readBackup(el.files[0]);
@@ -1878,6 +2273,8 @@ modal.addEventListener('submit', (e) => {
   const kind = form.dataset.form;
 
   if (kind === 'task') {
+    const thenCopy = form.dataset.thenCopy === '1';
+    delete form.dataset.thenCopy;
     const existing = form.dataset.id ? task(form.dataset.id) : null;
     const nowIso = new Date().toISOString();
     const firstSteps = [0, 1, 2].map((i) => (data.get(`step${i}`) || '').trim()).filter(Boolean);
@@ -1891,6 +2288,7 @@ modal.addEventListener('submit', (e) => {
       firstSteps,
       firstStep: firstSteps[0] || '',
       stepsBy: pressedValue(form, 'stepsBy') || 'me',
+      computer: pressedValue(form, 'computer') !== 'no',
       place: pressedValue(form, 'place') || 'everywhere',
       destination: (data.get('destination') || '').trim(),
       fixedDate: data.get('fixedDate') || '',
@@ -1906,6 +2304,7 @@ modal.addEventListener('submit', (e) => {
     closeModal();
     if (form.dataset.day) addToDay(draft.id, form.dataset.day);
     persist([existing ? 'Task updated.' : 'Task saved to your backlog.']);
+    if (thenCopy) openCopyOf(draft);
   }
 
   if (kind === 'goal') {
@@ -1984,6 +2383,8 @@ modal.addEventListener('submit', (e) => {
     const problems = [];
     if (starts.length === 0) problems.push('Add at least one block start time, like 8:00 AM.');
     if (gid && !gid.endsWith('.apps.googleusercontent.com')) problems.push('The Google Client ID ends with .apps.googleusercontent.com. Copy the whole thing.');
+    const key = String(data.get('claudeKey') || '').trim();
+    if (key && !AI.looksLikeKey(key)) problems.push('That is not a Claude API key. It starts with sk-ant- and comes from console.anthropic.com > API keys.');
     if (problems.length) { showErrors(form, problems); return; }
     state.settings = {
       ...S(),
@@ -2000,7 +2401,11 @@ modal.addEventListener('submit', (e) => {
   }
 });
 
-modal.addEventListener('close', () => { stopMic(); modal.innerHTML = ''; modal.classList.remove('wide'); });
+// The close event arrives a moment later; if a new window already opened (like the copy), leave it alone.
+modal.addEventListener('close', () => {
+  if (modal.open) return;
+  stopMic(); stopStarterTimer(); modal.innerHTML = ''; modal.classList.remove('wide');
+});
 
 // ---------- drag to reorder the day's tasks ----------
 
@@ -2069,6 +2474,98 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'cap-text') e.target.removeAttribute('aria-invalid');
+  if (e.target && e.target.id === 'f-title') autoSteps(e.target.closest('form'));
+});
+
+// ---------- drag a task from the list into today or tomorrow ----------
+
+document.addEventListener('dragstart', (e) => {
+  const row = e.target.closest && e.target.closest('[data-task-drag]');
+  if (!row) return;
+  e.dataTransfer.setData('text/plain', row.dataset.taskDrag);
+  e.dataTransfer.effectAllowed = 'copy';
+  document.body.classList.add('dragging-task');
+});
+document.addEventListener('dragend', () => {
+  document.body.classList.remove('dragging-task');
+  document.querySelectorAll('.drop-over').forEach((z) => z.classList.remove('drop-over'));
+});
+document.addEventListener('dragover', (e) => {
+  const zone = e.target.closest && e.target.closest('.col-day');
+  if (!zone || !document.body.classList.contains('dragging-task')) return;
+  e.preventDefault();
+  zone.classList.add('drop-over');
+});
+document.addEventListener('dragleave', (e) => {
+  const zone = e.target.closest && e.target.closest('.col-day');
+  if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove('drop-over');
+});
+document.addEventListener('drop', (e) => {
+  const zone = e.target.closest && e.target.closest('.col-day');
+  if (!zone) return;
+  e.preventDefault();
+  zone.classList.remove('drop-over');
+  document.body.classList.remove('dragging-task');
+  const id = e.dataTransfer.getData('text/plain');
+  const key = zone.querySelector('.slots')?.dataset.day;
+  if (id && key && task(id)) addToDay(id, key);
+});
+
+// ---------- pick a time by dragging on the task form's calendar ----------
+
+let timePick = null;
+
+function pickMinute(y) {
+  const m = SIDE.startHour * 60 + ((y - timePick.rect.top) / SIDE.px) * 60;
+  return Math.max(SIDE.startHour * 60, Math.min(SIDE.endHour * 60, Math.round(m / 15) * 15));
+}
+
+function drawPick() {
+  const a = Math.min(timePick.from, timePick.to);
+  const b = Math.max(timePick.from, timePick.to);
+  const len = b > a ? b - a : (Number(modal.querySelector('#f-minutes')?.value) || 30);
+  timePick.sel.style.top = `${((a - SIDE.startHour * 60) / 60) * SIDE.px}px`;
+  timePick.sel.style.height = `${Math.max((len / 60) * SIDE.px, 14)}px`;
+  timePick.sel.textContent = `${t12m(a)} - ${t12m(a + len)}`;
+}
+
+document.addEventListener('pointerdown', (e) => {
+  const grid = e.target.closest && e.target.closest('#side-cal .grid');
+  if (!grid || e.button > 0) return;
+  if (e.pointerType === 'mouse') e.preventDefault();
+  const sel = document.createElement('div');
+  sel.className = 'pick-sel';
+  grid.appendChild(sel);
+  timePick = { grid, sel, rect: grid.getBoundingClientRect(), moved: false };
+  timePick.from = pickMinute(e.clientY);
+  timePick.to = timePick.from;
+  drawPick();
+});
+document.addEventListener('pointermove', (e) => {
+  if (!timePick) return;
+  const to = pickMinute(e.clientY);
+  if (to !== timePick.to) { timePick.to = to; timePick.moved = true; drawPick(); }
+});
+document.addEventListener('pointercancel', () => { if (timePick) { timePick.sel.remove(); timePick = null; } });
+document.addEventListener('pointerup', () => {
+  if (!timePick) return;
+  const { from, to, moved, sel } = timePick;
+  timePick = null;
+  sel.remove();
+  const form = modal.querySelector('form[data-form="task"]');
+  if (!form) return;
+  const start = Math.min(from, to);
+  const hhmm = R.toHHMM(start);
+  const [h, m] = hhmm.split(':').map(Number);
+  form.querySelector('[name="fixedTime_h"]').value = String(h % 12 === 0 ? 12 : h % 12);
+  form.querySelector('[name="fixedTime_m"]').value = String(m).padStart(2, '0');
+  form.querySelector('[name="fixedTime_ap"]').value = h >= 12 ? 'PM' : 'AM';
+  const day = modal.querySelector('#side-cal').dataset.day;
+  form.querySelector('#f-date').value = day;
+  if (moved && Math.abs(to - from) >= 15) form.querySelector('#f-minutes').value = Math.abs(to - from);
+  const deadline = form.querySelector('#f-deadline');
+  if (!deadline.value) deadline.value = day;
+  refreshSideCalendar();
 });
 
 // ---------- start ----------
@@ -2079,6 +2576,7 @@ const startupMessages = dailyCheck();
 render();
 startupMessages.forEach(toast);
 maybeWelcome();
+maybeAutoStart();
 
 // Keep the "now" line and current block fresh, without disturbing typing.
 setInterval(() => {
@@ -2089,6 +2587,7 @@ setInterval(() => {
     msgs.forEach(toast);
     maybeWelcome();
   }
+  maybeAutoStart();
 }, 60000);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

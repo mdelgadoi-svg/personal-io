@@ -21,7 +21,28 @@ export function setKey(key) {
 
 export function hasKey() { return getKey().length > 10; }
 
-function buildPrompt({ title, goal, why, minutes, place }) {
+// Claude API keys look like sk-ant-api03-... (from console.anthropic.com).
+export function looksLikeKey(key) { return /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(key || '').trim()); }
+
+// A tiny request to check the key works. Returns true, or throws with a plain reason.
+export async function testKey(key = getKey()) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json', 'x-api-key': key.trim(),
+      'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({ model: MODEL, max_tokens: 16, messages: [{ role: 'user', content: 'Reply with OK.' }] }),
+  });
+  if (res.ok) return true;
+  if (res.status === 401) throw new Error('Claude did not accept this key. Copy it again from console.anthropic.com.');
+  if (res.status === 402 || res.status === 403) throw new Error('The key works but the account needs credit. Add credit in console.anthropic.com > Billing.');
+  let detail = '';
+  try { detail = (await res.json())?.error?.message || ''; } catch { /* ignore */ }
+  throw new Error(`Claude answered with an error${detail ? ': ' + detail : ''}.`);
+}
+
+function buildPrompt({ title, goal, why, minutes, place, computer = true }) {
   return `You help someone with ADHD start tasks. Starting is the hardest part, so first steps must be tiny, physical and concrete.
 
 Task: ${title}
@@ -29,6 +50,7 @@ Goal it serves: ${goal || 'not given'}
 Why the goal matters: ${why || 'not given'}
 Time planned: ${minutes ? minutes + ' minutes' : 'not given'}
 Where: ${place || 'not given'}
+Done on a computer: ${computer ? 'yes' : 'no'}
 
 Reply with JSON only, no other text:
 {
@@ -37,7 +59,7 @@ Reply with JSON only, no other text:
 }
 
 Rules:
-- firstSteps: exactly 3 steps, each doable in under 20 seconds, in order. Start with setting up the space (for example: close other windows, put the phone face down), then open the exact thing needed, then the very first action. Each step under 12 words.
+- firstSteps: exactly 3 steps, each doable in under a minute, in order. If it is done on a computer, step 1 is always "Close all windows and tabs" (you may add one more short setup action). If not, step 1 sets up the space away from screens. Step 2 opens or gets out the exact thing needed. Step 3 is the very first action. Each step under 12 words.
 - toGetItDone: 1 to 4 short items the task truly needs (materials, documents, people, prep). Only include what you can reasonably infer from the task and goal. If you cannot tell, return an empty list.
 - Plain words. No em dashes.`;
 }
@@ -110,6 +132,40 @@ Rules:
   const namedGoals = {};
   (out.namedGoals || []).forEach((n) => { if (n && n.title) namedGoals[String(n.title).trim().toLowerCase()] = fit(n.goalId); });
   return { suggestions, namedGoals };
+}
+
+// Reads email subjects, senders and previews and pulls out things you need to do.
+// Returns at most 8 suggestions; most emails are not tasks.
+export async function tasksFromEmails(emails, goals, openTitles = []) {
+  const goalList = goals.map((g) => `- ${g.id}: ${g.title}`).join('\n');
+  const list = emails.map((e, i) => `[${i}] ${e.sent ? 'I SENT' : 'FROM ' + e.from} | ${e.date} | ${e.subject}\n${e.snippet}`).join('\n\n');
+  const out = await ask(`Find the things this person needs to do, from their last two weeks of email.
+
+Emails (subject, sender and a short preview only):
+${list}
+
+Goals (id: title):
+${goalList}
+
+Tasks they already have: ${openTitles.length ? openTitles.slice(0, 60).join('; ') : 'none'}
+
+Reply with JSON only:
+{ "tasks": [ { "title": "...", "goalId": "...", "minutes": 30, "email": 0 } ] }
+
+Rules:
+- At most 8 tasks. Only clear actions: something they promised in an email they sent ("I'll send it Friday"), or something someone directly asked them to do. Skip newsletters, ads, receipts, notifications and FYIs.
+- Skip anything already in their tasks.
+- title: start with a verb, under 10 words, name the person or topic. No em dashes.
+- goalId: the goal it serves, or "life".
+- minutes: 15, 30, 45, 60, 90 or 120.
+- email: the [number] of the email it came from.`);
+  const ids = new Set(goals.map((g) => g.id));
+  return (out.tasks || []).slice(0, 8).map((t) => ({
+    title: String(t.title || '').trim(),
+    goalId: ids.has(t.goalId) ? t.goalId : 'life',
+    minutes: [15, 30, 45, 60, 90, 120].includes(Number(t.minutes)) ? Number(t.minutes) : 30,
+    from: emails[Number(t.email)] ? emails[Number(t.email)].subject : '',
+  })).filter((t) => t.title);
 }
 
 export async function suggestForTask(input) {

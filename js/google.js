@@ -176,3 +176,69 @@ export async function writeDay(dateKey, items, previousIds = []) {
   cache.delete(dateKey);
   return ids;
 }
+
+// ---------- Gmail (read only, on request) ----------
+// Separate from the calendar sign-in, and only when you click "Read my last 2 weeks".
+// Reads subject, sender, date and Google's short preview. Never full emails, never attachments.
+
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+let gmailToken = null;
+let gmailExpires = 0;
+
+export function gmailConnected() { return !!gmailToken && Date.now() < gmailExpires; }
+
+export async function connectGmail() {
+  if (!isConfigured()) throw new Error('Add your Google Client ID in Settings first.');
+  await loadGis();
+  return new Promise((resolve, reject) => {
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: getClientId(),
+      scope: GMAIL_SCOPE,
+      callback: (resp) => {
+        if (resp.error) { reject(new Error('Gmail sign-in was not completed.')); return; }
+        gmailToken = resp.access_token;
+        gmailExpires = Date.now() + (Number(resp.expires_in) - 60) * 1000;
+        resolve();
+      },
+      error_callback: () => reject(new Error('Gmail sign-in was closed.')),
+    });
+    client.requestAccessToken({ prompt: 'select_account' });
+  });
+}
+
+async function gmail(path) {
+  if (!gmailConnected()) throw new Error('not-connected');
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { headers: { Authorization: `Bearer ${gmailToken}` } });
+  if (res.status === 401) { gmailToken = null; throw new Error('not-connected'); }
+  if (res.status === 403) {
+    let msg = '';
+    try { msg = (await res.json())?.error?.message || ''; } catch { /* ignore */ }
+    if (/has not been used|is disabled/i.test(msg)) throw new Error('The Gmail API is off in your Google Cloud project. Turn it on: APIs & Services > Library > Gmail API > Enable.');
+    throw new Error('Google did not allow reading this mailbox. Your school account may block it; try your personal Gmail.');
+  }
+  if (!res.ok) throw new Error(`Gmail said no (${res.status}).`);
+  return res.json();
+}
+
+// The last `days` days of mail you received or sent (no promotions or social), newest first.
+export async function recentEmails(days = 14, max = 40) {
+  const q = encodeURIComponent(`newer_than:${days}d -category:promotions -category:social -category:forums`);
+  const list = await gmail(`messages?maxResults=${max}&q=${q}`);
+  const ids = (list.messages || []).map((m) => m.id);
+  const out = [];
+  for (let i = 0; i < ids.length; i += 10) {
+    const batch = await Promise.all(ids.slice(i, i + 10).map((id) =>
+      gmail(`messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`).catch(() => null)));
+    batch.filter(Boolean).forEach((m) => {
+      const h = (name) => (m.payload?.headers || []).find((x) => x.name.toLowerCase() === name)?.value || '';
+      out.push({
+        subject: h('subject') || '(no subject)',
+        from: h('from').replace(/<.*>/, '').trim(),
+        date: h('date').slice(0, 16),
+        snippet: (m.snippet || '').slice(0, 220),
+        sent: (m.labelIds || []).includes('SENT'),
+      });
+    });
+  }
+  return out;
+}
