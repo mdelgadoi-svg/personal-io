@@ -274,3 +274,19 @@ test('markers without a space are removed too, minus signs in numbers are not', 
   assert.equal(cleanListLine('-Book flights'), 'Book flights');
   assert.equal(cleanListLine('-5 degrees plan'), '-5 degrees plan');
 });
+
+import { layoutLanes, findFreeSlot } from '../js/rules.js';
+
+test('overlapping events sit side by side', () => {
+  const out = layoutLanes([{ start: 720, minutes: 90 }, { start: 750, minutes: 120 }, { start: 840, minutes: 60 }, { start: 1200, minutes: 60 }]);
+  assert.deepEqual(out.map((o) => [o.lane, o.of]), [[0, 2], [1, 2], [0, 2], [0, 1]]);
+});
+
+test('a task goes in the first free time that fits', () => {
+  const busy = [{ start: '08:00', minutes: 60 }, { start: '09:30', minutes: 60 }];
+  assert.equal(findFreeSlot(30, busy, 8 * 60), '09:00');
+  assert.equal(findFreeSlot(60, busy, 8 * 60), '10:30');
+  assert.equal(findFreeSlot(60, busy, 21 * 60 + 30), null);
+  // commuting needs 30 minutes before as well
+  assert.equal(findFreeSlot(30, busy, 8 * 60, 22 * 60, 30), '11:00');
+});

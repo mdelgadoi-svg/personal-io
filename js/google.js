@@ -111,6 +111,8 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
     if (e.start?.date) return { id: e.id, title: e.summary || '(no title)', allDay: true };
     const s = new Date(e.start.dateTime);
     const f = new Date(e.end.dateTime);
+    // Runs past midnight and lasts 6+ hours (like a multi-day deadline window): show it as all-day, like Google does.
+    if ((s < start || f > end) && f - s >= 6 * 3600000) return { id: e.id, title: e.summary || '(no title)', allDay: true };
     const startMin = Math.max(0, (s - start) / 60000);
     const endMin = Math.min(24 * 60, (f - start) / 60000);
     const hasVideo = !!(e.hangoutLink || (e.location || '').includes('zoom') || (e.description || '').includes('zoom.us'));

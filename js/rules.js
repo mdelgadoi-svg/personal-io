@@ -373,6 +373,37 @@ export function cleanListLine(line) {
   return String(line || '').replace(/^\s*(?:[*•]\s*|-(?=\s|\p{L})\s*)?(?:\d+[.)]\s+)?(?:\[[ xX]?\]\s*)?/u, '').trim();
 }
 
+// Side-by-side columns for events that overlap (like Google Calendar).
+// items: [{ start: minutes, minutes }] -> [{ lane, of }] in the same order.
+export function layoutLanes(items) {
+  const order = items.map((it, i) => ({ i, a: it.start, b: it.start + Math.max(it.minutes, 15) })).sort((x, y) => x.a - y.a || y.b - x.b);
+  const out = new Array(items.length);
+  let group = [];
+  let groupEnd = -1;
+  const close = () => { const of = Math.max(...group.map((g) => out[g.i].lane)) + 1; group.forEach((g) => { out[g.i].of = of; }); group = []; };
+  for (const ev of order) {
+    if (group.length && ev.a >= groupEnd) close();
+    const busy = new Set(group.filter((g) => g.b > ev.a).map((g) => out[g.i].lane));
+    let lane = 0;
+    while (busy.has(lane)) lane += 1;
+    out[ev.i] = { lane, of: 1 };
+    group.push(ev);
+    groupEnd = Math.max(groupEnd, ev.b);
+  }
+  if (group.length) close();
+  return out;
+}
+
+// First free start time (every 15 min) for something `minutes` long, from `from` until `until` (minutes of the day).
+// busy: [{ start: 'HH:MM', minutes, commute }]. `before` is extra time needed before it (commute).
+export function findFreeSlot(minutes, busy, from, until = 22 * 60, before = 0, commuteMinutes = 30) {
+  const spans = busy.map((b) => [toMinutes(b.start) - (b.commute ? commuteMinutes : 0), toMinutes(b.start) + b.minutes]);
+  for (let s = Math.ceil((from + before) / 15) * 15; s + minutes <= until; s += 15) {
+    if (!spans.some(([a, b]) => s - before < b && s + minutes > a)) return toHHMM(s);
+  }
+  return null;
+}
+
 // ---------- talking: notes first, tasks only when named ----------
 
 // The word "task" (or "tarea") marks a task only at the start of a sentence,

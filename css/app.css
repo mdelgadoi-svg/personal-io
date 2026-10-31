@@ -445,3 +445,27 @@ dialog:not(.wide) .modal-side { display: none; }
 @media (max-width: 760px) { .item-actions { flex-wrap: nowrap; } }
 .for-touch { display: none; }
 @media (hover: none) and (pointer: coarse) { .for-touch { display: inline; } .for-mouse { display: none; } }
+
+/* ---------- v1.7: tasks with their own times ---------- */
+.plan-row { display: flex; gap: 12px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.plan-row.is-done { opacity: .6; }
+.plan-row.is-done .slot-title { text-decoration: line-through; }
+.plan-time { flex: 0 0 74px; display: flex; flex-direction: column; font-size: 14px; color: var(--ink-2); }
+.plan-time strong { font-size: 16px; color: var(--ink); }
+.plan-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.plan-actions { display: flex; align-items: center; gap: 4px; }
+.plan-actions .btn-small { white-space: nowrap; }
+.time-edit { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.time-edit select { min-height: 42px; }
+.slots { display: flex; flex-direction: column; gap: 8px; }
+.ev-move { cursor: grab; touch-action: none; }
+.ev-move.moving { cursor: grabbing; box-shadow: 0 6px 18px rgb(0 0 0 / 25%); z-index: 5; outline: 2px solid var(--primary); }
+.cal-suggest { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.cal-suggest-head { display: flex; flex-direction: column; gap: 2px; }
+.cal-suggest .busy-row { background: var(--ground); }
+.busy-line { color: var(--ink); font-weight: 600; font-size: 14px; }
+.busy-btns .btn-small { min-width: 40px; padding: 0 8px; }
+@media (max-width: 760px) {
+  .plan-row { flex-wrap: wrap; }
+  .plan-time { flex-basis: auto; flex-direction: row; gap: 6px; width: 100%; }
+}

@@ -55,7 +55,7 @@ function stepsOf(t) { return t.firstSteps && t.firstSteps.length ? t.firstSteps 
 
 function getDay(key) {
   if (!state.days[key]) {
-    state.days[key] = { intention: '', taskIds: [], slots: S().daySlots, plan: null, planStale: false, set: false, reviewed: {}, googleIds: [] };
+    state.days[key] = { intention: '', taskIds: [], times: {}, slots: S().daySlots, plan: null, planStale: false, set: false, reviewed: {}, googleIds: [] };
   }
   return state.days[key];
 }
@@ -202,6 +202,7 @@ function blockGoalNames(block) {
 
 function itemTitle(item) {
   if (item.type === 'block') {
+    if (item.block.taskIds.length === 1 && task(item.block.taskIds[0])) return task(item.block.taskIds[0]).title;
     const names = blockGoalNames(item.block);
     return `Deep work${names ? ' · ' + names : ''}`;
   }
@@ -287,20 +288,24 @@ function hoursHTML({ startHour = 7, endHour = 23, px = 56 } = {}) {
 function gridHTML(items, { startHour = 7, endHour = 23, px = 56, nowLine = false } = {}) {
   const top = (m) => ((m - startHour * 60) / 60) * px;
   const height = (endHour - startHour) * px;
-  const boxes = items
-    .filter((it) => it.start + it.minutes > startHour * 60 && it.start < endHour * 60)
-    .map((it) => {
+  const shown = items.filter((it) => it.start + it.minutes > startHour * 60 && it.start < endHour * 60);
+  const lanes = R.layoutLanes(shown);
+  const boxes = shown
+    .map((it, i) => {
       const h = Math.max((it.minutes / 60) * px - 2, 16);
-      const style = `top:${Math.max(top(it.start), 0)}px; height:${h}px; ${it.style || ''}`;
+      const { lane, of } = lanes[i];
+      const side = of > 1 ? `left:calc(${(lane / of) * 100}% + 2px); width:calc(${100 / of}% - 4px); right:auto;` : '';
+      const style = `top:${Math.max(top(it.start), 0)}px; height:${h}px; ${side} ${it.style || ''}`;
       const inner = `${esc(it.title)}${it.sub ? `<span class="sub">${esc(it.sub)}</span>` : ''}`;
       const cls = `ev ${it.cls}${it.done ? ' is-done' : ''}`;
+      if (it.move) return `<div class="${cls}" style="${style}" data-move="${esc(it.move)}" data-date="${esc(it.date)}" role="button" tabindex="0" aria-label="${esc(it.title)}, ${esc(it.sub || '')}. Drag to move.">${inner}</div>`;
       return it.action
         ? `<button type="button" class="${cls}" style="${style}" data-action="${it.action}" data-src="${esc(it.src || '')}" data-id="${esc(it.id || '')}" data-date="${esc(it.date || '')}" aria-label="${esc(it.title)}, ${esc(it.sub || '')}">${inner}</button>`
         : `<div class="${cls}" style="${style}">${inner}</div>`;
     }).join('');
   const now = nowMinutes();
   const line = nowLine && now >= startHour * 60 && now <= endHour * 60 ? `<div class="now-line" style="top:${top(now)}px" aria-label="Now"></div>` : '';
-  return `<div class="grid" style="height:${height}px; background-image: repeating-linear-gradient(to bottom, var(--line-2) 0, var(--line-2) 1px, transparent 1px, transparent ${px}px)">${boxes}${line}</div>`;
+  return `<div class="grid" data-px="${px}" data-start-hour="${startHour}" style="height:${height}px; background-image: repeating-linear-gradient(to bottom, var(--line-2) 0, var(--line-2) 1px, transparent 1px, transparent ${px}px)">${boxes}${line}</div>`;
 }
 
 function timelineHTML(items, opts = {}) {
@@ -332,11 +337,15 @@ function ioItems(key) {
   });
   const day = state.days[key];
   if (day && day.plan) {
-    day.plan.blocks.forEach((b) => items.push({
-      start: R.toMinutes(b.start), minutes: b.minutes, cls: 'ev-io',
-      title: `Deep work · ${b.taskIds.length} task${b.taskIds.length === 1 ? '' : 's'}`,
-      sub: `${t12(b.start)} - ${t12m(R.toMinutes(b.start) + b.minutes)}`,
-    }));
+    day.plan.blocks.forEach((b) => {
+      const one = b.taskIds.length === 1 ? task(b.taskIds[0]) : null;
+      items.push({
+        start: R.toMinutes(b.start), minutes: b.minutes, cls: one ? 'ev-io ev-move' : 'ev-io',
+        title: one ? `${markText(one)}${one.title}` : `Deep work · ${b.taskIds.length} tasks`,
+        sub: `${t12(b.start)} - ${t12m(R.toMinutes(b.start) + b.minutes)}`,
+        move: one && key >= todayKey() ? one.id : '', date: key, done: one && one.status === 'done',
+      });
+    });
     day.plan.events.forEach((e) => items.push(e.kind === 'commute'
       ? { start: R.toMinutes(e.start), minutes: e.minutes, cls: 'ev-commute', title: 'Commute' }
       : { start: R.toMinutes(e.start), minutes: e.minutes, cls: 'ev-io', title: `${markText(task(e.taskId))}${e.title}`, sub: t12(e.start) }));
@@ -384,7 +393,7 @@ async function fillCalendar(id, key, opts = {}) {
     const allDay = events.filter((e) => e.allDay).map((e) => esc(e.title));
     const still = document.getElementById(id);
     if (!still || still.dataset.want !== key) return; // you moved to another day meanwhile
-    still.innerHTML = `${allDay.length ? `<div class="hint" style="margin-bottom:6px">All day: ${allDay.join(', ')}</div>` : ''}${calendarLegendHTML()}${timelineHTML([...io, ...googleItems(key, events)], opts)}`;
+    still.innerHTML = `${allDay.length ? `<div class="hint all-day" style="margin-bottom:6px">All day: ${allDay.slice(0, 2).join(', ')}${allDay.length > 2 ? ` and ${allDay.length - 2} more` : ''}</div>` : ''}${calendarLegendHTML()}${timelineHTML([...io, ...googleItems(key, events)], opts)}`;
   } catch (err) {
     const still = document.getElementById(id);
     if (still && still.dataset.want === key) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${calendarLegendHTML()}${timelineHTML(io, opts)}`;
@@ -508,7 +517,7 @@ function renderStart() {
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const tKey = todayKey();
   const todaySet = !!(state.days[tKey] && state.days[tKey].set);
-  if (!ui.planDay) ui.planDay = (hour >= 15 || todaySet) ? 'tomorrow' : 'today';
+  if (!ui.planDay) ui.planDay = hour >= 20 ? 'tomorrow' : 'today';
   const dayKey = ui.planDay === 'today' ? tKey : tomorrowKey();
 
   return `
@@ -524,7 +533,6 @@ function renderStart() {
   </section>
   ${captureHTML()}
   ${goalsStripHTML()}
-  ${busyDayHTML(dayKey)}
   <div class="cols plan-cols">
     <section class="col col-backlog" aria-label="Tasks and their priorities">
       <div class="col-head"><h2>Tasks and their priorities</h2>
@@ -532,43 +540,17 @@ function renderStart() {
       </div>
       ${ui.goalFilter ? `<div class="hint">Goal: ${esc(goal(ui.goalFilter)?.title || '')} (plus urgent) · <button class="btn-link" data-action="clear-filter">Show all</button></div>` : ''}
       ${backlogGroupsHTML({ addTo: dayKey, goalFilter: ui.goalFilter })}
+      ${calendarSuggestHTML(dayKey)}
     </section>
     <section class="col col-day" aria-label="Day plan">
       ${dayColumnHTML(dayKey)}
     </section>
     <section class="col col-cal card card-pad" aria-label="Calendar">
       <div class="col-head"><h2>Calendar</h2><span class="meta">${esc(fmtDay(dayKey))}</span></div>
-      <span class="hint">Click an event to turn it into a task, or mark it done.</span>
+      <span class="hint">Drag your tasks to move them. Click an event to turn it into a task.</span>
       ${calendarBlockHTML('cal-plan', dayKey, { px: 28, startHour: 7, endHour: 22, nowLine: dayKey === tKey })}
     </section>
   </div>`;
-}
-
-// When the calendar already holds more than 10 hours between 8 AM and 10 PM,
-// ask which of those things really matter. Being busy is not the same as doing what matters.
-function busyDayHTML(dayKey) {
-  const day = getDay(dayKey);
-  if (day.busyOk) return '';
-  const items = calendarItems(dayKey);
-  const busy = R.busyMinutes(items.map((c) => ({ ...c, commuteMinutes: S().commuteMinutes })));
-  if (busy <= 600) return '';
-  const free = items.filter((c) => !c.task);
-  const rows = free.slice(0, 12).map((c) => `
-    <div class="busy-row">
-      <span><span class="mono">${t12(c.start)}</span> ${esc(c.title)} <span class="hint">${R.formatMinutes(c.minutes)}</span></span>
-      <span class="busy-btns">
-        <button type="button" class="btn btn-small" data-action="busy-prio" data-priority="both" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)} is important and urgent">${markHTML('both')}</button>
-        <button type="button" class="btn btn-small" data-action="busy-prio" data-priority="urgent" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)} is urgent">${markHTML('urgent')}</button>
-        <button type="button" class="btn btn-small" data-action="busy-prio" data-priority="important" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)} is important">${markHTML('important')}</button>
-      </span>
-    </div>`).join('');
-  return `
-  <section class="busy-card" aria-label="Busy day check">
-    <div><strong>${esc(fmtDay(dayKey, { weekday: 'long' }))} already has ${R.formatMinutes(busy)} on your calendar between 8 AM and 10 PM.</strong>
-    <div>Being busy is not the same as doing what matters. Are all of these important or urgent? Mark the ones that are, and they go to your task list.</div></div>
-    ${rows ? `<div class="busy-list">${rows}</div>` : '<div class="hint">Everything here is already in your task list.</div>'}
-    <div><button type="button" class="btn-link" data-action="busy-ok" data-day="${dayKey}">They're fine as they are</button></div>
-  </section>`;
 }
 
 function goalsStripHTML() {
@@ -651,58 +633,153 @@ function taskRowHTML(t, { addTo, day, tKey, full }) {
 }
 
 const TRASH_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"></path></svg>';
-const DRAG_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>';
 const X_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
 
-function slotHTML(t, dayKey, word) {
+// ----- the day's plan: every task has its own time -----
+// You give each task a length. Added to a day, it goes into the first free time on your calendar.
+// Move it on the calendar (drag) or with "Change time"; the list follows the times.
+
+const LENGTHS = [15, 30, 45, 60, 90, 120, 150, 180, 240];
+
+function onItsCalendar(t, key) { return !!(t.eventRef && t.eventRef.date === key); }
+
+function timeOn(t, key) {
+  if (onItsCalendar(t, key)) return t.fixedTime;
+  return ((state.days[key] || {}).times || {})[t.id] || null;
+}
+
+function dayStartMinutes(key) {
+  const first = R.toMinutes((S().blockStarts && S().blockStarts[0]) || '08:00');
+  return key === todayKey() ? Math.max(first, Math.ceil(nowMinutes() / 15) * 15) : first;
+}
+
+// Calendar events plus the other tasks already placed that day.
+function busyOn(key, exceptId) {
+  const day = getDay(key);
+  const cal = calendarItems(key).map((c) => ({ start: c.start, minutes: c.minutes, commute: c.commute }));
+  const planned = day.taskIds.filter((id) => id !== exceptId).map(task)
+    .filter((t) => t && !onItsCalendar(t, key) && (day.times || {})[t.id])
+    .map((t) => ({ start: day.times[t.id], minutes: t.minutes || 30, commute: t.place === 'commute' }));
+  return [...cal, ...planned];
+}
+
+function placeTask(t, key) {
+  const day = getDay(key);
+  day.times = day.times || {};
+  if (onItsCalendar(t, key)) return;
+  if (t.fixedTime && (!t.fixedDate || t.fixedDate === key)) { day.times[t.id] = t.fixedTime; return; }
+  const before = t.place === 'commute' ? S().commuteMinutes : 0;
+  day.times[t.id] = R.findFreeSlot(t.minutes || 30, busyOn(key, t.id), dayStartMinutes(key), 22 * 60, before, S().commuteMinutes);
+}
+
+// What the calendar, Today and Google see. Each task is its own block.
+function syncPlan(key) {
+  const day = getDay(key);
+  day.times = day.times || {};
+  const blocks = [];
+  const events = [];
+  const needsTime = [];
+  day.taskIds.map(task).filter(Boolean).forEach((t) => {
+    if (onItsCalendar(t, key)) return; // already on your calendar
+    const start = day.times[t.id];
+    if (!start) { needsTime.push(t.id); return; }
+    blocks.push({ start, minutes: t.minutes || 30, taskIds: [t.id], color: R.colorForTasks([t]) });
+    if (t.place === 'commute') events.push({ kind: 'commute', start: R.toHHMM(Math.max(0, R.toMinutes(start) - S().commuteMinutes)), minutes: S().commuteMinutes, title: 'Commute', taskId: t.id });
+  });
+  blocks.sort((a, b) => a.start.localeCompare(b.start));
+  day.plan = { blocks, events, needsTime, didNotFit: [] };
+  if (day.set) day.planStale = true;
+}
+
+// Days planned before tasks had their own times get times from their old blocks.
+function ensureTimes(key) {
+  const day = getDay(key);
+  if (day.times) return;
+  day.times = {};
+  ((day.plan && day.plan.blocks) || []).forEach((b) => {
+    let at = R.toMinutes(b.start);
+    b.taskIds.forEach((id) => { const t = task(id); if (t) { day.times[id] = R.toHHMM(at); at += t.minutes || 30; } });
+  });
+  day.taskIds.map(task).filter(Boolean).forEach((t) => { if (!day.times[t.id] && !onItsCalendar(t, key)) placeTask(t, key); });
+  const wasSet = day.set;
+  syncPlan(key);
+  day.set = wasSet;
+  day.planStale = false;
+  day.reviewed = {};
+  save(state);
+}
+
+function moveTask(key, id, start) {
+  const day = getDay(key);
+  day.times = day.times || {};
+  day.times[id] = start;
+  syncPlan(key);
+}
+
+function sortedDayTasks(key) {
+  const day = getDay(key);
+  return day.taskIds.map(task).filter(Boolean)
+    .sort((a, b) => (timeOn(a, key) || '99').localeCompare(timeOn(b, key) || '99'));
+}
+
+function overlapWith(t, key) {
+  const start = timeOn(t, key);
+  if (!start || onItsCalendar(t, key)) return null;
+  const a = R.toMinutes(start);
+  const b = a + (t.minutes || 30);
+  const others = getDay(key).taskIds.filter((id) => id !== t.id).map(task)
+    .filter((x) => x && !onItsCalendar(x, key) && timeOn(x, key))
+    .map((x) => ({ title: x.title, start: timeOn(x, key), minutes: x.minutes || 30 }));
+  return [...calendarItems(key), ...others].find((c) => R.toMinutes(c.start) < b && R.toMinutes(c.start) + c.minutes > a) || null;
+}
+
+function planRowHTML(t, key, word) {
+  const start = timeOn(t, key);
+  const onCal = onItsCalendar(t, key);
   const done = t.status === 'done';
-  const pressing = t.priority === 'both' || t.priority === 'urgent';
+  const editing = !onCal && (ui.editTime === t.id || !start);
+  const clash = overlapWith(t, key);
+  const lengths = LENGTHS.includes(t.minutes) ? LENGTHS : [...LENGTHS, t.minutes || 30].sort((x, y) => x - y);
   return `
-  <article class="slot ${pressing ? 'pressing' : ''}" data-id="${t.id}" style="${done ? 'opacity:.6' : ''}">
-    <div class="slot-row">
-      <button type="button" class="drag" data-drag="${t.id}" aria-label="Drag to reorder ${esc(t.title)} (or use arrow keys)">${DRAG_ICON}</button>
-      <div class="slot-body">
-        <div class="slot-title-row">${markHTML(t.priority)}<span class="slot-title" style="${done ? 'text-decoration: line-through' : ''}">${esc(t.title)}</span></div>
-        <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${t.eventRef ? `<span>${CAL_ICON} ${t12(t.fixedTime)}</span>` : ''}${placeChip(t)}</div>
-        ${t.progress ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
-        ${stepsOf(t).length ? `<div class="first-min"><strong>First minute</strong>${stepsHTML(stepsOf(t))}</div>` : ''}
-        ${t.place === 'commute' && !t.eventRef ? `<div class="field"><span class="field-label">Meeting time</span>
-          ${timePickerHTML(`slottime-${t.id}`, t.fixedTime, { id: `time-${t.id}`, optional: true, change: 'set-time', dataId: t.id })}</div>` : ''}
-      </div>
-      ${done ? '' : `<button type="button" class="btn btn-small slot-start" data-action="start-task" data-id="${t.id}" aria-label="Start ${esc(t.title)}">▶ Start</button>`}
-      <button type="button" class="icon-x" data-action="remove-from-day" data-id="${t.id}" data-day="${dayKey}" aria-label="Remove ${esc(t.title)} from ${word}">${X_ICON}</button>
+  <article class="plan-row${done ? ' is-done' : ''}" data-id="${t.id}">
+    <div class="plan-time">${start ? `<strong>${t12(start)}</strong><span>${t12m(R.toMinutes(start) + (t.minutes || 30))}</span>` : '<strong class="due-soon">No time</strong>'}</div>
+    <div class="plan-body">
+      <div class="slot-title-row">${markHTML(t.priority)}<span class="slot-title">${esc(t.title)}</span></div>
+      <div class="item-meta"><span>${R.formatMinutes(t.minutes || 0)}</span>${goalLabel(t)}${onCal ? `<span>${CAL_ICON} On your calendar</span>` : ''}${t.place === 'commute' ? `<span>+${S().commuteMinutes} min commute</span>` : ''}</div>
+      ${clash ? `<div class="item-meta"><span class="due-soon">Overlaps ${esc(clash.title)}</span></div>` : ''}
+      ${!start && !onCal ? '<div class="item-meta"><span class="due-soon">No free time left that fits. Pick a time.</span></div>' : ''}
+      ${editing ? `<div class="time-edit">
+        <div class="field"><span class="field-label">Starts</span>${timePickerHTML(`start-${t.id}`, start, { id: `start-${t.id}`, change: 'plan-start', dataId: t.id })}</div>
+        <div class="field"><label for="len-${t.id}">How long</label>
+          <select class="input" id="len-${t.id}" data-change="plan-length" data-id="${t.id}">${lengths.map((m) => `<option value="${m}" ${m === t.minutes ? 'selected' : ''}>${R.formatMinutes(m)}</option>`).join('')}</select></div>
+      </div>` : ''}
+    </div>
+    <div class="plan-actions">
+      ${onCal ? '' : `<button type="button" class="btn btn-small" data-action="edit-time" data-id="${t.id}" aria-expanded="${editing}">${editing ? 'Done' : 'Change time'}</button>`}
+      <button type="button" class="icon-x" data-action="remove-from-day" data-id="${t.id}" data-day="${key}" aria-label="Remove ${esc(t.title)} from ${word}">${X_ICON}</button>
     </div>
   </article>`;
 }
 
 function dayColumnHTML(dayKey) {
+  ensureTimes(dayKey);
   const day = getDay(dayKey);
   const isToday = dayKey === todayKey();
   const word = isToday ? 'today' : 'tomorrow';
-  const tasks = day.taskIds.map(task).filter(Boolean);
+  const tasks = sortedDayTasks(dayKey);
   const need = R.dayTimeNeeded(tasks.filter((t) => t.status === 'open'), S());
-
-  const empties = Array.from({ length: Math.max(0, day.slots - tasks.length) }, () => `
-    <div class="slot-empty"><span>Empty slot</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>`).join('');
-  const missingTime = tasks.filter((t) => t.status === 'open' && t.place === 'commute' && !t.fixedTime);
-
-  let footer;
-  if (!day.plan || day.planStale) {
-    footer = `<button class="btn btn-dark" style="width:100%" data-action="build-day" data-day="${dayKey}" ${tasks.length ? '' : 'disabled'}>${day.plan ? 'Rebuild blocks' : 'Build my blocks'}</button>`;
-  } else if (!day.set) {
-    footer = `${planSummaryHTML(day)}
-      <div style="display:flex; gap:8px">
-        <button class="btn" data-action="build-day" data-day="${dayKey}">Rebuild</button>
-        <button class="btn btn-dark" style="flex:1" data-action="set-plan" data-day="${dayKey}">Set plan for ${word}</button>
-      </div>`;
-  } else {
-    footer = `${planSummaryHTML(day)}
-      <div class="note note-ok" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
-        <span><strong>Plan set</strong>${day.googleIds && day.googleIds.length ? ' · in Google Calendar' : ''}</span>
-        ${isToday ? '<a class="btn btn-small" href="#today">Go to Today</a>' : ''}
-      </div>`;
+  const free = Math.max(0, day.slots - tasks.length);
+  let footer = '';
+  if (tasks.length && !day.set) {
+    footer = `<button class="btn btn-dark" style="width:100%" data-action="set-plan" data-day="${dayKey}">Set plan for ${word}</button>`;
+  } else if (tasks.length && day.planStale) {
+    footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <span>Changed since you set it.</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">${G.isConfigured() ? 'Update Google Calendar' : 'Set again'}</button></div>`;
+  } else if (tasks.length) {
+    footer = `<div class="note note-ok" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <span><strong>Plan set</strong>${day.googleIds && day.googleIds.length ? ' · in Google Calendar' : ''}</span>
+      ${isToday ? '<a class="btn btn-small" href="#today">Go to Today</a>' : ''}</div>`;
   }
-
   return `
   <div class="col-head"><h2>${isToday ? 'Today' : 'Tomorrow'} · ${esc(fmtDay(dayKey, { weekday: 'long' }))}</h2>
     <span class="meta">${tasks.length} of ${day.slots} · ${R.formatMinutes(need.total)}</span></div>
@@ -710,25 +787,32 @@ function dayColumnHTML(dayKey) {
     <label for="intention">Intention for the day (optional)</label>
     <input class="input" id="intention" type="text" placeholder="e.g., Move the thesis forward before noon" value="${esc(day.intention)}" data-change="intention" data-day="${dayKey}">
   </div>
-  <div class="slots" data-day="${dayKey}">${tasks.map((t) => slotHTML(t, dayKey, word)).join('')}</div>
-  ${empties}
+  <div class="slots" data-day="${dayKey}">${tasks.map((t) => planRowHTML(t, dayKey, word)).join('')}</div>
+  ${free ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Drag a task here, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
   ${day.slots < S().daySlotsMax ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
-  ${missingTime.length ? `<div class="note note-warn">Set a meeting time for: ${missingTime.map((t) => esc(t.title)).join(', ')}</div>` : ''}
-  ${day.planStale ? '<div class="note note-warn">Plan changed. Rebuild the blocks.</div>' : ''}
   ${footer}`;
 }
 
-function planSummaryHTML(day) {
-  const rows = [
-    ...day.plan.events.map((e) => ({ start: e.start, html: `<span class="mono time-col">${t12(e.start)}</span> ${e.kind === 'commute' ? 'Commute' : esc(e.title)} · ${R.formatMinutes(e.minutes)}` })),
-    ...day.plan.blocks.map((b) => ({ start: b.start, html: `<span class="mono time-col">${t12(b.start)}</span> <span class="tag tag-${b.color}">Deep work</span> ${R.formatMinutes(b.minutes)}` })),
-  ].sort((a, b) => a.start.localeCompare(b.start));
-  const left = [...day.plan.didNotFit, ...day.plan.needsTime].map(task).filter(Boolean);
+// The day's calendar events that are not in your list yet, at the end of the task list.
+function calendarSuggestHTML(dayKey) {
+  const isToday = dayKey === todayKey();
+  const all = calendarItems(dayKey);
+  const items = all.filter((c) => !c.task && (!isToday || R.toMinutes(c.start) + c.minutes > nowMinutes()));
+  const busy = R.busyMinutes(all.map((c) => ({ ...c, commuteMinutes: S().commuteMinutes })));
+  if (!items.length) return '';
+  const btn = (c, p, label) => `<button type="button" class="btn btn-small" data-action="busy-prio" data-priority="${p}" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)}: ${label}">${markHTML(p)}</button>`;
   return `
-  <div class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
-    <strong>Your blocks</strong>
-    ${rows.map((r) => `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:15px">${r.html}</div>`).join('')}
-    ${left.length ? `<div class="note note-warn">Didn't fit: ${left.map((t) => esc(t.title)).join(', ')}</div>` : ''}
+  <div class="card group cal-suggest">
+    <div class="cal-suggest-head">
+      <strong>${CAL_ICON} Also on your calendar ${isToday ? 'today' : esc(fmtDay(dayKey, { weekday: 'long' }))}</strong>
+      ${busy > 600 ? `<span class="busy-line">${R.formatMinutes(busy)} booked. Busy is not the same as doing what matters.</span>` : ''}
+      <span class="hint">Add any to your priorities?</span>
+    </div>
+    ${items.slice(0, 12).map((c) => `
+    <div class="busy-row">
+      <span><span class="mono">${t12(c.start)}</span> ${esc(c.title)}</span>
+      <span class="busy-btns">${btn(c, 'both', 'important and urgent')}${btn(c, 'urgent', 'urgent')}${btn(c, 'important', 'important')}${btn(c, 'nice', 'for later')}</span>
+    </div>`).join('')}
   </div>`;
 }
 
@@ -749,7 +833,12 @@ function extraDoneToday(key, planned) {
 
 function todayTaskRowHTML(t, key) {
   const st = todayStatus(t, key);
+  const day = state.days[key];
+  const start = day ? timeOn(t, key) : null;
+  const index = day && day.plan ? day.plan.blocks.findIndex((b) => b.taskIds.includes(t.id)) : -1;
+  const askHow = index >= 0 && t.status === 'open' && nowMinutes() >= R.toMinutes(day.plan.blocks[index].start) && !(day.reviewed || {})[t.id];
   return `<div class="item">
+    ${start ? `<div class="plan-time"><strong>${t12(start)}</strong></div>` : ''}
     <div class="item-main">
       <div style="display:flex; gap:8px; align-items:center">${markHTML(t.priority)} <span class="item-title" style="${t.status === 'done' ? 'text-decoration: line-through; color: var(--ink-2)' : ''}">${esc(t.title)}</span></div>
       <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${st.reason ? `<span>· ${esc(st.reason)}</span>` : ''}</div>
@@ -757,6 +846,7 @@ function todayTaskRowHTML(t, key) {
     </div>
     <div class="item-actions">
       <span class="chip ${st.cls}">${st.word}</span>
+      ${askHow ? `<button class="btn btn-small" data-action="review" data-block="${index}">How did it go?</button>` : ''}
       ${t.status !== 'done' ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button>
       <button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
     </div>
@@ -765,6 +855,7 @@ function todayTaskRowHTML(t, key) {
 
 function renderToday() {
   const key = todayKey();
+  if (state.days[key]) ensureTimes(key);
   const day = state.days[key];
   const planned = day ? day.taskIds : [];
   const extras = extraDoneToday(key, planned);
@@ -782,7 +873,7 @@ function renderToday() {
       <div class="col-head"><h2>Also done today</h2></div>
       <div class="card list">${extras.map((t) => todayTaskRowHTML(t, key)).join('')}</div>` : '';
 
-  if (!day || !day.plan) {
+  if (!day || !day.taskIds.length) {
     return `${head}
     ${captureHTML()}
     <div class="cols">
@@ -794,7 +885,7 @@ function renderToday() {
     </div>`;
   }
 
-  const tasks = planned.map(task).filter(Boolean);
+  const tasks = sortedDayTasks(key);
   const done = tasks.filter((t) => t.status === 'done').length + extras.length;
   const goalsToday = [...new Set(tasks.map((t) => t.goalId))].map(goal).filter(Boolean);
   const need = R.dayTimeNeeded(tasks, S());
@@ -807,16 +898,6 @@ function renderToday() {
       <div style="display:flex; justify-content:space-between; gap:8px"><strong>${esc(g.title)}</strong><span class="hint">${d} of ${mine.length} done</span></div>
       ${g.why ? `<div class="why">${esc(g.why)}</div>` : ''}
       <div class="bar"><div class="w" style="width:${mine.length ? Math.round((d / mine.length) * 100) : 0}%; background: var(--success)"></div></div>
-    </div>`;
-  }).join('');
-
-  const blockButtons = day.plan.blocks.map((b, i) => {
-    const started = nowMinutes() >= R.toMinutes(b.start);
-    const reviewed = day.reviewed && day.reviewed[i];
-    return `<div class="item">
-      <div class="item-main"><span><span class="tag tag-${b.color}">Deep work</span> <span class="mono">${t12(b.start)} - ${t12m(R.toMinutes(b.start) + b.minutes)}</span></span>
-      <span class="hint">${esc(blockGoalNames(b))}</span></div>
-      ${reviewed ? '<span class="chip chip-done">Reviewed</span>' : started ? `<button class="btn btn-small" data-action="review" data-block="${i}">End block</button>` : '<span class="hint">Later</span>'}
     </div>`;
   }).join('');
 
@@ -837,7 +918,6 @@ function renderToday() {
       <div class="col-head"><h2>Tasks</h2><span class="meta">Did I do it?</span></div>
       <div class="card list">${tasks.map((t) => todayTaskRowHTML(t, key)).join('') || '<div class="item"><span class="hint">No tasks planned.</span></div>'}</div>
       ${extraHTML}
-      ${day.plan.blocks.length ? `<div class="col-head"><h2>Blocks</h2></div><div class="card list">${blockButtons}</div>` : ''}
     </section>
     ${calendar}
   </div>`;
@@ -852,18 +932,16 @@ function nowCardHTML(current, next) {
   const done = nowMinutes() - current.start;
   const pct = Math.max(0, Math.min(100, Math.round((done / current.minutes) * 100)));
   let title = itemTitle(current);
-  let steps = [];
   let goalLine = '';
   let actions = '';
   if (current.type === 'block') {
     const openTask = current.block.taskIds.map(task).find((t) => t && t.status === 'open');
     if (openTask) {
       title = openTask.title;
-      steps = stepsOf(openTask);
       const g = goal(openTask.goalId);
       if (g) goalLine = `For your goal: ${g.title}`;
     }
-    actions = `${openTask ? `<button class="btn btn-outline" data-action="start-task" data-id="${openTask.id}">▶ Start</button>` : ''}<button class="btn btn-outline" data-action="review" data-block="${current.index}">End block</button>`;
+    actions = `${openTask ? `<button class="btn btn-outline" data-action="start-task" data-id="${openTask.id}">▶ Start</button>` : ''}<button class="btn btn-outline" data-action="review" data-block="${current.index}">How did it go?</button>`;
   }
   return `
   <section class="now-card" aria-label="Now">
@@ -871,7 +949,6 @@ function nowCardHTML(current, next) {
       <div class="label"><span class="dot"></span>Now · until ${t12m(end)}</div>
       <div class="title">${esc(title)}</div>
       ${goalLine ? `<div class="goal-line">${esc(goalLine)}</div>` : ''}
-      ${steps.length ? `<div class="first"><strong>First minute:</strong>${stepsHTML(steps)}</div>` : ''}
     </div>
     <div class="right">
       <div class="times"><span>${R.formatMinutes(Math.max(done, 0))} done</span><span>${R.formatMinutes(Math.max(end - nowMinutes(), 0))} left</span></div>
@@ -1293,9 +1370,12 @@ function catSVG(mood) {
 
 // The tasks in the same deep work block, so the last screen can show the whole plan.
 function blockPlanFor(t) {
-  const day = state.days[todayKey()];
-  const block = day && day.plan ? day.plan.blocks.find((b) => b.taskIds.includes(t.id)) : null;
-  return block ? { block, tasks: block.taskIds.map(task).filter(Boolean) } : null;
+  const key = todayKey();
+  const day = state.days[key];
+  if (!day || !day.taskIds.includes(t.id)) return null;
+  const from = timeOn(t, key) || '00:00';
+  const tasks = sortedDayTasks(key).filter((x) => (timeOn(x, key) || '99') >= from);
+  return tasks.length ? { tasks } : null;
 }
 
 function starterHTML() {
@@ -1304,14 +1384,14 @@ function starterHTML() {
   if (starter.i >= n) {
     const plan = blockPlanFor(t);
     const rows = plan
-      ? plan.tasks.map((x) => `<li class="${x.status === 'done' ? 'is-done' : ''}">${markHTML(x.priority)} ${esc(x.title)} <span class="hint">${R.formatMinutes(x.minutes || 0)}</span></li>`).join('')
+      ? plan.tasks.map((x) => `<li class="${x.status === 'done' ? 'is-done' : ''}"><span class="mono">${timeOn(x, todayKey()) ? t12(timeOn(x, todayKey())) : ''}</span> ${markHTML(x.priority)} ${esc(x.title)}</li>`).join('')
       : (t.needs || []).map((x) => `<li>${esc(x.text)}</li>`).join('');
     return `
     <div class="modal starter" data-form="starter">
       ${catSVG('happy')}
       <div class="starter-step">You started. That was the hard part.</div>
       <div class="starter-title">${esc(t.title)}</div>
-      ${rows ? `<div class="starter-plan"><strong>${plan ? `The plan until ${t12m(R.toMinutes(plan.block.start) + plan.block.minutes)}` : 'To get it done'}</strong><ul>${rows}</ul></div>` : ''}
+      ${rows ? `<div class="starter-plan"><strong>${plan ? 'The rest of today' : 'To get it done'}</strong><ul>${rows}</ul></div>` : ''}
       <div class="modal-foot" style="justify-content:center"><button type="button" class="btn btn-dark" data-action="starter-close">Keep going</button></div>
     </div>`;
   }
@@ -1887,8 +1967,11 @@ function addToDay(taskId, dayKey) {
   const mine = rank(task(taskId));
   const at = day.taskIds.findIndex((id) => rank(task(id)) > mine);
   if (at === -1) day.taskIds.push(taskId); else day.taskIds.splice(at, 0, taskId);
-  if (day.plan) day.planStale = true;
-  persist();
+  const t = task(taskId);
+  placeTask(t, dayKey);
+  syncPlan(dayKey);
+  const when = timeOn(t, dayKey);
+  persist([when ? `${t.title}: ${t12(when)} to ${t12m(R.toMinutes(when) + (t.minutes || 30))}. Drag it on the calendar to move it.` : `${t.title}: no free time left that fits. Pick a time.`]);
 }
 
 // "What's on your mind?" One line becomes a 🤔 task, or a logged win.
@@ -1935,10 +2018,11 @@ function markPlansStale(e) {
 function googleItemsFor(day) {
   const items = day.plan.blocks.map((b) => {
     const tasks = b.taskIds.map(task).filter(Boolean);
+    const one = tasks.length === 1 ? tasks[0] : null;
     return {
-      title: `Deep work · ${blockGoalNames(b) || 'Personal IO'}`,
+      title: one ? `${R.PRIORITIES[one.priority].mark} ${one.title}` : `Deep work · ${blockGoalNames(b) || 'Personal IO'}`,
       start: b.start, minutes: b.minutes, color: b.color,
-      description: tasks.map((t) => `${R.PRIORITIES[t.priority].mark} ${t.title}${stepsOf(t).length ? '\n   First minute: ' + stepsOf(t).join(' / ') : ''}`).join('\n'),
+      description: tasks.map((t) => `${one ? '' : R.PRIORITIES[t.priority].mark + ' ' + t.title + '\n'}${goal(t.goalId) ? 'Goal: ' + goal(t.goalId).title : ''}${stepsOf(t).length ? '\nFirst minute: ' + stepsOf(t).join(' / ') : ''}`).join('\n'),
     };
   });
   day.plan.events.forEach((e) => {
@@ -1964,6 +2048,7 @@ async function setPlan(dayKey) {
     }
   }
   day.set = true;
+  day.planStale = false;
   day.setAt = new Date().toISOString();
   const lastReturn = (state.returns || []).slice(-1)[0];
   if (lastReturn && lastReturn.date === todayKey()) lastReturn.plannedAfter = true;
@@ -1989,35 +2074,15 @@ const actions = {
   'remove-from-day': (el) => {
     const day = getDay(el.dataset.day);
     day.taskIds = day.taskIds.filter((id) => id !== el.dataset.id);
-    if (day.plan) day.planStale = true;
+    if (day.times) delete day.times[el.dataset.id];
+    syncPlan(el.dataset.day);
     persist();
   },
+  'edit-time': (el) => { ui.editTime = ui.editTime === el.dataset.id ? null : el.dataset.id; render(); },
   'open-slot': (el) => {
     const day = getDay(el.dataset.day);
     if (day.slots < S().daySlotsMax) day.slots += 1;
     persist();
-  },
-  'build-day': async (el) => {
-    const key = el.dataset.day;
-    const day = getDay(key);
-    // Tasks that are calendar events already have their time; blocks are for the rest, in your order.
-    const tasks = day.taskIds.map(task).filter((t) => t && t.status === 'open' && !t.eventRef);
-    let googleNote = '';
-    if (G.isConnected()) {
-      // Refresh Google events for this day so blocks go around the latest ones.
-      try {
-        const fresh = (await G.eventsForDay(key, { fresh: true })).filter((e) => !e.allDay && !e.fromApp);
-        googleNote = ` Planned around ${fresh.length} Google event${fresh.length === 1 ? '' : 's'}.`;
-      } catch { googleNote = ' (Google sign-in expired, so Google events were not checked.)'; }
-    }
-    const busy = calendarItems(key).map((c) => ({ start: c.start, minutes: c.minutes, commute: c.commute }));
-    day.plan = R.buildDay(tasks, S(), busy, { keepOrder: true });
-    day.planStale = false;
-    day.set = false;
-    day.reviewed = {};
-    const msgs = [`Built ${day.plan.blocks.length} deep work block${day.plan.blocks.length === 1 ? '' : 's'}.${googleNote} Check them, then set the plan.`];
-    if (day.plan.didNotFit.length) msgs.push(`${day.plan.didNotFit.length} task(s) didn't fit. Add another block time in Settings or move them.`);
-    persist(msgs);
   },
   'set-plan': (el) => setPlan(el.dataset.day),
   'cal-item': (el) => {
@@ -2072,7 +2137,8 @@ const actions = {
       if (!d.taskIds.includes(t.id)) return;
       from.push(key);
       d.taskIds = d.taskIds.filter((x) => x !== t.id);
-      if (d.plan) d.planStale = true;
+      if (d.times) delete d.times[t.id];
+      if (d.plan) syncPlan(key);
     });
     Object.assign(t, { status: 'trashed', trashedAt: new Date().toISOString(), trashedFrom: from });
     persist();
@@ -2089,7 +2155,7 @@ const actions = {
       t.priority = 'nice';
     }
     t.status = 'open';
-    (t.trashedFrom || []).forEach((key) => { const d = state.days[key]; if (d && !d.taskIds.includes(t.id) && d.taskIds.length < d.slots) { d.taskIds.push(t.id); if (d.plan) d.planStale = true; } });
+    (t.trashedFrom || []).forEach((key) => { const d = state.days[key]; if (d && key >= todayKey() && !d.taskIds.includes(t.id) && d.taskIds.length < d.slots) { d.taskIds.push(t.id); placeTask(t, key); syncPlan(key); } });
     delete t.trashedFrom;
     persist([`Back in your list: ${t.title}.${note}`]);
   },
@@ -2270,11 +2336,16 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.change === 'intention') {
     getDay(el.dataset.day).intention = el.value.trim();
     save(state);
-  } else if (el.dataset.change === 'set-time') {
+  } else if (el.dataset.change === 'plan-start') {
+    const key = el.closest('.slots').dataset.day;
+    const start = readTime(el.closest('.time-pick'), `start-${el.dataset.id}`);
+    if (start) { moveTask(key, el.dataset.id, start); persist(); }
+  } else if (el.dataset.change === 'plan-length') {
+    const key = el.closest('.slots').dataset.day;
     const t = task(el.dataset.id);
-    t.fixedTime = readTime(el.closest('.time-pick'), `slottime-${t.id}`);
-    const day = Object.values(state.days).find((d) => d.taskIds.includes(t.id) && d.plan);
-    if (day) day.planStale = true;
+    t.minutes = Number(el.value) || t.minutes;
+    t.lastTouchedAt = new Date().toISOString();
+    syncPlan(key);
     persist();
   } else if (el.dataset.change === 'form-cal-day') {
     if (el.value) setSideDay(el.value); else refreshSideCalendar();
@@ -2390,7 +2461,8 @@ modal.addEventListener('submit', (e) => {
     });
     state.log.push(...log.map((l) => ({ ...l, date: todayKey(), leftOff: outcomes[l.taskId]?.leftOff || '' })));
     const day = getDay(todayKey());
-    day.reviewed = { ...(day.reviewed || {}), [index]: true };
+    day.reviewed = day.reviewed || {};
+    (day.plan.blocks[index]?.taskIds || []).forEach((id) => { day.reviewed[id] = true; });
     const back = Object.values(outcomes).filter((o) => o.result !== 'done').length;
     closeModal();
     persist([back ? `Saved. ${back} task${back === 1 ? '' : 's'} back in your backlog.` : 'Saved. Everything done.']);
@@ -2453,64 +2525,45 @@ modal.addEventListener('close', () => {
   stopMic(); stopStarterTimer(); modal.innerHTML = ''; modal.classList.remove('wide');
 });
 
-// ---------- drag to reorder the day's tasks ----------
+// ---------- move a planned task by dragging it on the calendar ----------
 
-let drag = null;
-
-function saveSlotOrder(list) {
-  const day = getDay(list.dataset.day);
-  const ids = [...list.querySelectorAll('.slot')].map((el) => el.dataset.id);
-  if (ids.join() === day.taskIds.join()) return false;
-  day.taskIds = ids;
-  if (day.plan) day.planStale = true;
-  persist();
-  return true;
-}
+let moving = null;
 
 document.addEventListener('pointerdown', (e) => {
-  const handle = e.target.closest('[data-drag]');
-  if (!handle) return;
+  const ev = e.target.closest && e.target.closest('.ev[data-move]');
+  if (!ev || ev.closest('#side-cal') || e.button > 0) return;
   e.preventDefault();
-  const slot = handle.closest('.slot');
-  drag = { slot, list: slot.parentElement };
-  slot.classList.add('dragging');
-  handle.setPointerCapture(e.pointerId);
+  const grid = ev.closest('.grid');
+  moving = { ev, y0: e.clientY, top0: parseFloat(ev.style.top) || 0, px: Number(grid.dataset.px) || 40, dm: 0, moved: false };
+  ev.classList.add('moving');
+  try { ev.setPointerCapture(e.pointerId); } catch { /* fine */ }
 });
-
 document.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  const over = [...drag.list.querySelectorAll('.slot')].find((el) => {
-    if (el === drag.slot) return false;
-    const r = el.getBoundingClientRect();
-    return e.clientY > r.top && e.clientY < r.bottom;
-  });
-  if (!over) return;
-  const r = over.getBoundingClientRect();
-  drag.list.insertBefore(drag.slot, e.clientY < r.top + r.height / 2 ? over : over.nextSibling);
+  if (!moving) return;
+  const dy = e.clientY - moving.y0;
+  if (Math.abs(dy) > 4) moving.moved = true;
+  moving.dm = Math.round(((dy / moving.px) * 60) / 15) * 15;
+  moving.ev.style.top = `${moving.top0 + (moving.dm / 60) * moving.px}px`;
 });
-
-function endDrag() {
-  if (!drag) return;
-  const { slot, list } = drag;
-  drag = null;
-  slot.classList.remove('dragging');
-  saveSlotOrder(list);
+function endMove(cancel) {
+  if (!moving) return;
+  const { ev, dm, moved } = moving;
+  moving = null;
+  ev.classList.remove('moving');
+  const id = ev.dataset.move;
+  const key = ev.dataset.date;
+  if (cancel) { render(); return; }
+  if (!moved) { ui.editTime = id; render(); return; } // a tap opens "Change time" in the list
+  const t = task(id);
+  const old = timeOn(t, key);
+  if (!t || !old || !dm) { render(); return; }
+  const start = Math.max(0, Math.min(24 * 60 - (t.minutes || 30), R.toMinutes(old) + dm));
+  moveTask(key, id, R.toHHMM(start));
+  const clash = overlapWith(t, key);
+  persist([`${t.title}: now ${t12m(start)}.${clash ? ` It overlaps ${clash.title}.` : ''}`]);
 }
-document.addEventListener('pointerup', endDrag);
-document.addEventListener('pointercancel', endDrag);
-
-document.addEventListener('keydown', (e) => {
-  const handle = e.target.closest && e.target.closest('[data-drag]');
-  if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
-  e.preventDefault();
-  const slot = handle.closest('.slot');
-  const list = slot.parentElement;
-  const sibling = e.key === 'ArrowUp' ? slot.previousElementSibling : slot.nextElementSibling;
-  if (!sibling) return;
-  list.insertBefore(slot, e.key === 'ArrowUp' ? sibling : sibling.nextSibling);
-  const id = slot.dataset.id;
-  if (saveSlotOrder(list)) document.querySelector(`[data-drag="${id}"]`)?.focus();
-});
+document.addEventListener('pointerup', () => endMove(false));
+document.addEventListener('pointercancel', () => endMove(true));
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target && e.target.id === 'cap-text' && !e.isComposing) {
