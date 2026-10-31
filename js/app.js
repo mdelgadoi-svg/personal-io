@@ -219,6 +219,7 @@ function currentTab() {
 }
 
 function render() {
+  if (state.days[todayKey()]) ensureTimes(todayKey());
   const tab = currentTab();
   document.querySelectorAll('[data-tab]').forEach((a) => {
     if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
@@ -701,11 +702,14 @@ function ensureTimes(key) {
     b.taskIds.forEach((id) => { const t = task(id); if (t) { day.times[id] = R.toHHMM(at); at += t.minutes || 30; } });
   });
   day.taskIds.map(task).filter(Boolean).forEach((t) => { if (!day.times[t.id] && !onItsCalendar(t, key)) placeTask(t, key); });
+  const oldReviewed = day.reviewed || {};
+  const reviewed = {};
+  ((day.plan && day.plan.blocks) || []).forEach((b, i) => { if (oldReviewed[i]) b.taskIds.forEach((id) => { reviewed[id] = true; }); });
   const wasSet = day.set;
   syncPlan(key);
   day.set = wasSet;
   day.planStale = false;
-  day.reviewed = {};
+  day.reviewed = reviewed;
   save(state);
 }
 
@@ -733,6 +737,27 @@ function overlapWith(t, key) {
   return [...calendarItems(key), ...others].find((c) => R.toMinutes(c.start) < b && R.toMinutes(c.start) + c.minutes > a) || null;
 }
 
+// A small window to change one task's time and length (opened by tapping it on a calendar).
+function timeFormHTML(id, key) {
+  const t = task(id);
+  const start = timeOn(t, key);
+  const lengths = LENGTHS.includes(t.minutes) ? LENGTHS : [...LENGTHS, t.minutes || 30].sort((x, y) => x - y);
+  return `
+  <form class="modal" data-form="time" data-id="${t.id}" data-day="${key}" novalidate>
+    <div class="modal-head"><div><div class="date-line">${esc(fmtDay(key, { weekday: 'long', month: 'short', day: 'numeric' }))}</div><h2 id="modal-title">${esc(t.title)}</h2></div>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <div class="row">
+      <div class="field"><span class="field-label">Starts</span>${timePickerHTML('tstart', start, { id: 'tf-start' })}</div>
+      <div class="field"><label for="tf-len">How long</label>
+        <select class="input" id="tf-len" name="len">${lengths.map((m) => `<option value="${m}" ${m === t.minutes ? 'selected' : ''}>${R.formatMinutes(m)}</option>`).join('')}</select></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-action="close-modal">Cancel</button>
+      <button type="submit" class="btn btn-dark">Save time</button>
+    </div>
+  </form>`;
+}
+
 function planRowHTML(t, key, word) {
   const start = timeOn(t, key);
   const onCal = onItsCalendar(t, key);
@@ -749,7 +774,7 @@ function planRowHTML(t, key, word) {
       ${clash ? `<div class="item-meta"><span class="due-soon">Overlaps ${esc(clash.title)}</span></div>` : ''}
       ${!start && !onCal ? '<div class="item-meta"><span class="due-soon">No free time left that fits. Pick a time.</span></div>' : ''}
       ${editing ? `<div class="time-edit">
-        <div class="field"><span class="field-label">Starts</span>${timePickerHTML(`start-${t.id}`, start, { id: `start-${t.id}`, change: 'plan-start', dataId: t.id })}</div>
+        <div class="field"><span class="field-label">Starts</span>${timePickerHTML(`start-${t.id}`, start, { id: `start-${t.id}`, optional: !start })}</div>
         <div class="field"><label for="len-${t.id}">How long</label>
           <select class="input" id="len-${t.id}" data-change="plan-length" data-id="${t.id}">${lengths.map((m) => `<option value="${m}" ${m === t.minutes ? 'selected' : ''}>${R.formatMinutes(m)}</option>`).join('')}</select></div>
       </div>` : ''}
@@ -770,7 +795,10 @@ function dayColumnHTML(dayKey) {
   const need = R.dayTimeNeeded(tasks.filter((t) => t.status === 'open'), S());
   const free = Math.max(0, day.slots - tasks.length);
   let footer = '';
-  if (tasks.length && !day.set) {
+  if (!tasks.length && day.set && (day.googleIds || []).length) {
+    footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <span>Your old plan is still in Google Calendar.</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">Remove it</button></div>`;
+  } else if (tasks.length && !day.set) {
     footer = `<button class="btn btn-dark" style="width:100%" data-action="set-plan" data-day="${dayKey}">Set plan for ${word}</button>`;
   } else if (tasks.length && day.planStale) {
     footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
@@ -788,7 +816,7 @@ function dayColumnHTML(dayKey) {
     <input class="input" id="intention" type="text" placeholder="e.g., Move the thesis forward before noon" value="${esc(day.intention)}" data-change="intention" data-day="${dayKey}">
   </div>
   <div class="slots" data-day="${dayKey}">${tasks.map((t) => planRowHTML(t, dayKey, word)).join('')}</div>
-  ${free ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Drag a task here, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
+  ${free ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Add from your list, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
   ${day.slots < S().daySlotsMax ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
   ${footer}`;
 }
@@ -1865,7 +1893,7 @@ function reviewHTML(blockIndex) {
     </div>`).join('');
   return `
   <form class="modal" data-form="review" data-block="${blockIndex}" novalidate>
-    <div class="modal-head"><div><div class="date-line">Block ${t12(block.start)} - ${end}</div><h2 id="modal-title">How did it go?</h2></div>
+    <div class="modal-head"><div><div class="date-line">${t12(block.start)} - ${end}</div><h2 id="modal-title">How did it go?</h2></div>
       <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
     <div class="hint">Anything not done goes back to your backlog.</div>
     <div class="errors" hidden></div>
@@ -1887,9 +1915,9 @@ function settingsHTML() {
     <div class="row">
       <div class="field"><label for="s-commute">Commute time before a task (minutes)</label>
         <input class="input" type="number" min="0" step="5" id="s-commute" name="commuteMinutes" value="${S().commuteMinutes}"></div>
-      <div class="field"><label for="s-starts">Deep work blocks start at</label>
+      <div class="field"><label for="s-starts">Start placing tasks at</label>
         <input class="input" id="s-starts" name="blockStarts" value="${esc(S().blockStarts.map(t12).join(', '))}">
-        <span class="hint">Separate with commas, like 8:00 AM, 2:30 PM</span></div>
+        <span class="hint">Tasks go in the first free time after this, like 8:00 AM.</span></div>
     </div>
     <div class="field"><label for="s-stale">Ask "still important?" after (days)</label>
       <input class="input" type="number" min="3" id="s-stale" name="staleDays" value="${S().staleDays}" style="max-width:160px"></div>
@@ -1956,7 +1984,7 @@ function settingsHTML() {
 
 // ---------- actions ----------
 
-function addToDay(taskId, dayKey) {
+async function addToDay(taskId, dayKey) {
   const day = getDay(dayKey);
   if (day.taskIds.includes(taskId)) return;
   if (day.taskIds.length >= day.slots) {
@@ -1968,10 +1996,15 @@ function addToDay(taskId, dayKey) {
   const at = day.taskIds.findIndex((id) => rank(task(id)) > mine);
   if (at === -1) day.taskIds.push(taskId); else day.taskIds.splice(at, 0, taskId);
   const t = task(taskId);
+  if (G.isConnected() && !G.cachedDay(dayKey)) {
+    try { await G.eventsForDay(dayKey); } catch { /* place with what we know */ }
+  }
   placeTask(t, dayKey);
   syncPlan(dayKey);
   const when = timeOn(t, dayKey);
-  persist([when ? `${t.title}: ${t12(when)} to ${t12m(R.toMinutes(when) + (t.minutes || 30))}. Drag it on the calendar to move it.` : `${t.title}: no free time left that fits. Pick a time.`]);
+  const phone = window.matchMedia('(max-width: 760px)').matches;
+  persist([when ? `${t.title}: ${t12(when)} to ${t12m(R.toMinutes(when) + (t.minutes || 30))}. ${phone ? 'Tap it on the calendar to change the time.' : 'Drag it on the calendar to move it.'}` : `${t.title}: no free time left that fits. Pick a time.`]);
+  if (G.isConfigured() && !G.isConnected()) toast('Google Calendar is not connected, so this time may clash with your events.', { label: 'Connect', data: { action: 'connect-google' } });
 }
 
 // "What's on your mind?" One line becomes a 🤔 task, or a logged win.
@@ -2078,13 +2111,38 @@ const actions = {
     syncPlan(el.dataset.day);
     persist();
   },
-  'edit-time': (el) => { ui.editTime = ui.editTime === el.dataset.id ? null : el.dataset.id; render(); },
+  'edit-time': (el) => {
+    const id = el.dataset.id;
+    const row = el.closest('.plan-row');
+    const picker = row && row.querySelector('.time-pick');
+    if (picker) {
+      // Pressing Done saves the time you picked.
+      const key = row.closest('.slots').dataset.day;
+      const start = readTime(picker, `start-${id}`);
+      const t = task(id);
+      if (start && start !== timeOn(t, key)) {
+        moveTask(key, id, start);
+        ui.editTime = null;
+        const clash = overlapWith(t, key);
+        persist([`${t.title}: ${t12(start)}.${clash ? ` It overlaps ${clash.title}.` : ''}${key === todayKey() && R.toMinutes(start) < nowMinutes() ? ' That time already passed today.' : ''}`]);
+        return;
+      }
+      ui.editTime = null;
+    } else ui.editTime = id;
+    render();
+  },
   'open-slot': (el) => {
     const day = getDay(el.dataset.day);
     if (day.slots < S().daySlotsMax) day.slots += 1;
     persist();
   },
-  'set-plan': (el) => setPlan(el.dataset.day),
+  'set-plan': async (el) => {
+    if (ui.saving) return;
+    ui.saving = true;
+    el.disabled = true;
+    el.textContent = 'Saving...';
+    try { await setPlan(el.dataset.day); } finally { ui.saving = false; }
+  },
   'cal-item': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
     if (!c) { toast('That event is no longer on your calendar.'); return; }
@@ -2336,10 +2394,6 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.change === 'intention') {
     getDay(el.dataset.day).intention = el.value.trim();
     save(state);
-  } else if (el.dataset.change === 'plan-start') {
-    const key = el.closest('.slots').dataset.day;
-    const start = readTime(el.closest('.time-pick'), `start-${el.dataset.id}`);
-    if (start) { moveTask(key, el.dataset.id, start); persist(); }
   } else if (el.dataset.change === 'plan-length') {
     const key = el.closest('.slots').dataset.day;
     const t = task(el.dataset.id);
@@ -2424,6 +2478,18 @@ modal.addEventListener('submit', (e) => {
     if (thenCopy) openCopyOf(draft);
   }
 
+  if (kind === 'time') {
+    const t = task(form.dataset.id);
+    const key = form.dataset.day;
+    const start = readTime(form, 'tstart');
+    if (!t || !start) { closeModal(); return; }
+    t.minutes = Number(data.get('len')) || t.minutes;
+    moveTask(key, t.id, start);
+    closeModal();
+    const clash = overlapWith(t, key);
+    persist([`${t.title}: ${t12(start)} to ${t12m(R.toMinutes(start) + t.minutes)}.${clash ? ` It overlaps ${clash.title}.` : ''}`]);
+  }
+
   if (kind === 'goal') {
     const title = data.get('title').trim();
     const why = data.get('why').trim();
@@ -2496,7 +2562,7 @@ modal.addEventListener('submit', (e) => {
   }
 
   if (kind === 'settings') {
-    const starts = [...new Set(String(data.get('blockStarts')).split(',').map(R.parseTime).filter(Boolean))].sort();
+    const starts = [...new Set(String(data.get('blockStarts')).split(',').map(R.parseTime).filter(Boolean))].sort().slice(0, 1);
     const gid = String(data.get('googleClientId') || '').trim();
     const problems = [];
     if (starts.length === 0) problems.push('Add at least one block start time, like 8:00 AM.');
@@ -2553,7 +2619,7 @@ function endMove(cancel) {
   const id = ev.dataset.move;
   const key = ev.dataset.date;
   if (cancel) { render(); return; }
-  if (!moved) { ui.editTime = id; render(); return; } // a tap opens "Change time" in the list
+  if (!moved) { openModal(timeFormHTML(id, key)); return; } // a tap opens a small "Change time" window
   const t = task(id);
   const old = timeOn(t, key);
   if (!t || !old || !dm) { render(); return; }

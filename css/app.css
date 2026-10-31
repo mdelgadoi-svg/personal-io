@@ -435,7 +435,7 @@ dialog:not(.wide) .modal-side { display: none; }
   .capture-actions, .capture-actions .btn { width: 100%; }
   .capture-actions { margin-bottom: 0; }
   .capture-actions .btn { flex: 1 1 auto; }
-  .plan-cols .col-cal { display: none; }
+  .plan-cols .col-cal { position: static; flex-basis: auto; }
   .prio-grid { grid-template-columns: 1fr; }
   .welcome .big { font-size: 20px; }
 }
@@ -467,5 +467,14 @@ dialog:not(.wide) .modal-side { display: none; }
 .busy-btns .btn-small { min-width: 40px; padding: 0 8px; }
 @media (max-width: 760px) {
   .plan-row { flex-wrap: wrap; }
-  .plan-time { flex-basis: auto; flex-direction: row; gap: 6px; width: 100%; }
+  .plan-row .plan-time { flex-basis: auto; flex-direction: row; gap: 6px; width: 100%; }
+  .item .plan-time { flex: 0 0 auto; }
+}
+.plan-time { flex: 0 0 82px; white-space: nowrap; }
+.item .plan-time { flex: 0 0 auto; padding-right: 4px; }
+.ev-move { min-height: 24px; }
+@media (max-width: 760px) {
+  .cols .card.list .item { flex-wrap: wrap; }
+  .cols .card.list .item .item-main { flex: 1 1 200px; min-width: 0; }
+  .cols .card.list .item .item-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
 }

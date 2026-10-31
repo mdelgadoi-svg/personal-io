@@ -20,10 +20,19 @@ function apiBase() {
   return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(getCalendarId() || 'primary')}/events`;
 }
 
+// The sign-in lasts about an hour; keep it for that hour so a reload does not ask again.
+const TOKEN_KEY = 'personal-io:google-session';
 let token = null;
 let tokenExpires = 0;
+try {
+  const saved = JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null');
+  if (saved && saved.exp > Date.now()) { token = saved.token; tokenExpires = saved.exp; }
+} catch { /* nothing saved */ }
+function keepToken() {
+  try { localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp: tokenExpires, as: connectedAs })); } catch { /* storage blocked */ }
+}
 let tokenClient = null;
-let connectedAs = '';
+let connectedAs = (() => { try { return JSON.parse(localStorage.getItem('personal-io:google-session') || 'null')?.as || ''; } catch { return ''; } })();
 let gisLoading = null;
 const cache = new Map(); // dateKey -> events
 
@@ -66,13 +75,14 @@ export async function connect() {
         if (resp.error) { reject(new Error('Google sign-in was not completed.')); return; }
         token = resp.access_token;
         tokenExpires = Date.now() + (Number(resp.expires_in) - 60) * 1000;
+        keepToken();
         cache.clear();
         // Ask which calendar this is, so the app can show "Connected to: ...".
         fetch(`${apiBase()}?maxResults=1`, { headers: { Authorization: `Bearer ${token}` } })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { connectedAs = d && d.summary ? d.summary : ''; })
           .catch(() => { connectedAs = ''; })
-          .finally(() => resolve());
+          .finally(() => { keepToken(); resolve(); });
       },
       error_callback: () => reject(new Error('Google sign-in was closed.')),
     });
@@ -86,7 +96,7 @@ async function call(url, options = {}) {
     ...options,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
   });
-  if (res.status === 401) { token = null; throw new Error('not-connected'); }
+  if (res.status === 401) { token = null; try { localStorage.removeItem(TOKEN_KEY); } catch { /* fine */ } throw new Error('not-connected'); }
   if (!res.ok) throw new Error(`Google Calendar said no (${res.status}).`);
   return res.status === 204 ? null : res.json();
 }
@@ -111,10 +121,11 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
     if (e.start?.date) return { id: e.id, title: e.summary || '(no title)', allDay: true };
     const s = new Date(e.start.dateTime);
     const f = new Date(e.end.dateTime);
-    // Runs past midnight and lasts 6+ hours (like a multi-day deadline window): show it as all-day, like Google does.
-    if ((s < start || f > end) && f - s >= 6 * 3600000) return { id: e.id, title: e.summary || '(no title)', allDay: true };
-    const startMin = Math.max(0, (s - start) / 60000);
-    const endMin = Math.min(24 * 60, (f - start) / 60000);
+    // A day or longer (like a multi-day deadline window): show it as all-day, like Google does.
+    if (f - s >= 24 * 3600000) return { id: e.id, title: e.summary || '(no title)', allDay: true };
+    // Wall-clock minutes, so days when the clock changes still line up.
+    const startMin = s < start ? 0 : s.getHours() * 60 + s.getMinutes();
+    const endMin = f >= end ? 24 * 60 : f.getHours() * 60 + f.getMinutes();
     const hasVideo = !!(e.hangoutLink || (e.location || '').includes('zoom') || (e.description || '').includes('zoom.us'));
     return {
       id: e.id,
