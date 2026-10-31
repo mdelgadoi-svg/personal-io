@@ -2075,10 +2075,19 @@ async function setPlan(dayKey) {
     try {
       if (!G.isConnected()) await G.connect();
       day.googleIds = await G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []);
-      msgs.push('Blocks added to your Google Calendar.');
+      msgs.push(day.taskIds.length ? 'Added to your Google Calendar.' : 'Removed your old plan from Google Calendar.');
     } catch (err) {
       msgs.push(`Plan set, but Google Calendar was not updated: ${err.message === 'not-connected' ? 'sign-in needed' : err.message}`);
     }
+  }
+  if (!day.taskIds.length) {
+    // Nothing planned: this only cleared Google.
+    day.set = false;
+    day.planStale = false;
+    save(state);
+    render();
+    msgs.forEach(toast);
+    return;
   }
   day.set = true;
   day.planStale = false;
@@ -2398,6 +2407,9 @@ document.addEventListener('change', async (e) => {
     const key = el.closest('.slots').dataset.day;
     const t = task(el.dataset.id);
     t.minutes = Number(el.value) || t.minutes;
+    // Keep a start time you picked but had not saved yet.
+    const picked = readTime(el.closest('.plan-row'), `start-${t.id}`);
+    if (picked) (getDay(key).times = getDay(key).times || {})[t.id] = picked;
     t.lastTouchedAt = new Date().toISOString();
     syncPlan(key);
     persist();
@@ -2487,7 +2499,7 @@ modal.addEventListener('submit', (e) => {
     moveTask(key, t.id, start);
     closeModal();
     const clash = overlapWith(t, key);
-    persist([`${t.title}: ${t12(start)} to ${t12m(R.toMinutes(start) + t.minutes)}.${clash ? ` It overlaps ${clash.title}.` : ''}`]);
+    persist([`${t.title}: ${t12(start)} to ${t12m(R.toMinutes(start) + t.minutes)}.${clash ? ` It overlaps ${clash.title}.` : ''}${key === todayKey() && R.toMinutes(start) < nowMinutes() ? ' That time already passed today.' : ''}`]);
   }
 
   if (kind === 'goal') {
@@ -2565,7 +2577,7 @@ modal.addEventListener('submit', (e) => {
     const starts = [...new Set(String(data.get('blockStarts')).split(',').map(R.parseTime).filter(Boolean))].sort().slice(0, 1);
     const gid = String(data.get('googleClientId') || '').trim();
     const problems = [];
-    if (starts.length === 0) problems.push('Add at least one block start time, like 8:00 AM.');
+    if (starts.length === 0) problems.push('Add the time to start placing tasks, like 8:00 AM.');
     if (gid && !gid.endsWith('.apps.googleusercontent.com')) problems.push('The Google Client ID ends with .apps.googleusercontent.com. Copy the whole thing.');
     const key = String(data.get('claudeKey') || '').trim();
     if (key && !AI.looksLikeKey(key)) problems.push('That is not a Claude API key. It starts with sk-ant- and comes from console.anthropic.com > API keys.');
