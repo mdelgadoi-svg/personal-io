@@ -335,6 +335,40 @@ export function splitDump(text) {
     .slice(0, 25);
 }
 
+// ---------- talking: notes first, tasks only when named ----------
+
+// The word "task" (or "tarea") marks a task only at the start of a sentence,
+// after a comma, colon or semicolon, or right after "and / also / then / y / también / luego".
+const LINKS = '(?:and|also|then|y|también|tambien|luego)';
+const TASK_WORD = new RegExp(
+  `(?<=^\\s*|[.!?\\n,;:]\\s*|(?<![\\p{L}])${LINKS}\\s+)(?:new\\s+|nueva\\s+)?(?:task|tarea)(?![\\p{L}])\\s*[:.,\\-–]?\\s*`,
+  'giu'
+);
+
+// "So tired. Task: email the professor. Ugh." -> ['Email the professor']
+export function explicitTasks(text) {
+  const s = String(text || '');
+  const hits = [...s.matchAll(TASK_WORD)];
+  const out = [];
+  hits.forEach((m, i) => {
+    let piece = s.slice(m.index + m[0].length, i + 1 < hits.length ? hits[i + 1].index : s.length);
+    const stop = piece.search(/[.!?](?=\s|$)|\n/);
+    if (stop >= 0) piece = piece.slice(0, stop);
+    piece = piece.replace(/[\s,;:]+$/, '').replace(new RegExp(`\\s+${LINKS}$`, 'iu'), '').replace(/[\s,;:]+$/, '').trim();
+    if (piece.length < 2) return;
+    const title = piece.charAt(0).toUpperCase() + piece.slice(1);
+    if (!out.some((o) => normalTitle(o) === normalTitle(title))) out.push(title);
+  });
+  return out.slice(0, 10);
+}
+
+// A starting deadline when a task comes from talking: ★! and ! tomorrow, ★ in a week, 🤔 none.
+export function defaultDeadline(priority, todayKey) {
+  if (priority === 'both' || priority === 'urgent') return addDays(todayKey, 1);
+  if (priority === 'important') return addDays(todayKey, 7);
+  return '';
+}
+
 // ---------- 12-hour time ----------
 
 // '14:30' -> '2:30 PM'

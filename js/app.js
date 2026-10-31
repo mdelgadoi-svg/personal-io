@@ -834,15 +834,21 @@ function nowCardHTML(current, next) {
   </section>`;
 }
 
-// ----- welcome back: a fresh start after time away -----
+// ----- welcome back: a short fresh start after time away -----
 
 function welcomeInfo() {
   const today = todayKey();
   const last = R.lastActiveDay(today, { lastOpen: state.lastOpenDate, days: state.days, log: state.log });
   if (!last) return null;
+  const open = R.openTasks(state.tasks);
+  // Things you may have done without marking them: what was planned that day, then ★! and !.
+  const planned = (state.days[last]?.taskIds || []).map(task).filter((t) => t && t.status === 'open');
+  const pressing = R.sortForPlanning(open.filter((t) => t.priority === 'both' || t.priority === 'urgent'));
+  const check = [...new Set([...planned, ...pressing])].slice(0, 6);
   // Skip calendar events that already happened.
-  const next = R.sortForPlanning(R.openTasks(state.tasks).filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today)))[0] || null;
-  return { last, gap: R.daysUntil(today, last), sum: R.daySummary(last, state), next };
+  const next = R.sortForPlanning(open.filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today) && !check.includes(t)))[0]
+    || R.sortForPlanning(open.filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today)))[0] || null;
+  return { last, gap: R.daysUntil(today, last), sum: R.daySummary(last, state), check, next };
 }
 
 // Shown once, on the first open of each day.
@@ -857,59 +863,68 @@ function maybeWelcome() {
   openModal(welcomeHTML(info));
 }
 
-function welcomeHTML({ last, gap, sum, next }) {
-  const dayName = fmtDay(last, { weekday: 'long', month: 'short', day: 'numeric' });
-  const title = gap <= 1 ? 'Good morning' : 'Welcome back';
-  const sub = gap <= 1
-    ? 'Here is yesterday in one look.'
-    : `Your last day here was ${esc(dayName)}. Time away is part of the process. You can start again right now, at your own pace.`;
-  const wins = sum.done.length
-    ? `<ul>${sum.done.slice(0, 5).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>${sum.done.length > 5 ? `<span class="hint">and ${sum.done.length - 5} more</span>` : ''}`
-    : '<span>Nothing was marked done that day. That is okay; marking things is optional.</span>';
+function welcomeHTML({ last, gap, sum, check, next }) {
+  const when = gap <= 1 ? 'yesterday' : esc(fmtDay(last, { weekday: 'long', month: 'long', day: 'numeric' }));
+  const c = R.countByPriority(state.tasks);
+  const stand = ['both', 'urgent', 'important', 'nice']
+    .map((p) => `<span class="stand-chip">${markHTML(p)} <strong>${c[p]}</strong> <span class="muted">${R.PRIORITIES[p].short || R.PRIORITIES[p].label}</span></span>`).join('');
   return `
   <div class="modal welcome" data-form="welcome">
-    <div class="modal-head"><div><div class="date-line">${esc(longDay(todayKey()))}</div><div class="big" id="modal-title">${title}</div></div>
-      <button type="button" class="btn btn-ghost icon-btn" data-action="welcome-skip" aria-label="Close">✕</button></div>
-    <div style="font-size:16px">${sub}</div>
-    <div class="welcome-box welcome-wins"><strong>What you got done${gap <= 1 ? ' yesterday' : ` on ${esc(fmtDay(last, { weekday: 'long' }))}`}</strong>${wins}</div>
-    ${sum.open ? `<div class="welcome-box welcome-open">${sum.open} task${sum.open === 1 ? ' is' : 's are'} still in your list. Nothing to fix right now.</div>` : ''}
+    <div class="modal-head"><div><div class="date-line">${esc(longDay(todayKey()))}</div><div class="big" id="modal-title">${gap <= 1 ? 'Good morning' : 'Welcome back'}</div></div>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="welcome-close" aria-label="Close">✕</button></div>
+    <div style="font-size:16px">Last time you were here was ${when}.${gap > 1 ? ' It is okay to start again.' : ''}${sum.done.length ? ` You marked ${sum.done.length} thing${sum.done.length === 1 ? '' : 's'} done that day.` : ''}</div>
+    ${check.length ? `<fieldset class="welcome-box welcome-check"><legend>Did you already do any of these? Tick them and I'll mark them done.</legend>
+      ${check.map((t) => `<label class="check-row"><input type="checkbox" name="wb-done" value="${t.id}"> ${markHTML(t.priority)} <span>${esc(t.title)}</span></label>`).join('')}
+    </fieldset>` : ''}
+    <div class="welcome-box welcome-open"><strong>Where things stand right now</strong><div class="stand">${stand}</div></div>
     ${next ? `<div class="welcome-box welcome-next"><span class="eyebrow">One small place to start</span>
       <strong>${markHTML(next.priority)} ${esc(next.title)}</strong>
       ${stepsOf(next)[0] ? `<span>First minute: ${esc(stepsOf(next)[0])}</span>` : ''}</div>` : ''}
-    <div class="field">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
-        <label for="wb-note" class="field-label">How was your day? Say anything (optional)</label>
-        ${SpeechRec ? `<div style="display:flex; gap:6px; align-items:center">
-          <label class="visually-hidden" for="wb-lang">Language</label>
-          <select class="input" id="wb-lang" style="min-height:42px; width:auto; padding:6px 10px"><option value="en-US">English</option><option value="es-PE">Español</option></select>
-          <button type="button" class="btn btn-small mic" data-action="mic" data-target="wb-note" data-lang="wb-lang" aria-pressed="false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v5"></path></svg>
-            <span>Start talking</span></button></div>` : ''}
-      </div>
-      <textarea class="input" id="wb-note" placeholder="What happened, how you feel, what is on your mind..."></textarea>
-      <span class="hint">Saved as a day note on this device. Only the words are kept, not the audio.</span>
-    </div>
+    ${talkFieldHTML('wb', 'Anything on your mind? (optional)', 'Typing is fine too...', 90)}
     <div class="modal-foot">
-      <button type="button" class="btn-link" data-action="welcome-skip">Not now</button>
-      <button type="button" class="btn" data-action="welcome-tasks">Turn my note into tasks</button>
+      <button type="button" class="btn-link" data-action="welcome-close">Close</button>
       <button type="button" class="btn btn-dark" data-action="welcome-start">Start fresh</button>
     </div>
   </div>`;
 }
 
-// Saves the note (if any) and quietly records the return, so patterns can be looked at later.
+// Marks ticked tasks done, saves the note, and records the return so patterns can be looked at later.
 function finishWelcome() {
   const info = ui.welcome;
-  const text = (modal.querySelector('#wb-note')?.value || '').trim();
+  const text = (modal.querySelector('#wb-text')?.value || '').trim();
+  const ticked = [...modal.querySelectorAll('input[name="wb-done"]:checked')].map((i) => task(i.value)).filter(Boolean);
   stopMic();
-  if (!info) return text;
-  state.journal = state.journal || [];
-  state.returns = state.returns || [];
-  if (text) state.journal.push({ id: newId(), date: todayKey(), about: info.last, text, at: new Date().toISOString() });
-  state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, noted: !!text, plannedAfter: false });
+  const at = new Date().toISOString();
+  ticked.forEach((t) => {
+    Object.assign(t, { status: 'done', doneAt: at, lastTouchedAt: at });
+    state.log.push({ at, date: info ? info.last : todayKey(), taskId: t.id, title: t.title, result: 'done', reason: null, late: true });
+  });
+  if (info) {
+    state.returns = state.returns || [];
+    state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, noted: !!text, ticked: ticked.length, plannedAfter: false });
+  }
   ui.welcome = null;
   save(state);
-  return text;
+  return { text, ticked: ticked.length, about: info ? info.last : null };
+}
+
+async function closeWelcome(goPlan) {
+  const btn = modal.querySelector('[data-action="welcome-start"]');
+  const { text, ticked, about } = finishWelcome();
+  const done = ticked ? `${ticked} marked done. ` : '';
+  const after = () => {
+    if (!goPlan) return;
+    ui.planDay = 'today';
+    if (location.hash === '#start') render(); else location.hash = '#start';
+  };
+  if (!text) {
+    closeModal();
+    after();
+    render();
+    toast(goPlan ? `${done}Fresh start: pick a few things for today.` : (done || 'See you around.').trim());
+    return;
+  }
+  await handleTalk(text, { about, source: 'welcome', button: btn, prefix: done, after });
 }
 
 // ----- calendar -----
@@ -1004,54 +1019,41 @@ function eventFormHTML(e, dateKey) {
   </form>`;
 }
 
-// ----- brain dump -----
+// ----- talking: say anything, it is kept as a note -----
+// Talk never turns into tasks on its own. Say "task" before something to add it,
+// and with a Claude key you may also get up to 3 suggestions, unticked.
 
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognizer = null;
+let talkDraft = null; // { note, named: [...], suggested: [...], after, prefix }
 
-function dumpHTML() {
+const MIC_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v5"></path></svg>';
+
+function talkFieldHTML(prefix, label, placeholder, height = 140) {
   return `
-  <div class="modal" data-form="dump">
-    <div class="modal-head"><h2 id="modal-title">Brain dump</h2>
-      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
-    <div class="dump-warning" role="note">
-      <div class="big">A brain dump can bury what matters.</div>
-      <div>Everything you dump goes in as <strong>🤔 Nice to have: not important yet.</strong> Promote only what truly matters.</div>
-    </div>
     <div class="field">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
-        <label for="dump-text" class="field-label">Say or type everything on your mind</label>
+        <label for="${prefix}-text" class="field-label">${label}</label>
         ${SpeechRec ? `<div style="display:flex; gap:6px; align-items:center">
-          <label class="visually-hidden" for="dump-lang">Language</label>
-          <select class="input" id="dump-lang" style="min-height:40px; width:auto; padding:6px 10px"><option value="en-US">English</option><option value="es-PE">Español</option></select>
-          <button type="button" class="btn btn-small mic" data-action="mic" data-target="dump-text" data-lang="dump-lang" aria-pressed="false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v5"></path></svg>
-            <span>Start talking</span></button></div>` : '<span class="hint">Voice works in Chrome. Typing works everywhere.</span>'}
+          <label class="visually-hidden" for="${prefix}-lang">Language</label>
+          <select class="input" id="${prefix}-lang" style="min-height:40px; width:auto; padding:6px 10px"><option value="en-US">English</option><option value="es-PE">Español</option></select>
+          <button type="button" class="btn btn-small mic" data-action="mic" data-target="${prefix}-text" data-lang="${prefix}-lang" aria-pressed="false">${MIC_ICON}<span>Start talking</span></button></div>` : ''}
       </div>
-      <textarea class="input" id="dump-text" style="min-height:160px" placeholder="Email the professor about the paper. Buy a suit. Call the bank and then book flights..."></textarea>
-    </div>
-    <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center">
-      <span class="hint dump-status">${AI.hasKey() ? 'Claude will split it into tasks and match each one to a goal.' : 'Each sentence becomes a task under "Keep life running". With a Claude key, they get matched to your goals.'}</span>
-      <button type="button" class="btn btn-dark" data-action="dump-split">Turn into tasks</button>
-    </div>
-    <div class="dump-preview"></div>
-  </div>`;
+      <textarea class="input" id="${prefix}-text" style="min-height:${height}px" placeholder="${placeholder}"></textarea>
+      <span class="hint">Saved as a note, nothing else. Want a task? Say <strong>"task"</strong> and then the task, for example: <em>task: email the professor</em>.${AI.hasKey() ? ' Claude may also suggest up to 3, and you choose.' : ''}</span>
+    </div>`;
 }
 
-let dumpDraft = [];
-
-function dumpPreviewHTML() {
-  if (!dumpDraft.length) return '';
+function talkHTML() {
   return `
-  <div class="card list">
-    ${dumpDraft.map((t, i) => `<div class="item">
-      <div class="item-main"><span class="item-title">${esc(t.title)}</span>
-      <div class="item-meta"><span class="goal-label">Goal: ${esc(goal(t.goalId)?.title || 'Keep life running')}</span><span>${R.formatMinutes(t.minutes)}</span>${markHTML('nice')}</div></div>
-      <button type="button" class="btn btn-small" data-action="dump-remove" data-index="${i}" aria-label="Remove">Remove</button>
-    </div>`).join('')}
-  </div>
-  <div class="modal-foot">
-    <button type="button" class="btn btn-dark" data-action="dump-add">Add all ${dumpDraft.length} to backlog as 🤔</button>
+  <div class="modal" data-form="talk">
+    <div class="modal-head"><h2 id="modal-title">Talk it out</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    ${talkFieldHTML('talk', 'Say or type whatever is on your mind', 'Letting off steam is fine. Task: book the dentist...', 160)}
+    <div class="modal-foot">
+      <span class="hint talk-status" style="margin-right:auto"></span>
+      <button type="button" class="btn btn-dark" data-action="talk-save">Save</button>
+    </div>
   </div>`;
 }
 
@@ -1085,48 +1087,99 @@ function toggleMic(btn) {
   btn.querySelector('span').textContent = 'Stop';
 }
 
-async function splitDumpText() {
-  const text = modal.querySelector('#dump-text').value.trim();
-  const status = modal.querySelector('.dump-status');
-  if (!text) { status.textContent = 'Say or type something first.'; return; }
+// Saves the note, finds tasks you named, asks Claude for (at most 3) suggestions, then shows a short review.
+async function handleTalk(text, { about = null, source = 'talk', button = null, prefix = '', after = () => {} } = {}) {
   stopMic();
+  state.journal = state.journal || [];
+  state.journal.push({ id: newId(), date: todayKey(), about, text, source, at: new Date().toISOString() });
+  save(state);
+  const open = R.openTasks(state.tasks);
+  const fallbackGoal = goal(ui.lastGoal) ? ui.lastGoal : 'life';
+  let named = R.explicitTasks(text).map((title) => ({ title, goalId: fallbackGoal, priority: 'nice', minutes: 30, pick: true }));
+  let suggested = [];
+  let aiNote = '';
   if (AI.hasKey()) {
-    status.textContent = 'Claude is sorting it...';
+    if (button) { button.disabled = true; button.textContent = 'Reading your note...'; }
     try {
-      dumpDraft = await AI.tasksFromDump(text, state.goals);
-    } catch (err) {
-      status.textContent = `${err.message} Using a simple split instead.`;
-      dumpDraft = R.splitDump(text).map((title) => ({ title, goalId: 'life', minutes: 30 }));
-    }
-  } else {
-    dumpDraft = R.splitDump(text).map((title) => ({ title, goalId: 'life', minutes: 30 }));
+      const out = await AI.talkSuggestions(text, state.goals, open.map((t) => t.title), named.map((n) => n.title));
+      named = named.map((n) => ({ ...n, goalId: out.namedGoals[n.title.toLowerCase()] || n.goalId }));
+      suggested = out.suggestions
+        .filter((s) => !R.sameTitle(s.title, open) && !named.some((n) => R.normalTitle(n.title) === R.normalTitle(s.title)))
+        .map((s) => ({ ...s, priority: 'nice', pick: false }));
+    } catch (err) { aiNote = err.message; }
   }
-  if (!dumpDraft.length) status.textContent = 'No tasks found. Try short sentences, one thing each.';
-  else if (!status.textContent.includes('simple split')) status.textContent = `${dumpDraft.length} tasks found. Remove any you don't want, then add them all at once.`;
-  modal.querySelector('.dump-preview').innerHTML = dumpPreviewHTML();
+  named.forEach((n) => { n.taken = !!R.sameTitle(n.title, open); if (n.taken) n.pick = false; });
+  if (!named.length && !suggested.length) {
+    closeModal();
+    after();
+    render();
+    toast(`${prefix}Note saved.${aiNote ? ` (${aiNote})` : ''}`);
+    return;
+  }
+  talkDraft = { named, suggested, after, prefix };
+  openModal(talkReviewHTML(), false);
 }
 
-function addDump() {
-  const nowIso = new Date().toISOString();
-  const deadline = '';
-  const before = dumpDraft.length;
-  const seen = [];
-  dumpDraft = dumpDraft.filter((t) => {
-    if (R.sameTitle(t.title, R.openTasks(state.tasks)) || R.sameTitle(t.title, seen)) return false;
-    seen.push(t);
-    return true;
+function talkRowHTML(t, i, kind) {
+  const goalSel = `<select class="input" data-talk="goal" aria-label="Goal">${state.goals.map((g) => `<option value="${g.id}" ${g.id === t.goalId ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select>`;
+  const prioSel = `<select class="input" data-talk="priority" aria-label="Priority">${['nice', 'important', 'urgent', 'both'].map((p) => `<option value="${p}" ${p === t.priority ? 'selected' : ''}>${R.PRIORITIES[p].mark || ''} ${R.PRIORITIES[p].label}</option>`).join('')}</select>`;
+  return `<div class="talk-row" data-kind="${kind}" data-index="${i}">
+    <label class="check-row"><input type="checkbox" data-talk="pick" ${t.pick ? 'checked' : ''} ${t.taken ? 'disabled' : ''}> <span class="item-title">${esc(t.title)}</span></label>
+    ${t.taken ? '<span class="hint">Already in your backlog.</span>' : `<div class="talk-pickers">${prioSel}${goalSel}</div>`}
+  </div>`;
+}
+
+function talkReviewHTML() {
+  const { named, suggested } = talkDraft;
+  return `
+  <div class="modal" data-form="talk-review">
+    <div class="modal-head"><h2 id="modal-title">Your note is saved</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="talk-skip" aria-label="Close">✕</button></div>
+    ${named.length ? `<div class="talk-group"><strong>Tasks you named</strong>${named.map((t, i) => talkRowHTML(t, i, 'named')).join('')}</div>` : ''}
+    ${suggested.length ? `<div class="talk-group"><strong>Claude noticed these. Tick only what matters.</strong>${suggested.map((t, i) => talkRowHTML(t, i, 'suggested')).join('')}</div>` : ''}
+    <div class="form-errors" role="alert" hidden></div>
+    <div class="modal-foot">
+      <button type="button" class="btn-link" data-action="talk-skip">Just keep the note</button>
+      <button type="button" class="btn btn-dark" data-action="talk-add">Add selected</button>
+    </div>
+  </div>`;
+}
+
+function readTalkReview() {
+  modal.querySelectorAll('.talk-row').forEach((row) => {
+    const t = talkDraft[row.dataset.kind][Number(row.dataset.index)];
+    t.pick = !!row.querySelector('[data-talk="pick"]')?.checked;
+    t.priority = row.querySelector('[data-talk="priority"]')?.value || t.priority;
+    t.goalId = row.querySelector('[data-talk="goal"]')?.value || t.goalId;
   });
-  const skipped = before - dumpDraft.length;
-  dumpDraft.forEach((t) => state.tasks.push({
-    id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0,
-    title: t.title, goalId: goal(t.goalId) ? t.goalId : 'life', priority: 'nice', deadline,
-    minutes: t.minutes, firstSteps: [], firstStep: '', stepsBy: 'me', place: 'everywhere',
-    destination: '', fixedDate: '', fixedTime: null, needs: [], source: 'brain-dump',
-  }));
-  const n = dumpDraft.length;
-  dumpDraft = [];
+  return [...talkDraft.named, ...talkDraft.suggested].filter((t) => t.pick && !t.taken);
+}
+
+function addTalkTasks() {
+  const picks = readTalkReview();
+  const box = modal.querySelector('.form-errors');
+  if (!picks.length) { box.hidden = false; box.textContent = 'Nothing ticked. Tick a task, or choose "Just keep the note".'; return; }
+  const nowIso = new Date().toISOString();
+  const fresh = [];
+  const problems = [];
+  picks.forEach((p) => {
+    const t = {
+      id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0,
+      title: p.title, goalId: p.goalId, priority: p.priority, deadline: R.defaultDeadline(p.priority, todayKey()),
+      minutes: p.minutes || 30, firstSteps: R.templateSteps(p.title, 'everywhere'), firstStep: '', stepsBy: 'template', place: 'everywhere',
+      destination: '', fixedDate: '', fixedTime: null, needs: [], source: 'talk',
+    };
+    R.validateTask(t, [...state.tasks, ...fresh], todayKey(), S()).forEach((msg) => problems.push(`${p.title}: ${msg}`));
+    fresh.push(t);
+  });
+  if (problems.length) { box.hidden = false; box.innerHTML = problems.map(esc).join('<br>'); return; }
+  state.tasks.push(...fresh);
+  ui.lastGoal = fresh[fresh.length - 1].goalId;
+  const { after, prefix } = talkDraft;
+  talkDraft = null;
   closeModal();
-  persist([`${n} tasks added as 🤔 Nice to have.${skipped ? ` ${skipped} skipped: already in your backlog.` : ''}`]);
+  after();
+  persist([`${prefix}Note saved. ${fresh.length} task${fresh.length === 1 ? '' : 's'} added.`]);
 }
 
 // ----- goals -----
@@ -1656,22 +1709,8 @@ const actions = {
   },
   'quick-add': () => quickCapture(false),
   'quick-done': () => quickCapture(true),
-  'welcome-start': () => {
-    const text = finishWelcome();
-    closeModal();
-    ui.planDay = 'today';
-    if (location.hash === '#start') render(); else location.hash = '#start';
-    toast(text ? 'Note saved. Fresh start: pick a few things for today.' : 'Fresh start: pick a few things for today.');
-  },
-  'welcome-tasks': () => {
-    const text = finishWelcome();
-    dumpDraft = [];
-    openModal(dumpHTML());
-    const box = modal.querySelector('#dump-text');
-    if (box) box.value = text;
-    if (!text) toast('Say or type what is on your mind, then turn it into tasks.');
-  },
-  'welcome-skip': () => { finishWelcome(); closeModal(); },
+  'welcome-start': () => closeWelcome(true),
+  'welcome-close': () => closeWelcome(false),
   'event-to-task': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
     if (!c) { toast('That event is no longer on your calendar.'); return; }
@@ -1742,11 +1781,19 @@ const actions = {
     closeModal();
     persist(['Event deleted.']);
   },
-  'open-dump': () => { dumpDraft = []; openModal(dumpHTML(), false); },
+  'open-dump': () => openModal(talkHTML(), false),
   'mic': (el) => toggleMic(el),
-  'dump-split': () => splitDumpText(),
-  'dump-remove': (el) => { dumpDraft.splice(Number(el.dataset.index), 1); modal.querySelector('.dump-preview').innerHTML = dumpPreviewHTML(); },
-  'dump-add': () => addDump(),
+  'talk-save': (el) => {
+    const text = (modal.querySelector('#talk-text')?.value || '').trim();
+    if (!text) { modal.querySelector('.talk-status').textContent = 'Say or type something first.'; return; }
+    handleTalk(text, { button: el });
+  },
+  'talk-add': () => addTalkTasks(),
+  'talk-skip': () => {
+    const after = talkDraft ? talkDraft.after : () => {};
+    const prefix = talkDraft ? talkDraft.prefix : '';
+    talkDraft = null; closeModal(); after(); render(); toast(`${prefix}Note saved.`);
+  },
   'review': (el) => openModal(reviewHTML(Number(el.dataset.block))),
   'open-settings': () => openModal(settingsHTML()),
   'export': () => exportBackup(state),

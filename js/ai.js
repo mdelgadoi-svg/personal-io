@@ -1,6 +1,7 @@
-// Claude suggestions for a task: three tiny first steps and what it needs.
+// Claude helpers: tiny first steps for a task, and reading notes you say or type.
 // Uses your own Claude API key, saved only in this browser (Settings).
-// Only the task title, its goal and the goal's why are sent to Claude.
+// For steps, only the task title, its goal and the goal's why are sent.
+// For a note, the note, your goal titles and your open task titles are sent.
 
 const MODEL = 'claude-sonnet-5-5';
 const KEY_STORAGE = 'personal-io:claude-key';
@@ -74,32 +75,41 @@ async function ask(prompt) {
   return parseJson((data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n'));
 }
 
-// Turns a spoken or typed brain dump into short tasks, each matched to a goal if one fits.
-export async function tasksFromDump(text, goals) {
+// Reads a note you said or typed. Most notes are just letting off steam, so this
+// usually returns nothing. It only suggests (at most 3) clear things you said you need to do,
+// and picks a goal for the tasks you named yourself with the word "task".
+export async function talkSuggestions(text, goals, openTitles = [], named = []) {
   const goalList = goals.map((g) => `- ${g.id}: ${g.title}`).join('\n');
-  const out = await ask(`Turn this brain dump into short, concrete tasks.
+  const out = await ask(`Someone with ADHD wrote or said this note. Most notes are venting or thinking out loud and contain no tasks.
 
-Brain dump:
+Note:
 """${text}"""
 
 Goals (id: title):
 ${goalList}
 
+Tasks they already have: ${openTitles.length ? openTitles.slice(0, 60).join('; ') : 'none'}
+Tasks they named themselves: ${named.length ? named.join('; ') : 'none'}
+
 Reply with JSON only:
-{ "tasks": [ { "title": "...", "goalId": "...", "minutes": 30 } ] }
+{ "suggestions": [ { "title": "...", "goalId": "...", "minutes": 30 } ], "namedGoals": [ { "title": "...", "goalId": "..." } ] }
 
 Rules:
-- One task per distinct thing to do. Skip feelings, opinions and repeats.
+- suggestions: 0 to 3 items. Only include a clear, concrete action the person says they need or want to do. Never turn feelings, complaints or ideas into tasks. Skip anything already in their tasks or in the tasks they named. When in doubt, leave it out. An empty list is a good answer.
 - Title: start with a verb, under 10 words. No em dashes.
 - goalId: the id of the goal it serves, or "life" if none fits.
 - minutes: a realistic guess (15, 30, 45, 60, 90 or 120).
-- At most 20 tasks.`);
+- namedGoals: for each task they named themselves, the goal id that fits best, or "life".`);
   const ids = new Set(goals.map((g) => g.id));
-  return (out.tasks || []).slice(0, 20).map((t) => ({
+  const fit = (id) => (ids.has(id) ? id : 'life');
+  const suggestions = (out.suggestions || []).slice(0, 3).map((t) => ({
     title: String(t.title || '').trim(),
-    goalId: ids.has(t.goalId) ? t.goalId : 'life',
+    goalId: fit(t.goalId),
     minutes: [15, 30, 45, 60, 90, 120].includes(Number(t.minutes)) ? Number(t.minutes) : 30,
   })).filter((t) => t.title);
+  const namedGoals = {};
+  (out.namedGoals || []).forEach((n) => { if (n && n.title) namedGoals[String(n.title).trim().toLowerCase()] = fit(n.goalId); });
+  return { suggestions, namedGoals };
 }
 
 export async function suggestForTask(input) {

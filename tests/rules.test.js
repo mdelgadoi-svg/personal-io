@@ -210,3 +210,21 @@ test('day summary lists wins and counts what is still open', () => {
   const log = [{ date: '2026-10-25', result: 'done', title: 'A' }, { date: '2026-10-25', result: 'done', title: 'Logged win' }];
   assert.deepEqual(daySummary('2026-10-25', { days, log, tasks }), { planned: 2, done: ['A', 'Logged win'], open: 1 });
 });
+
+import { explicitTasks, defaultDeadline } from '../js/rules.js';
+
+test('only the word "task" turns talk into tasks', () => {
+  assert.deepEqual(explicitTasks('So tired today. Task: email the professor about the paper. I hate mondays.'), ['Email the professor about the paper']);
+  assert.deepEqual(explicitTasks('task buy a suit and task call mom'), ['Buy a suit', 'Call mom']);
+  assert.deepEqual(explicitTasks('I have many tasks today and my task list is long'), []);
+  assert.deepEqual(explicitTasks('Tarea: llamar al banco'), ['Llamar al banco']);
+  assert.deepEqual(explicitTasks('ok, task. Pay rent. Also task renew the visa photos'), ['Pay rent', 'Renew the visa photos']);
+  assert.deepEqual(explicitTasks('Just venting, everything is a lot right now.'), []);
+});
+
+test('tasks from talking get a starting deadline by priority', () => {
+  assert.equal(defaultDeadline('both', '2026-10-30'), '2026-10-31');
+  assert.equal(defaultDeadline('urgent', '2026-10-30'), '2026-10-31');
+  assert.equal(defaultDeadline('important', '2026-10-30'), '2026-11-06');
+  assert.equal(defaultDeadline('nice', '2026-10-30'), '');
+});

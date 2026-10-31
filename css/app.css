@@ -335,9 +335,12 @@ button.ev:hover { filter: brightness(.95); box-shadow: 0 0 0 2px var(--ink); }
 /* ---------- welcome back ---------- */
 .welcome .big { font-size: 26px; font-weight: 700; }
 .welcome-box { border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
-.welcome-wins { background: var(--success-soft); color: var(--ink); }
-.welcome-wins ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.welcome-wins li::before { content: "✓ "; color: var(--success); font-weight: 800; }
+.welcome-check { border: 2px solid var(--line); background: var(--surface, #fff); margin: 0; }
+.welcome-check legend { font-weight: 700; padding: 0 4px; }
+.check-row { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; font-size: 15px; }
+.check-row input { width: 20px; height: 20px; accent-color: var(--primary); flex: none; }
+.stand { display: flex; flex-wrap: wrap; gap: 8px; }
+.stand-chip { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 14px; }
 .welcome-next { background: var(--gold-soft); box-shadow: inset 6px 0 0 var(--gold); }
 .welcome-open { background: var(--ground); color: var(--ink); }
 
@@ -365,8 +368,11 @@ dialog:not(.wide) .modal-side { display: none; }
 .needs-table td { padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .needs-table tr:last-child th, .needs-table tr:last-child td { border-bottom: none; }
 .review-task { border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.dump-warning { background: var(--gold-soft); border: 2px solid var(--gold); color: var(--ink); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
-.dump-warning .big { font-size: 24px; font-weight: 800; line-height: 1.2; }
+.talk-group { display: flex; flex-direction: column; gap: 8px; }
+.talk-row { border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.talk-pickers { display: flex; gap: 8px; flex-wrap: wrap; }
+.talk-pickers select { width: auto; flex: 1 1 160px; min-height: 42px; padding: 6px 10px; }
+.form-errors { background: #FDECEA; border: 2px solid var(--error); color: var(--error); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; }
 .mic[aria-pressed="true"] { background: var(--error); border-color: var(--error); color: #fff; }
 .dump-btn { gap: 6px; }
 
@@ -394,5 +400,5 @@ dialog:not(.wide) .modal-side { display: none; }
   .capture-actions .btn { flex: 1 1 auto; }
   .plan-cols .col-cal { display: none; }
   .prio-grid { grid-template-columns: 1fr; }
-  .dump-warning .big, .welcome .big { font-size: 20px; }
+  .welcome .big { font-size: 20px; }
 }
