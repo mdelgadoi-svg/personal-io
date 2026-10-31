@@ -268,3 +268,9 @@ test('pasted lines lose bullets, not real words', () => {
   assert.equal(cleanListLine('2027 budget review'), '2027 budget review');
   assert.equal(cleanListLine('10 min call with Andrew'), '10 min call with Andrew');
 });
+
+test('markers without a space are removed too, minus signs in numbers are not', () => {
+  assert.equal(cleanListLine('•Call mom'), 'Call mom');
+  assert.equal(cleanListLine('-Book flights'), 'Book flights');
+  assert.equal(cleanListLine('-5 degrees plan'), '-5 degrees plan');
+});

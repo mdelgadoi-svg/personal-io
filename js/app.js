@@ -1621,7 +1621,7 @@ function taskFormHTML(t, opts) {
         <strong id="side-cal-title">${esc(fmtDay(calDay, { weekday: 'long', month: 'short', day: 'numeric' }))}</strong>
         <button type="button" class="btn btn-ghost icon-btn" data-action="side-cal-move" data-step="1" aria-label="Next day">›</button>
       </div>
-      <span class="hint side-hint">Press and drag down to set the time and length.</span>
+      <span class="hint side-hint"><span class="for-mouse">Press and drag down to set the time and length.</span><span class="for-touch">Tap a time to start the task there. It keeps the length above.</span></span>
       <div class="side-note" hidden></div>
       <div id="side-cal" data-day="${calDay}"></div>
     </aside>
@@ -2085,7 +2085,7 @@ const actions = {
     let note = '';
     if (check(t.priority).length) {
       if (check('nice').length) { toast(check(t.priority)[0]); return; }
-      note = ` ${R.PRIORITIES[t.priority].mark} is full now, so it came back as 🤔 Tasks for later.`;
+      note = ` It came back as 🤔 Tasks for later. ${check(t.priority)[0]}`;
       t.priority = 'nice';
     }
     t.status = 'open';
@@ -2582,7 +2582,7 @@ document.addEventListener('pointerdown', (e) => {
   const sel = document.createElement('div');
   sel.className = 'pick-sel';
   grid.appendChild(sel);
-  timePick = { grid, sel, rect: grid.getBoundingClientRect(), moved: false };
+  timePick = { grid, sel, rect: grid.getBoundingClientRect(), moved: false, touch: e.pointerType !== 'mouse' };
   timePick.from = pickMinute(e.clientY);
   timePick.to = timePick.from;
   drawPick();
@@ -2595,12 +2595,15 @@ document.addEventListener('pointermove', (e) => {
 document.addEventListener('pointercancel', () => { if (timePick) { timePick.sel.remove(); timePick = null; } });
 document.addEventListener('pointerup', () => {
   if (!timePick) return;
-  const { from, to, moved, sel } = timePick;
+  const { from, moved, sel, touch } = timePick;
+  let { to } = timePick;
   timePick = null;
   sel.remove();
   const form = modal.querySelector('form[data-form="task"]');
   if (!form) return;
-  if (!moved || Math.abs(to - from) < 15) {
+  // On a phone, dragging scrolls the page, so a tap sets the start and keeps the length you typed.
+  if (touch && !moved) to = from + (Number(modal.querySelector('#f-minutes')?.value) || 30);
+  if (!moved && !touch || Math.abs(to - from) < 15) {
     const hint = modal.querySelector('.side-hint');
     if (hint) hint.textContent = 'Press and drag down over the time you want (a click does nothing).';
     return;

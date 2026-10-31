@@ -370,7 +370,7 @@ export function busyMinutes(items, fromHour = 8, toHour = 22) {
 
 // Removes list markers only: "- ", "* ", "• ", "1. ", "2) ", "[ ] ", "[x] ". Keeps "2027 budget" or "Xerox".
 export function cleanListLine(line) {
-  return String(line || '').replace(/^\s*(?:[-*•]\s+)?(?:\d+[.)]\s+)?(?:\[[ xX]?\]\s*)?/, '').trim();
+  return String(line || '').replace(/^\s*(?:[*•]\s*|-(?=\s|\p{L})\s*)?(?:\d+[.)]\s+)?(?:\[[ xX]?\]\s*)?/u, '').trim();
 }
 
 // ---------- talking: notes first, tasks only when named ----------
