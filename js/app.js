@@ -624,6 +624,9 @@ function taskRowHTML(t, { addTo, day, tKey, full }) {
       <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${when}${placeChip(t)}</div>
       ${t.progress ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
       ${t.pushCount ? `<div class="item-meta"><span class="due-soon">Pushed ${t.pushCount}x${t.lastReason ? ' · ' + esc(t.lastReason.toLowerCase()) : ''}</span></div>` : ''}
+      ${(t.priority === 'both' || t.priority === 'urgent') && t.deadline && !R.isUrgentByDate(t, tKey, S()) ? `<div class="item-meta"><span class="chip chip-warn">Due ${esc(fmtDay(t.deadline))}: not urgent yet</span>
+        <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Change deadline</button>
+        <button class="btn btn-small" data-action="to-important" data-id="${t.id}">Move to ★</button></div>` : ''}
       ${t.promotionBlocked ? `<div class="item-meta"><span class="chip chip-warn">Due soon, but ★! is full</span>
         <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Change deadline</button>
         <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">Move to 🤔</button></div>` : ''}
@@ -803,7 +806,9 @@ function dayColumnHTML(dayKey) {
   } else if (tasks.length && !day.set) {
     footer = `<button class="btn btn-dark" style="width:100%" data-action="set-plan" data-day="${dayKey}">Set plan for ${word}</button>`;
   } else if (tasks.length && day.googlePending && !day.planStale) {
-    footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+    footer = ui.saving
+      ? '<div class="note note-info"><strong>Plan set</strong> · saving to Google Calendar...</div>'
+      : `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
       <span><strong>Plan set</strong> · not in Google Calendar yet</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">Try again</button></div>`;
   } else if (tasks.length && day.planStale) {
     footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
@@ -2039,6 +2044,7 @@ function changePriority(id, priority) {
   const problems = R.validateTask({ ...t, priority }, state.tasks, todayKey(), S());
   if (problems.length) { toast(problems[0], { label: 'Edit task', data: { action: 'edit-task', id } }); return; }
   Object.assign(t, { priority, promotionBlocked: false, lastTouchedAt: new Date().toISOString() });
+  Object.entries(state.days).forEach(([key, d]) => { if (key >= todayKey() && d.taskIds.includes(id)) syncPlan(key); });
   ui.open[priority] = true;
   persist([`${t.title} is now ${R.PRIORITIES[priority].mark} ${R.PRIORITIES[priority].label}.`]);
 }
@@ -2129,7 +2135,10 @@ async function setPlan(dayKey) {
   }
   try {
     if (!G.isConnected()) await withTimeout(G.connect(), 120000, 'the Google window did not finish');
-    day.googleIds = await withTimeout(G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []), 60000, 'Google did not answer');
+    day.googlePending = !clearing;
+    save(state);
+    render();
+    day.googleIds = await G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []);
     day.googlePending = false;
     if (clearing) day.set = false;
     save(state);
@@ -2139,7 +2148,7 @@ async function setPlan(dayKey) {
     day.googlePending = !clearing;
     save(state);
     render();
-    toast(`Google Calendar was not updated: ${err.message === 'not-connected' ? 'sign-in needed' : err.message}.`, { label: 'Try again', data: { action: 'set-plan', day: dayKey } });
+    toast(`Google Calendar was not updated: ${err.message === 'not-connected' ? 'sign-in needed' : err.message.replace(/\.$/, '')}.`, { label: 'Try again', data: { action: 'set-plan', day: dayKey } });
   }
 }
 
@@ -2184,7 +2193,7 @@ const actions = {
     persist();
   },
   'set-plan': async (el) => {
-    if (ui.saving) return;
+    if (ui.saving) { toast('Still saving to Google Calendar. One moment.'); return; }
     ui.saving = true;
     if (el.tagName === 'BUTTON' && !el.classList.contains('toast-btn')) { el.disabled = true; el.textContent = 'Saving...'; }
     try { await setPlan(el.dataset.day); } finally { ui.saving = false; }
@@ -2306,7 +2315,14 @@ const actions = {
     } catch (err) { status.textContent = err.message; }
   },
   'open-email': () => openModal(emailHTML()),
-  'clear-pic': () => { try { localStorage.removeItem(PIC_KEY); } catch { /* fine */ } openModal(settingsHTML()); },
+  'to-important': (el) => changePriority(el.dataset.id, 'important'),
+  'clear-pic': (el) => {
+    try { localStorage.removeItem(PIC_KEY); } catch { /* fine */ }
+    const holder = el.closest('div');
+    holder.querySelector('img.pic-preview')?.remove();
+    el.remove();
+    toast('Back to the drawn cat.');
+  },
   'talk-review-open': () => { if (talkDraft) openModal(talkReviewHTML()); },
   'side-cal-fixed': () => setSideDay(modal.querySelector('#f-date').value),
   'email-scan': (el) => scanEmail(el),
@@ -2475,8 +2491,12 @@ document.addEventListener('change', async (e) => {
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      localStorage.setItem(PIC_KEY, canvas.toDataURL('image/jpeg', 0.85));
-      openModal(settingsHTML());
+      const data = canvas.toDataURL('image/jpeg', 0.85);
+      try { localStorage.setItem(PIC_KEY, data); } catch { toast('This browser is out of space for the picture. Try a smaller one.'); return; }
+      const holder = el.closest('div');
+      const old = holder.querySelector('img.pic-preview, svg.cat');
+      if (old) old.outerHTML = `<img src="${data}" alt="Your start picture" class="pic-preview">`;
+      if (!holder.querySelector('[data-action="clear-pic"]')) holder.insertAdjacentHTML('beforeend', '<button type="button" class="btn-link" data-action="clear-pic">Use the drawn cat</button>');
       toast('Picture saved for your start screen.');
     } catch { toast('Could not use that picture. Try a JPG or PNG.'); }
   } else if (el.dataset.change === 'import') {

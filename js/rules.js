@@ -110,10 +110,13 @@ export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTIN
   if (task.place === 'commute' && !(task.destination || '').trim()) {
     problems.push('Say where you need to go.');
   }
-  if (task.priority === 'both' && task.deadline && !isUrgentByDate(task, todayKey, settings)) {
+  // A task saved before keeps its level and deadline without being blocked (the list asks about it instead).
+  const prev = allTasks.find((t) => t.id === task.id);
+  const unchangedUrgency = prev && prev.status === 'open' && prev.priority === task.priority && prev.deadline === task.deadline;
+  if (task.priority === 'both' && task.deadline && !unchangedUrgency && !isUrgentByDate(task, todayKey, settings)) {
     problems.push('★! means the deadline is today or tomorrow. Use ★ for later deadlines.');
   }
-  if (task.priority === 'urgent' && task.deadline && !isUrgentByDate(task, todayKey, settings)) {
+  if (task.priority === 'urgent' && task.deadline && !unchangedUrgency && !isUrgentByDate(task, todayKey, settings)) {
     problems.push('! means the deadline is today or tomorrow. Change the deadline, or use 🤔 Tasks for later.');
   }
   const others = allTasks.filter((t) => t.id !== task.id);

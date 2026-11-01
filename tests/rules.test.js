@@ -295,3 +295,9 @@ test('! also needs a deadline today or tomorrow', () => {
   assert.ok(validateTask(task({ priority: 'urgent', deadline: '2026-11-10' }), [], today).some((p) => p.includes('today or tomorrow')));
   assert.deepEqual(validateTask(task({ priority: 'urgent', deadline: '2026-10-27' }), [], today), []);
 });
+
+test('an old ! task with a far deadline can still be renamed, but not newly made', () => {
+  const old = task({ id: 'u', priority: 'urgent', deadline: '2026-11-10' });
+  assert.deepEqual(validateTask({ ...old, title: 'Renamed' }, [old], today), []);
+  assert.ok(validateTask({ ...old, deadline: '2026-11-12' }, [old], today).length > 0);
+});
