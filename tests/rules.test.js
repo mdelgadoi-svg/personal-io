@@ -290,3 +290,8 @@ test('a task goes in the first free time that fits', () => {
   // commuting needs 30 minutes before as well
   assert.equal(findFreeSlot(30, busy, 8 * 60, 22 * 60, 30), '11:00');
 });
+
+test('! also needs a deadline today or tomorrow', () => {
+  assert.ok(validateTask(task({ priority: 'urgent', deadline: '2026-11-10' }), [], today).some((p) => p.includes('today or tomorrow')));
+  assert.deepEqual(validateTask(task({ priority: 'urgent', deadline: '2026-10-27' }), [], today), []);
+});

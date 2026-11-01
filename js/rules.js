@@ -113,6 +113,9 @@ export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTIN
   if (task.priority === 'both' && task.deadline && !isUrgentByDate(task, todayKey, settings)) {
     problems.push('★! means the deadline is today or tomorrow. Use ★ for later deadlines.');
   }
+  if (task.priority === 'urgent' && task.deadline && !isUrgentByDate(task, todayKey, settings)) {
+    problems.push('! means the deadline is today or tomorrow. Change the deadline, or use 🤔 Tasks for later.');
+  }
   const others = allTasks.filter((t) => t.id !== task.id);
   const sameName = sameTitle(task.title, others.filter((t) => t.status === 'open'));
   if (sameName) problems.push(`"${sameName.title}" is already in your backlog. Use a different name, or open that one.`);

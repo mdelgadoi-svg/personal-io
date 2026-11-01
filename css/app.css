@@ -478,3 +478,6 @@ dialog:not(.wide) .modal-side { display: none; }
   .cols .card.list .item .item-main { flex: 1 1 200px; min-width: 0; }
   .cols .card.list .item .item-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
 }
+.cat-photo { width: 220px; height: 220px; object-fit: cover; border-radius: 24px; display: block; margin: 0 auto; box-shadow: 0 6px 20px rgb(0 0 0 / 18%); }
+.pic-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 14px; }
+.group.drop-over { outline: 3px dashed var(--primary); outline-offset: 2px; }

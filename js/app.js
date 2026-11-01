@@ -590,7 +590,7 @@ function backlogGroupsHTML({ addTo = null, goalFilter = null, full = false } = {
     const count = info.cap === Infinity ? `${list.length}` : `${counts[p]} of ${info.cap}${counts[p] >= info.cap ? ' · full' : ''}`;
     const rows = list.map((t) => taskRowHTML(t, { addTo, day, tKey, full })).join('')
       || '<div class="item"><span class="hint">Nothing here.</span></div>';
-    return `<div class="card group group-${p}">
+    return `<div class="card group group-${p}" data-drop-priority="${p}">
       <button type="button" class="group-toggle" data-action="toggle-group" data-group-name="${p}" aria-expanded="${isOpen}">
         <span class="group-name">${markHTML(p)} ${info.label}</span>
         <span class="count">${count}</span>${CHEVRON}
@@ -616,15 +616,17 @@ function taskRowHTML(t, { addTo, day, tKey, full }) {
       <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Edit</button>`;
   }
   const when = t.eventRef ? `<span>${CAL_ICON} ${esc(fmtDay(t.eventRef.date))} · ${t12(t.fixedTime)}</span>` : deadlineHTML(t);
-  const canDrag = addTo && !inDay && !(t.eventRef && t.eventRef.date === addTo);
+  const tip = addTo ? `Drag to another priority, or into ${addTo === tKey ? 'today' : 'tomorrow'}` : 'Drag to another priority';
   return `
-  <div class="item ${canDrag ? 'draggable-task' : ''}" ${canDrag ? `draggable="true" data-task-drag="${t.id}" title="Drag into ${addTo === tKey ? 'today' : 'tomorrow'}"` : ''} style="${stale ? 'background: var(--gold-soft)' : ''}">
+  <div class="item draggable-task" draggable="true" data-task-drag="${t.id}" title="${tip}" style="${stale ? 'background: var(--gold-soft)' : ''}">
     <div class="item-main">
       <button class="task-name" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button>
       <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${when}${placeChip(t)}</div>
       ${t.progress ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
       ${t.pushCount ? `<div class="item-meta"><span class="due-soon">Pushed ${t.pushCount}x${t.lastReason ? ' · ' + esc(t.lastReason.toLowerCase()) : ''}</span></div>` : ''}
-      ${t.promotionBlocked ? '<div class="item-meta"><span class="chip chip-warn">Due soon, but ★! is full</span></div>' : ''}
+      ${t.promotionBlocked ? `<div class="item-meta"><span class="chip chip-warn">Due soon, but ★! is full</span>
+        <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Change deadline</button>
+        <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">Move to 🤔</button></div>` : ''}
       ${stale ? `<div class="item-meta" style="color: var(--ink)">Untouched ${S().staleDays}+ days. Still important?
           <button class="btn btn-small" data-action="keep-task" data-id="${t.id}">Keep</button>
           <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">Move to 🤔</button></div>` : ''}
@@ -800,6 +802,9 @@ function dayColumnHTML(dayKey) {
       <span>Your old plan is still in Google Calendar.</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">Remove it</button></div>`;
   } else if (tasks.length && !day.set) {
     footer = `<button class="btn btn-dark" style="width:100%" data-action="set-plan" data-day="${dayKey}">Set plan for ${word}</button>`;
+  } else if (tasks.length && day.googlePending && !day.planStale) {
+    footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <span><strong>Plan set</strong> · not in Google Calendar yet</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">Try again</button></div>`;
   } else if (tasks.length && day.planStale) {
     footer = `<div class="note note-warn" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
       <span>Changed since you set it.</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">${G.isConfigured() ? 'Update Google Calendar' : 'Set again'}</button></div>`;
@@ -1370,6 +1375,15 @@ function addTalkTasks() {
 
 let starter = null; // { taskId, steps, i, left, timer }
 
+const PIC_KEY = 'personal-io:start-pic';
+function startPic() { try { return localStorage.getItem(PIC_KEY) || ''; } catch { return ''; } }
+
+// Your own picture if you added one in Settings; otherwise the drawn cat.
+function starterPicture(mood) {
+  const pic = startPic();
+  return pic ? `<img class="cat cat-photo" src="${pic}" alt="Your start picture">` : catSVG(mood);
+}
+
 function catSVG(mood) {
   const mouth = {
     sad: 'M86 140 q14 -12 28 0',
@@ -1416,7 +1430,7 @@ function starterHTML() {
       : (t.needs || []).map((x) => `<li>${esc(x.text)}</li>`).join('');
     return `
     <div class="modal starter" data-form="starter">
-      ${catSVG('happy')}
+      ${starterPicture('happy')}
       <div class="starter-step">You started. That was the hard part.</div>
       <div class="starter-title">${esc(t.title)}</div>
       ${rows ? `<div class="starter-plan"><strong>${plan ? 'The rest of today' : 'To get it done'}</strong><ul>${rows}</ul></div>` : ''}
@@ -1428,7 +1442,7 @@ function starterHTML() {
   return `
   <div class="modal starter" data-form="starter">
     <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="starter-close" aria-label="Close">✕</button></div>
-    ${catSVG(mood)}
+    ${starterPicture(mood)}
     <div class="starter-step">Step ${starter.i + 1} of ${n} · 1 min</div>
     <div class="starter-text" id="modal-title">${esc(starter.steps[starter.i])}</div>
     <div class="starter-task">${esc(t.title)}</div>
@@ -1661,7 +1675,7 @@ function taskFormHTML(t, opts) {
         </div></div>
     </div>
     <div class="row">
-      <div class="field"><label for="f-deadline">Deadline</label>
+      <div class="field"><label for="f-deadline" id="f-deadline-label">${draft.priority === 'nice' ? 'Deadline (optional)' : 'Deadline'}</label>
         <input class="input" type="date" id="f-deadline" name="deadline" value="${esc(draft.deadline || '')}" data-change="form-deadline"></div>
       <div class="field"><label for="f-minutes">How long will it take? (minutes)</label>
         <input class="input" type="number" min="5" step="5" id="f-minutes" name="minutes" value="${esc(draft.minutes || '')}" data-change="form-cal-redraw">
@@ -1967,6 +1981,17 @@ function settingsHTML() {
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
+      <strong>Start screen picture</strong>
+      <span class="hint">Pick any image from your computer or phone to show when you start a task. It stays only in this browser.</span>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+        ${startPic() ? `<img src="${startPic()}" alt="Your start picture" class="pic-preview">` : catSVG('sad').replace('width="170" height="153"', 'width="80" height="72"')}
+        <label class="btn btn-small" for="s-pic" style="cursor:pointer">Choose a picture</label>
+        <input type="file" id="s-pic" accept="image/*" class="visually-hidden" data-change="start-pic">
+        ${startPic() ? '<button type="button" class="btn-link" data-action="clear-pic">Use the drawn cat</button>' : ''}
+      </div>
+    </div>
+
+    <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
       <strong>Backup</strong>
       <span class="hint">Your goals and tasks are saved in this browser. Download a backup now and then.</span>
       <div style="display:flex; gap:8px; flex-wrap:wrap">
@@ -2005,6 +2030,17 @@ async function addToDay(taskId, dayKey) {
   const phone = window.matchMedia('(max-width: 760px)').matches;
   persist([when ? `${t.title}: ${t12(when)} to ${t12m(R.toMinutes(when) + (t.minutes || 30))}. ${phone ? 'Tap it on the calendar to change the time.' : 'Drag it on the calendar to move it.'}` : `${t.title}: no free time left that fits. Pick a time.`]);
   if (G.isConfigured() && !G.isConnected()) toast('Google Calendar is not connected, so this time may clash with your events.', { label: 'Connect', data: { action: 'connect-google' } });
+}
+
+// Moves a task to another priority list, if the rules allow it.
+function changePriority(id, priority) {
+  const t = task(id);
+  if (!t || t.priority === priority) return;
+  const problems = R.validateTask({ ...t, priority }, state.tasks, todayKey(), S());
+  if (problems.length) { toast(problems[0], { label: 'Edit task', data: { action: 'edit-task', id } }); return; }
+  Object.assign(t, { priority, promotionBlocked: false, lastTouchedAt: new Date().toISOString() });
+  ui.open[priority] = true;
+  persist([`${t.title} is now ${R.PRIORITIES[priority].mark} ${R.PRIORITIES[priority].label}.`]);
 }
 
 // "What's on your mind?" One line becomes a 🤔 task, or a logged win.
@@ -2065,44 +2101,46 @@ function googleItemsFor(day) {
   return items;
 }
 
+// Gives up on a step that never answers (like a Google window left open), so the app never hangs.
+function withTimeout(promise, ms, message) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
+}
+
 async function setPlan(dayKey) {
   const day = getDay(dayKey);
   if ('Notification' in window && Notification.permission === 'default') {
     try { Notification.requestPermission(); } catch { /* not supported */ }
   }
-  const msgs = [];
-  if (G.isConfigured()) {
-    try {
-      if (!G.isConnected()) await G.connect();
-      day.googleIds = await G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []);
-      msgs.push(day.taskIds.length ? 'Added to your Google Calendar.' : 'Removed your old plan from Google Calendar.');
-    } catch (err) {
-      msgs.push(`Plan set, but Google Calendar was not updated: ${err.message === 'not-connected' ? 'sign-in needed' : err.message}`);
-    }
-  }
-  if (!day.taskIds.length) {
-    // Nothing planned: this only cleared Google.
-    day.set = false;
+  const clearing = !day.taskIds.length;
+  if (!clearing) {
+    // Saved right away, before Google, so the plan counts as set even if Google is slow or fails.
+    day.set = true;
     day.planStale = false;
+    day.setAt = new Date().toISOString();
+    const lastReturn = (state.returns || []).slice(-1)[0];
+    if (lastReturn && lastReturn.date === todayKey()) lastReturn.plannedAfter = true;
     save(state);
-    render();
-    msgs.forEach(toast);
+    if (dayKey === todayKey()) { if (location.hash === '#today') render(); else location.hash = '#today'; } else render();
+    toast(dayKey === todayKey() ? 'Plan set. Here is your day.' : "Tomorrow's plan is set.");
+  }
+  if (!G.isConfigured()) {
+    if (clearing) { day.set = false; save(state); render(); }
     return;
   }
-  day.set = true;
-  day.planStale = false;
-  day.setAt = new Date().toISOString();
-  const lastReturn = (state.returns || []).slice(-1)[0];
-  if (lastReturn && lastReturn.date === todayKey()) lastReturn.plannedAfter = true;
-  save(state);
-  if (dayKey === todayKey()) {
-    location.hash = '#today';
-    msgs.unshift('Plan set. Here is your day.');
-  } else {
-    msgs.unshift("Tomorrow's plan is set.");
+  try {
+    if (!G.isConnected()) await withTimeout(G.connect(), 120000, 'the Google window did not finish');
+    day.googleIds = await withTimeout(G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []), 60000, 'Google did not answer');
+    day.googlePending = false;
+    if (clearing) day.set = false;
+    save(state);
     render();
+    toast(clearing ? 'Removed your old plan from Google Calendar.' : 'Added to your Google Calendar.');
+  } catch (err) {
+    day.googlePending = !clearing;
+    save(state);
+    render();
+    toast(`Google Calendar was not updated: ${err.message === 'not-connected' ? 'sign-in needed' : err.message}.`, { label: 'Try again', data: { action: 'set-plan', day: dayKey } });
   }
-  msgs.forEach(toast);
 }
 
 const actions = {
@@ -2148,8 +2186,7 @@ const actions = {
   'set-plan': async (el) => {
     if (ui.saving) return;
     ui.saving = true;
-    el.disabled = true;
-    el.textContent = 'Saving...';
+    if (el.tagName === 'BUTTON' && !el.classList.contains('toast-btn')) { el.disabled = true; el.textContent = 'Saving...'; }
     try { await setPlan(el.dataset.day); } finally { ui.saving = false; }
   },
   'cal-item': (el) => {
@@ -2269,6 +2306,7 @@ const actions = {
     } catch (err) { status.textContent = err.message; }
   },
   'open-email': () => openModal(emailHTML()),
+  'clear-pic': () => { try { localStorage.removeItem(PIC_KEY); } catch { /* fine */ } openModal(settingsHTML()); },
   'talk-review-open': () => { if (talkDraft) openModal(talkReviewHTML()); },
   'side-cal-fixed': () => setSideDay(modal.querySelector('#f-date').value),
   'email-scan': (el) => scanEmail(el),
@@ -2315,7 +2353,7 @@ const actions = {
   },
   'reopen-task': (el) => { Object.assign(task(el.dataset.id), { status: 'open', doneAt: null }); persist(); },
   'keep-task': (el) => { task(el.dataset.id).lastTouchedAt = new Date().toISOString(); persist(['Kept. It stays important.']); },
-  'demote-task': (el) => { Object.assign(task(el.dataset.id), { priority: 'nice', lastTouchedAt: new Date().toISOString() }); persist(['Moved to tasks for later.']); },
+  'demote-task': (el) => { Object.assign(task(el.dataset.id), { priority: 'nice', promotionBlocked: false, lastTouchedAt: new Date().toISOString() }); persist(['Moved to tasks for later.']); },
   'delete-task': () => {
     const id = modal.querySelector('form').dataset.id;
     if (!confirm('Delete this task for good?')) return;
@@ -2375,6 +2413,7 @@ document.addEventListener('click', (e) => {
     group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === pick)));
     const name = group.dataset.group;
     const taskForm = modal.querySelector('form[data-form="task"]');
+    if (name === 'priority' && taskForm) taskForm.querySelector('#f-deadline-label').textContent = pick.dataset.value === 'nice' ? 'Deadline (optional)' : 'Deadline';
     if (name === 'place') {
       modal.querySelectorAll('.commute-fields').forEach((n) => { n.hidden = pick.dataset.value !== 'commute'; });
       if (taskForm) autoSteps(taskForm);
@@ -2425,6 +2464,21 @@ document.addEventListener('change', async (e) => {
     const inputs = [0, 1, 2].map((i) => form.querySelector(`#f-step${i}`));
     const untouched = inputs.every((inp) => !inp.value.trim() || inp.dataset.auto === inp.value);
     if (pressedValue(form, 'stepsBy') !== 'me' && untouched && el.value.trim()) askClaude();
+  } else if (el.dataset.change === 'start-pic') {
+    const file = el.files && el.files[0];
+    if (!file) return;
+    try {
+      // Shrunk to 480px so it fits in the browser's storage.
+      const img = await createImageBitmap(file);
+      const scale = Math.min(1, 480 / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      localStorage.setItem(PIC_KEY, canvas.toDataURL('image/jpeg', 0.85));
+      openModal(settingsHTML());
+      toast('Picture saved for your start screen.');
+    } catch { toast('Could not use that picture. Try a JPG or PNG.'); }
   } else if (el.dataset.change === 'import') {
     try {
       state = await readBackup(el.files[0]);
@@ -2667,25 +2721,28 @@ document.addEventListener('dragend', () => {
   document.body.classList.remove('dragging-task');
   document.querySelectorAll('.drop-over').forEach((z) => z.classList.remove('drop-over'));
 });
+const dropZone = (el) => el.closest && (el.closest('.col-day') || el.closest('[data-drop-priority]'));
 document.addEventListener('dragover', (e) => {
-  const zone = e.target.closest && e.target.closest('.col-day');
+  const zone = dropZone(e.target);
   if (!zone || !document.body.classList.contains('dragging-task')) return;
   e.preventDefault();
   zone.classList.add('drop-over');
 });
 document.addEventListener('dragleave', (e) => {
-  const zone = e.target.closest && e.target.closest('.col-day');
+  const zone = dropZone(e.target);
   if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove('drop-over');
 });
 document.addEventListener('drop', (e) => {
-  const zone = e.target.closest && e.target.closest('.col-day');
+  const zone = dropZone(e.target);
   if (!zone) return;
   e.preventDefault();
   zone.classList.remove('drop-over');
   document.body.classList.remove('dragging-task');
   const id = e.dataTransfer.getData('text/plain');
+  if (!id || !task(id)) return;
+  if (zone.dataset.dropPriority) { changePriority(id, zone.dataset.dropPriority); return; }
   const key = zone.querySelector('.slots')?.dataset.day;
-  if (id && key && task(id)) addToDay(id, key);
+  if (key) addToDay(id, key);
 });
 
 // ---------- pick a time by dragging on the task form's calendar ----------
