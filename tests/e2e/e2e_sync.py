@@ -103,19 +103,35 @@ with sync_playwright() as p:
     pc.click('[data-action="sync-now"]'); pc.wait_for_timeout(800)
     print('computer got Buy milk:', any(t['title'] == 'Buy milk' for t in data(pc)['tasks']))
 
-    # both change while the computer is offline -> asks
+    # both change while the computer is offline -> joined, nothing lost
     pc.evaluate("localStorage.removeItem('personal-io:google-session')"); pc.reload(); pc.wait_for_selector('.col-day')
     pc.fill('#cap-text', 'Computer only'); pc.click('[data-action="quick-add"]'); pc.wait_for_timeout(300)
     pp.fill('#cap-text', 'Phone only'); pp.click('[data-action="quick-add"]'); pp.wait_for_timeout(2500)
-    pc.click('[data-action="sync-now"]'); pc.wait_for_timeout(800)
-    print('computer asks which copy:', pc.locator('[data-form="conflict"]').count())
-    pc.screenshot(path='tests/e2e/out/sync_conflict.png')
-    pc.click('[data-action="sync-pick"][data-pick="here"]'); pc.wait_for_timeout(1500)
+    pc.click('[data-action="sync-now"]'); pc.wait_for_timeout(2500)
     final = json.loads(drive['f1']['text'])
-    print('drive after keeping computer:', sorted(t['title'] for t in final['tasks'] if t['status'] == 'open'))
-    print('other copy kept:', 'Phone only' in (pc.evaluate("localStorage.getItem('personal-io:other-copy')") or ''))
-    print('asks again after pick:', pc.locator('[data-form="conflict"]').count(), '| pill:', pc.inner_text('#sync-pill'))
-    # phone then gets the computer's copy
+    print('drive after join:', sorted(t['title'] for t in final['tasks'] if t['status'] == 'open'), '| tomorrow plan kept:', final['days'].get(TOM, {}).get('taskIds'))
+    print('no question asked:', pc.locator('[data-form="conflict"]').count() == 0, '| pill:', pc.inner_text('#sync-pill'))
     pp.click('[data-action="sync-now"]'); pp.wait_for_timeout(800)
     print('phone now has Computer only:', any(t['title'] == 'Computer only' for t in data(pp)['tasks']))
+
+    # morning: the phone is behind and closes the welcome before syncing; the plan made on the computer survives
+    pc.click('[data-action="plan-day"][data-day="tomorrow"]')
+    pc.click('[data-action="add-to-day"][data-id="b"]'); pc.wait_for_timeout(2500)
+    pp2 = page(phone, hour=8); pp2.clock.set_fixed_time(datetime.datetime(2026, 11, 2, 8, 0))
+    pp.close()
+    pp2.add_init_script("localStorage.removeItem('personal-io:google-session')")
+    pp2.goto(BASE + '#today'); pp2.wait_for_timeout(500)
+    if pp2.locator('[data-action="welcome-start"]').count(): pp2.click('[data-action="welcome-start"]'); pp2.wait_for_timeout(300)
+    pp2.click('#sync-pill [data-action="sync-now"]'); pp2.wait_for_timeout(2500)
+    d = data(pp2)['days'].get(TOM, {})
+    print('phone morning plan after sync:', d.get('taskIds'), '| drive plan:', json.loads(drive['f1']['text'])['days'].get(TOM, {}).get('taskIds'))
+
+    # two tabs on the computer: the old tab picks up the new data instead of sending its old copy
+    t1 = page(comp); t1.goto(BASE + '#start'); t1.wait_for_selector('.col-day')
+    t2 = page(comp); t2.goto(BASE + '#start'); t2.wait_for_selector('.col-day')
+    t1.click('[data-action="sync-now"]'); t1.wait_for_timeout(800)
+    t1.fill('#cap-text', 'Added in tab one'); t1.click('[data-action="quick-add"]'); t1.wait_for_timeout(2500)
+    t2.evaluate("document.dispatchEvent(new Event('visibilitychange'))"); t2.click('[data-action="sync-now"]'); t2.wait_for_timeout(2500)
+    t2.click('.group-toggle[data-group-name="nice"]'); t2.wait_for_timeout(200)
+    print('drive keeps tab one task:', 'Added in tab one' in drive['f1']['text'], '| tab two shows it:', t2.locator('.task-name:has-text("Added in tab one")').count() > 0)
 print('errors', errors)

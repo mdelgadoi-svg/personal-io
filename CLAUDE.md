@@ -52,17 +52,19 @@ Core method (enforced in `js/rules.js`):
 
 Saved first in the browser's `localStorage`. While Google is connected, one copy also lives in his Google Drive (hidden app folder, file `personal-io-data.json`), so the computer and the phone share it. Code changes never erase it.
 
-How sync works (v1.9, `syncNow` in `app.js`, decision in `R.syncDecision`):
-- Every real change sets `savedAt` (always moves forward). Housekeeping saves (`save(state, { quiet: true })`: daily check, last open date, rebuilt times) do not, so opening the app on another device never counts as an edit.
-- `personal-io:sync` keeps `{ base, fileId, at }`: `base` is the `savedAt` both sides had at the last sync. Changed here = `savedAt !== base`.
-- Push 1.5 s after a change, and on connect, tab focus, closing a window, and every 2 minutes. Pull when Drive is newer and nothing changed here. If both changed, he picks a copy; the other goes to `personal-io:other-copy`.
-- Nothing pulls while a task form or other window is open.
-- The header pill shows the state: Sync (connect), Saving, Synced, Pick a copy, Sync problem.
+How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `R.mergeData`):
+- Every real change sets `savedAt` (always moves forward). Housekeeping saves (`save(state, { quiet: true })`: daily check, last open date, rebuilt times, closing the welcome without input, start screen shown) do not, so opening the app on another device never counts as an edit.
+- `personal-io:sync` keeps `{ base, fileId, at }`: `base` is the `savedAt` both sides had at the last sync. `personal-io:sync-base` keeps that copy's content. Changed here = `savedAt !== base`.
+- Push 1.5 s after a change, and on connect, tab focus, closing a window, and every 2 minutes. Pull when Drive is newer and nothing changed here. If both changed, `mergeData` joins them item by item (tasks, goals, events by id; days by date; log, journal, returns kept from both); the device's pre-join copy goes to `personal-io:other-copy`. No question is asked.
+- If something is typed while Drive answers, the sync starts over. Data from another tab (`storage` event) replaces this tab's, so an old tab never sends old data. Drive calls give up after 20 s.
+- The screen is not redrawn while he types or a window is open; it redraws when the window closes.
+- If Google refuses the sign-in, a toast offers "Calendar only" (`personal-io:calendar-only`): calendar without Drive. Tapping the "Sync off" pill tries Drive again.
+- The header pill shows the state: Sync / Sync now (connect), Saving, Synced, Sync off, Sync problem.
 
 - `personal-io:v1`: main JSON `{ settings, goals, tasks, events, days, log, journal, returns, lastOpenDate, lastDailyCheck }`
 - Task: `id, status (open|done|trashed), title, goalId, priority, deadline, minutes, firstSteps[], computer, place (everywhere|silent|commute), fixedDate, fixedTime, eventRef, progress, needs[]`
 - Day (key `YYYY-MM-DD`): `taskIds, times, slots, plan (rebuilt by syncPlan), set, planStale, googlePending, googleIds, reviewed (by task id)`
-- Other keys: `personal-io:claude-key`, `google-client-id`, `google-calendar-id`, `google-session` (token for its hour, plus whether Drive was allowed), `google-events` (last Google events per day, shown after the hour), `sync`, `other-copy`, `v1-unreadable` (data that failed to load, kept instead of overwritten), `voice-lang`, `start-pic`
+- Other keys: `personal-io:claude-key`, `google-client-id`, `google-calendar-id`, `google-session` (token for its hour, plus whether Drive was allowed), `google-events` (last Google events per day, shown after the hour), `sync`, `sync-base`, `other-copy`, `calendar-only`, `v1-unreadable` (data that failed to load, kept instead of overwritten), `voice-lang`, `start-pic`
 - Not synced (per device): Claude key, start picture, voice language. The phone gets the Client ID from the "Use it on your phone" link in Settings (`#connect=<client id>`).
 - When changing the data shape, keep old data working (see `ensureTimes` for the pattern). Never require a reset.
 

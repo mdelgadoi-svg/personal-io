@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS } from './rules.js';
 
 const KEY = 'personal-io:v1';
 const SYNC_KEY = 'personal-io:sync';         // { base, fileId, at }: the last version both sides had
-const OTHER_KEY = 'personal-io:other-copy';  // the copy you did not pick when both sides changed
+const OTHER_KEY = 'personal-io:other-copy';  // this device's copy from before the last join with Drive
 const BROKEN_KEY = 'personal-io:v1-unreadable';
 
 export function newId() {
@@ -36,6 +36,9 @@ export function normalize(data) {
   return { ...emptyState(), ...data, settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) } };
 }
 
+let failed = false; // the saved data could not be read this time
+export function loadFailed() { return failed; }
+
 export function load() {
   let raw = null;
   try {
@@ -44,6 +47,7 @@ export function load() {
     return normalize(JSON.parse(raw));
   } catch {
     // Keep what could not be read instead of saving over it.
+    failed = true;
     try { if (raw) localStorage.setItem(BROKEN_KEY, raw); } catch { /* storage blocked */ }
     return emptyState();
   }
@@ -75,6 +79,15 @@ export function getSync() {
 export function setSync(meta) {
   try { localStorage.setItem(SYNC_KEY, JSON.stringify(meta)); } catch { /* storage blocked */ }
 }
+// The copy both sides had at the last sync, so changes from two devices can be joined.
+const BASE_KEY = 'personal-io:sync-base';
+export function getBaseCopy() {
+  try { return JSON.parse(localStorage.getItem(BASE_KEY) || 'null'); } catch { return null; }
+}
+export function setBaseCopy(text) {
+  try { localStorage.setItem(BASE_KEY, text); } catch { try { localStorage.removeItem(BASE_KEY); } catch { /* blocked */ } }
+}
+
 export function keepOtherCopy(data) {
   try { localStorage.setItem(OTHER_KEY, typeof data === 'string' ? data : JSON.stringify(data)); } catch { /* too big or blocked */ }
 }

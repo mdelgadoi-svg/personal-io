@@ -6,7 +6,12 @@
 
 const CLIENT_KEY = 'personal-io:google-client-id';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
-const SCOPES = `https://www.googleapis.com/auth/calendar.events ${DRIVE_SCOPE}`;
+const CAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+// If your Google account blocks Drive for this app, the calendar still works on its own.
+const NO_DRIVE_KEY = 'personal-io:calendar-only';
+export function calendarOnly() { try { return localStorage.getItem(NO_DRIVE_KEY) === '1'; } catch { return false; } }
+export function setCalendarOnly(on) { try { if (on) localStorage.setItem(NO_DRIVE_KEY, '1'); else localStorage.removeItem(NO_DRIVE_KEY); } catch { /* storage blocked */ } }
+const scopes = () => (calendarOnly() ? CAL_SCOPE : `${CAL_SCOPE} ${DRIVE_SCOPE}`);
 const CAL_KEY = 'personal-io:google-calendar-id';
 
 // Which calendar to use: blank means the signed-in account's main calendar.
@@ -66,7 +71,7 @@ export function isConfigured() { return getClientId().endsWith('.apps.googleuser
 export function isConnected() { return !!token && Date.now() < tokenExpires; }
 export function connectedName() { return isConnected() ? connectedAs : ''; }
 export function lastAccount() { return connectedAs; }
-export function driveAllowed() { return driveOk !== false; }
+export function driveAllowed() { return driveOk !== false && !calendarOnly(); }
 
 function loadGis() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -90,13 +95,13 @@ export async function connect({ quick = false } = {}) {
   return new Promise((resolve, reject) => {
     tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: getClientId(),
-      scope: SCOPES,
+      scope: scopes(),
       callback: (resp) => {
         if (resp.error) { reject(new Error('Google sign-in was not completed.')); return; }
         token = resp.access_token;
         tokenExpires = Date.now() + (Number(resp.expires_in) - 60) * 1000;
         const oauth = window.google.accounts.oauth2;
-        driveOk = typeof oauth.hasGrantedAllScopes === 'function' ? !!oauth.hasGrantedAllScopes(resp, DRIVE_SCOPE) : null;
+        driveOk = calendarOnly() ? false : typeof oauth.hasGrantedAllScopes === 'function' ? !!oauth.hasGrantedAllScopes(resp, DRIVE_SCOPE) : null;
         keepToken();
         cache.clear();
         // Ask which calendar this is, so the app can show "Connected to: ...".
@@ -229,12 +234,23 @@ const FILE_NAME = 'personal-io-data.json';
 
 async function drive(url, options = {}) {
   if (!isConnected()) throw new Error('not-connected');
-  const res = await fetch(url, { ...options, headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) } });
+  // Never wait forever (a phone can pause the page mid-request).
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(url, { ...options, signal: stop.signal, headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) } });
+  } catch (err) {
+    throw new Error(err.name === 'AbortError' ? 'drive-slow' : 'Check your internet');
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) { token = null; try { localStorage.removeItem(TOKEN_KEY); } catch { /* fine */ } throw new Error('not-connected'); }
   if (res.status === 403) {
     let msg = '';
     try { msg = (await res.json())?.error?.message || ''; } catch { /* ignore */ }
     if (/has not been used|is disabled/i.test(msg)) throw new Error('drive-off');
+    if (/rate|quota|limit/i.test(msg)) throw new Error('Google Drive is busy. Try again in a minute');
     driveOk = false;
     keepToken();
     throw new Error('drive-not-allowed');

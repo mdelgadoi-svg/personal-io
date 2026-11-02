@@ -252,7 +252,7 @@ test('an old ! task with a far deadline can still be renamed, but not newly made
   assert.ok(validateTask({ ...old, deadline: '2026-11-12' }, [old], today).length > 0);
 });
 
-import { defaultPlanDay, hasContent, syncDecision } from '../js/rules.js';
+import { defaultPlanDay, hasContent, syncDecision, mergeData } from '../js/rules.js';
 
 test('the Plan page opens on the day that has a plan', () => {
   assert.equal(defaultPlanDay(10, 0, 0), 'today');
@@ -280,8 +280,40 @@ test('sync: only one side changed', () => {
   assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: false }), 'pull');
 });
 
-test('sync: both changed asks, unless one side is empty', () => {
-  assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: true, localHasContent: true, remoteHasContent: true }), 'ask');
+test('sync: both changed merges, unless one side is empty', () => {
+  assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: true, localHasContent: true, remoteHasContent: true }), 'merge');
   assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: true, localHasContent: true, remoteHasContent: false }), 'push');
   assert.equal(syncDecision({ remoteSavedAt: 'r2', base: null, localChanged: true, localHasContent: false, remoteHasContent: true }), 'pull');
+});
+
+const T = (id, extra = {}) => ({ id, title: id, status: 'open', ...extra });
+
+test('merge keeps the plan from one device and a small edit from the other', () => {
+  const base = { savedAt: '1', tasks: [T('a')], days: {}, returns: [] };
+  const computer = { savedAt: '2', tasks: [T('a')], days: { '2026-11-02': { taskIds: ['a'], set: true } }, returns: [] };
+  const phone = { savedAt: '3', tasks: [T('a')], days: {}, returns: [{ date: '2026-11-02' }] };
+  const m = mergeData(base, phone, computer);
+  assert.deepEqual(m.days['2026-11-02'].taskIds, ['a']);
+  assert.equal(m.returns.length, 1);
+});
+
+test('merge: new tasks from both sides, edits and trash from each side', () => {
+  const base = { savedAt: '1', tasks: [T('a'), T('b'), T('c')], days: {} };
+  const local = { savedAt: '2', tasks: [T('a', { status: 'done' }), T('b'), T('c'), T('l')], days: {} };
+  const remote = { savedAt: '3', tasks: [T('a'), T('b', { title: 'B2' }), T('r')], days: {} }; // c removed there
+  const m = mergeData(base, local, remote);
+  const byId = Object.fromEntries(m.tasks.map((t) => [t.id, t]));
+  assert.equal(byId.a.status, 'done');
+  assert.equal(byId.b.title, 'B2');
+  assert.equal(byId.c, undefined);
+  assert.ok(byId.l && byId.r);
+});
+
+test('merge: both edited the same task, the newer copy wins; no base keeps both sides', () => {
+  const base = { savedAt: '1', tasks: [T('a')] };
+  const m = mergeData(base, { savedAt: '5', tasks: [T('a', { title: 'local' })] }, { savedAt: '3', tasks: [T('a', { title: 'remote' })] });
+  assert.equal(m.tasks[0].title, 'local');
+  const u = mergeData(null, { savedAt: '2', tasks: [T('x')], days: { d1: { taskIds: ['x'] } } }, { savedAt: '3', tasks: [T('y')], days: { d2: { taskIds: ['y'] } } });
+  assert.deepEqual(u.tasks.map((t) => t.id).sort(), ['x', 'y']);
+  assert.deepEqual(Object.keys(u.days).sort(), ['d1', 'd2']);
 });

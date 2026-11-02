@@ -436,5 +436,53 @@ export function syncDecision({ remoteSavedAt = null, base = null, localChanged =
   if (!localChanged) return 'pull';
   if (!remoteHasContent) return 'push';
   if (!localHasContent) return 'pull';
-  return 'ask';
+  return 'merge';
+}
+
+// Joins two copies that both changed since base (the copy both had at the last sync).
+// Each task, goal, event and day is compared on its own: a side that did not touch it takes
+// the other side's version; if both touched the same one, the newer copy wins for that one.
+// Without a base (first sync), everything from both sides is kept.
+export function mergeData(base, local, remote) {
+  const b = base || {};
+  const localNewer = (local.savedAt || '') >= (remote.savedAt || '');
+  const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  const pick = (x, l, r) => {
+    if (same(l, r)) return l;
+    if (base && same(l, x)) return r;
+    if (base && same(r, x)) return l;
+    if (l === undefined) return r; // only one side has it (no base): keep it
+    if (r === undefined) return l;
+    return localNewer ? l : r;
+  };
+  const byId = (key) => {
+    const map = (arr) => new Map((arr || []).map((v) => [v.id, v]));
+    const [mb, ml, mr] = [map(b[key]), map(local[key]), map(remote[key])];
+    const ids = [...new Set([...ml.keys(), ...mr.keys()])];
+    return ids.map((id) => pick(mb.get(id), ml.get(id), mr.get(id))).filter((v) => v !== undefined);
+  };
+  const days = {};
+  new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})]).forEach((k) => {
+    const v = pick((b.days || {})[k], (local.days || {})[k], (remote.days || {})[k]);
+    if (v !== undefined) days[k] = v;
+  });
+  // Records that only grow: keep everything from both.
+  const union = (key) => {
+    const seen = new Set();
+    return [...(local[key] || []), ...(remote[key] || [])].filter((v) => {
+      const k = JSON.stringify(v);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+  const later = (x, y) => ((x || '') > (y || '') ? x : y) || null;
+  return {
+    ...(localNewer ? remote : local), ...(localNewer ? local : remote),
+    settings: pick(b.settings, local.settings, remote.settings),
+    goals: byId('goals'), tasks: byId('tasks'), events: byId('events'), days,
+    log: union('log'), journal: union('journal'), returns: union('returns'),
+    lastOpenDate: later(local.lastOpenDate, remote.lastOpenDate),
+    lastDailyCheck: later(local.lastDailyCheck, remote.lastDailyCheck),
+  };
 }
