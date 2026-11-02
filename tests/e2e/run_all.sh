@@ -2,6 +2,7 @@
 # Browser checks for Personal IO. Needs Python Playwright with Chromium.
 # Usage (from the repo root): bash tests/e2e/run_all.sh
 cd "$(dirname "$0")/../.." || exit 1
+export TZ="${TZ:-America/Los_Angeles}" # the tests use Pacific times, like the owner
 python3 -c "from PIL import Image; Image.new('RGB',(900,1200),(230,140,60)).save('tests/e2e/out/pic.jpg')" 2>/dev/null \
   || { mkdir -p tests/e2e/out && python3 -c "from PIL import Image; Image.new('RGB',(900,1200),(230,140,60)).save('tests/e2e/out/pic.jpg')"; }
 python3 -m http.server 8765 >/dev/null 2>&1 &

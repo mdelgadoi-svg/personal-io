@@ -2,7 +2,7 @@
 // The rules live in rules.js, saving in store.js, Claude in ai.js, Google in google.js.
 
 import * as R from './rules.js';
-import { load, save, newId, exportBackup, readBackup } from './store.js';
+import { load, save, newId, exportBackup, readBackup, normalize, onSave, getSync, setSync, keepOtherCopy } from './store.js';
 import * as AI from './ai.js';
 import * as G from './google.js';
 
@@ -125,7 +125,7 @@ function linkedTask(src, id, date) {
 
 function calendarItems(key) {
   const own = R.eventsOn(state.events, key).map((e) => ({ src: 'own', id: e.id, date: key, title: e.title, start: e.start, minutes: e.minutes, commute: !!e.commute }));
-  const google = ((G.isConnected() && G.cachedDay(key)) || []).filter((e) => !e.allDay && !e.fromApp)
+  const google = ((G.isConfigured() && G.cachedDay(key)) || []).filter((e) => !e.allDay && !e.fromApp)
     .map((e) => ({ src: 'google', id: e.id, date: key, title: e.title, start: e.start, minutes: e.minutes, commute: false, color: e.color }));
   return [...own, ...google].map((c) => {
     const t = linkedTask(c.src, c.id, c.date);
@@ -172,7 +172,7 @@ function dailyCheck() {
   const cutoff = Date.now() - 30 * 86400000;
   state.tasks = tasks.filter((t) => t.status !== 'trashed' || !t.trashedAt || Date.parse(t.trashedAt) > cutoff);
   state.lastDailyCheck = key;
-  save(state);
+  save(state, { quiet: true });
   return messages;
 }
 
@@ -225,6 +225,7 @@ function render() {
     if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   renderNowPill();
+  renderSyncPill();
   if (tab !== 'goals') loadGoogleAhead();
   afterRender = [];
   if (tab === 'today') view.innerHTML = renderToday();
@@ -374,7 +375,7 @@ function googleItems(key, list) {
 // Draws a day's calendar now, then adds Google events once they arrive.
 function calendarBlockHTML(id, key, opts = {}) {
   afterRender.push(() => fillCalendar(id, key, opts));
-  const cached = G.isConnected() ? G.cachedDay(key) : null;
+  const cached = G.isConfigured() ? G.cachedDay(key) : null;
   return `<div id="${id}" class="cal-slot">${calendarLegendHTML()}${timelineHTML([...ioItems(key), ...(cached ? googleItems(key, cached) : [])], opts)}</div>`;
 }
 
@@ -385,8 +386,9 @@ async function fillCalendar(id, key, opts = {}) {
   const io = [...ioItems(key), ...(opts.extra || [])];
   if (!G.isConfigured()) { el.innerHTML = calendarLegendHTML() + timelineHTML(io, opts); return; }
   if (!G.isConnected()) {
+    const last = G.cachedDay(key);
     el.innerHTML = `<div class="note note-info" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
-      <span>Show your Google Calendar here.</span><button class="btn btn-small" data-action="connect-google">Connect Google</button></div>${calendarLegendHTML()}${timelineHTML(io, opts)}`;
+      <span>${last ? 'Google events from the last time you connected.' : 'Show your Google Calendar here.'}</span><button class="btn btn-small" data-action="connect-google">${last ? 'Connect again' : 'Connect Google'}</button></div>${calendarLegendHTML()}${timelineHTML([...io, ...(last ? googleItems(key, last) : [])], opts)}`;
     return;
   }
   try {
@@ -517,8 +519,10 @@ function renderStart() {
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const tKey = todayKey();
-  const todaySet = !!(state.days[tKey] && state.days[tKey].set);
-  if (!ui.planDay) ui.planDay = hour >= 20 ? 'tomorrow' : 'today';
+  if (!ui.planDay) {
+    const count = (key) => ((state.days[key] || {}).taskIds || []).length;
+    ui.planDay = R.defaultPlanDay(hour, count(tKey), count(tomorrowKey()));
+  }
   const dayKey = ui.planDay === 'today' ? tKey : tomorrowKey();
 
   return `
@@ -536,9 +540,7 @@ function renderStart() {
   ${goalsStripHTML()}
   <div class="cols plan-cols">
     <section class="col col-backlog" aria-label="Tasks and their priorities">
-      <div class="col-head"><h2>Tasks and their priorities</h2>
-        <button class="btn btn-small" data-action="new-task">+ Task with details</button>
-      </div>
+      <div class="col-head"><h2>Tasks and their priorities</h2></div>
       ${ui.goalFilter ? `<div class="hint">Goal: ${esc(goal(ui.goalFilter)?.title || '')} (plus urgent) · <button class="btn-link" data-action="clear-filter">Show all</button></div>` : ''}
       ${backlogGroupsHTML({ addTo: dayKey, goalFilter: ui.goalFilter })}
       ${calendarSuggestHTML(dayKey)}
@@ -715,7 +717,7 @@ function ensureTimes(key) {
   day.set = wasSet;
   day.planStale = false;
   day.reviewed = reviewed;
-  save(state);
+  save(state, { quiet: true });
 }
 
 function moveTask(key, id, start) {
@@ -821,10 +823,6 @@ function dayColumnHTML(dayKey) {
   return `
   <div class="col-head"><h2>${isToday ? 'Today' : 'Tomorrow'} · ${esc(fmtDay(dayKey, { weekday: 'long' }))}</h2>
     <span class="meta">${tasks.length} of ${day.slots} · ${R.formatMinutes(need.total)}</span></div>
-  <div class="field">
-    <label for="intention">Intention for the day (optional)</label>
-    <input class="input" id="intention" type="text" placeholder="e.g., Move the thesis forward before noon" value="${esc(day.intention)}" data-change="intention" data-day="${dayKey}">
-  </div>
   <div class="slots" data-day="${dayKey}">${tasks.map((t) => planRowHTML(t, dayKey, word)).join('')}</div>
   ${free ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Add from your list, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
   ${day.slots < S().daySlotsMax ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
@@ -1019,7 +1017,7 @@ function maybeWelcome() {
   if (state.lastOpenDate === today) return;
   const info = welcomeInfo();
   state.lastOpenDate = today;
-  save(state);
+  save(state, { quiet: true });
   if (!info) return;
   ui.welcome = info;
   openModal(welcomeHTML(info));
@@ -1103,7 +1101,7 @@ function renderCalendar() {
   const opts = { startHour: 7, endHour: 23, px: phone ? 44 : 40 };
   const tKey = todayKey();
   const dayItemsFor = (key) => {
-    const cached = G.isConnected() ? G.cachedDay(key) : null;
+    const cached = G.isConfigured() ? G.cachedDay(key) : null;
     return [...ioItems(key), ...(cached ? googleItems(key, cached) : [])];
   };
   const cols = days.map((key) => `
@@ -1796,7 +1794,7 @@ function refreshSideCalendar() {
     note.hidden = !away;
     note.innerHTML = away ? `This task is set for ${esc(fmtDay(fixedDate))} at ${t12(fixedTime)}. <button type="button" class="btn-link" data-action="side-cal-fixed">Show that day</button>` : '';
   }
-  const cached = G.isConnected() ? G.cachedDay(key) : null;
+  const cached = G.isConfigured() ? G.cachedDay(key) : null;
   el.innerHTML = timelineHTML([...ioItems(key), ...extra, ...(cached ? googleItems(key, cached) : [])], SIDE);
   fillCalendar('side-cal', key, { ...SIDE, extra });
 }
@@ -1925,7 +1923,6 @@ function reviewHTML(blockIndex) {
 }
 
 function settingsHTML() {
-  const gState = !G.isConfigured() ? 'Not set up yet.' : G.isConnected() ? 'Connected.' : 'Set up. Click Connect to sign in.';
   return `
   <form class="modal" data-form="settings" novalidate>
     <div class="modal-head"><h2 id="modal-title">Settings</h2>
@@ -1942,7 +1939,8 @@ function settingsHTML() {
       <input class="input" type="number" min="3" id="s-stale" name="staleDays" value="${S().staleDays}" style="max-width:160px"></div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
-      <strong>Google Calendar</strong>
+      <strong>Google Calendar and Drive</strong>
+      <span class="hint">Your plan goes to Google Calendar. One copy of all your data goes to Google Drive, so the computer and the phone show the same thing.</span>
       <div class="step-box" style="align-items:flex-start">
         <span class="step-n">1</span>
         <div style="flex:1; display:flex; flex-direction:column; gap:6px">
@@ -1956,16 +1954,31 @@ function settingsHTML() {
       <div class="step-box" style="align-items:flex-start">
         <span class="step-n">2</span>
         <div style="flex:1; display:flex; flex-direction:column; gap:6px">
-          <strong>Connect your calendar</strong>
-          <span class="hint">Click Connect and pick the account whose calendar you want, for example your @berkeley.edu.</span>
+          <strong>Connect Google</strong>
+          <span class="hint">Click Connect and pick the account whose calendar you want, for example your @berkeley.edu. Allow Calendar and Drive. Use the same account on every device.</span>
           ${G.isConnected()
             ? `<span class="chip chip-done" style="align-self:flex-start">Connected${G.connectedName() ? ' to ' + esc(G.connectedName()) : ''}</span>
                <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="connect-google">Switch account</button>`
             : G.isConfigured()
-              ? '<button type="button" class="btn btn-dark btn-small" style="align-self:flex-start" data-action="connect-google">Connect Google Calendar</button>'
+              ? '<button type="button" class="btn btn-dark btn-small" style="align-self:flex-start" data-action="connect-google">Connect Google</button>'
               : '<span class="hint">Do step 1 and save first.</span>'}
+          ${G.isConnected() && G.driveAllowed() && !sync.error ? `<span class="chip chip-done" style="align-self:flex-start">Data saved in Google Drive${getSync().at ? ' · ' + t12m(new Date(getSync().at).getHours() * 60 + new Date(getSync().at).getMinutes()) : ''}</span>` : ''}
+          ${sync.error ? `<div class="note note-warn">${esc(sync.error)}</div>` : ''}
         </div>
       </div>
+      <details ${sync.error.includes('API is off') ? 'open' : ''}>
+        <summary class="hint" style="cursor:pointer">Drive says the API is off?</summary>
+        <span class="hint" style="display:block; margin-top:8px">Once only: open <strong>console.cloud.google.com</strong>, pick the project that has your Client ID, go to APIs &amp; Services &gt; Library, search <strong>Google Drive API</strong> and click Enable. Then tap Sync here again.</span>
+      </details>
+      ${G.isConfigured() ? `<div class="step-box" style="align-items:flex-start">
+        <span class="step-n">3</span>
+        <div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0">
+          <strong>Use it on your phone</strong>
+          <span class="hint">Send yourself this link and open it on the phone. It sets up Google there; then tap Sync and sign in with the same account.</span>
+          <input class="input mono" readonly value="${esc(phoneLink())}" aria-label="Link for your phone">
+          <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-phone-link">Copy link</button>
+        </div>
+      </div>` : ''}
       <details>
         <summary class="hint" style="cursor:pointer">Plan B: use a calendar shared with you</summary>
         <div class="field" style="margin-top:8px"><label for="s-calid">Which calendar</label>
@@ -1998,7 +2011,7 @@ function settingsHTML() {
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
       <strong>Backup</strong>
-      <span class="hint">Your goals and tasks are saved in this browser. Download a backup now and then.</span>
+      <span class="hint">${G.isConfigured() ? 'Saved in this browser and, while Google is connected, in Google Drive.' : 'Saved only in this browser for now. Connect Google above to keep a copy in Drive.'} A downloaded backup is an extra copy.</span>
       <div style="display:flex; gap:8px; flex-wrap:wrap">
         <button type="button" class="btn" data-action="export">Download backup</button>
         <label class="btn" for="s-import" style="cursor:pointer">Restore from backup</label>
@@ -2026,7 +2039,7 @@ async function addToDay(taskId, dayKey) {
   const at = day.taskIds.findIndex((id) => rank(task(id)) > mine);
   if (at === -1) day.taskIds.push(taskId); else day.taskIds.splice(at, 0, taskId);
   const t = task(taskId);
-  if (G.isConnected() && !G.cachedDay(dayKey)) {
+  if (G.isConnected() && !G.freshDay(dayKey)) {
     try { await G.eventsForDay(dayKey); } catch { /* place with what we know */ }
   }
   placeTask(t, dayKey);
@@ -2152,7 +2165,191 @@ async function setPlan(dayKey) {
   }
 }
 
+// ---------- one copy in Google Drive ----------
+// Every change is saved on this device first, then sent to Drive while Google is connected.
+// Another device (or this one after a cleared browser) gets the Drive copy when it connects.
+
+const sync = { busy: null, again: false, error: '', timer: null, lastCheck: 0 };
+const CLOUD_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H7a5 5 0 1 1 1.1-9.9A6 6 0 0 1 19.5 11 4 4 0 0 1 17.5 19z"></path></svg>';
+
+// Something changed here that Drive does not have yet.
+function localChanged(meta = getSync()) {
+  if (!meta.base) return R.hasContent(state);
+  return !!state.savedAt && state.savedAt !== meta.base;
+}
+
+// A task form or other window is open: wait, so nothing changes under it.
+const busyWindow = () => modal.open && !modal.querySelector('[data-form="settings"]');
+
+function syncState() {
+  if (!G.isConfigured()) return 'off';
+  if (!G.isConnected()) return 'connect';
+  if (!G.driveAllowed()) return 'blocked';
+  if (sync.error) return 'error';
+  if (ui.conflict || ui.conflictLater) return 'choose';
+  if (sync.busy || localChanged()) return 'saving';
+  return 'ok';
+}
+
+function syncErrorText(err) {
+  switch (err.message) {
+    case 'not-connected': return '';
+    case 'drive-off': return 'The Google Drive API is off in your Google Cloud project. Settings shows how to turn it on.';
+    case 'drive-not-allowed': return 'Google did not allow Drive. Tap Sync, sign in, and allow Google Drive.';
+    default: return `Could not reach Google Drive: ${err.message.replace(/\.$/, '')}.`;
+  }
+}
+
+function renderSyncPill() {
+  const el = document.getElementById('sync-pill');
+  if (!el) return;
+  const st = syncState();
+  if (st === 'off') { el.innerHTML = ''; return; }
+  const at = getSync().at;
+  const time = at ? t12m(new Date(at).getHours() * 60 + new Date(at).getMinutes()) : '';
+  const look = {
+    connect: ['Sync', 'warn', 'Connect Google to get your latest data and save it to Drive'],
+    blocked: ['Sync off', 'warn', 'Google Drive was not allowed. Tap to sign in again'],
+    error: ['Sync problem', 'warn', sync.error],
+    choose: ['Pick a copy', 'warn', 'This device and Google Drive both changed. Tap to choose which to keep'],
+    saving: ['Saving', '', 'Saving to Google Drive'],
+    ok: ['Synced', 'ok', `Saved in Google Drive${time ? ' at ' + time : ''}`],
+  }[st];
+  el.innerHTML = `<button type="button" class="sync-pill ${look[1] ? 'sync-' + look[1] : ''}" data-action="sync-now" title="${esc(look[2])}" aria-label="${esc(look[2])}">${CLOUD_ICON}<span class="sync-word">${look[0]}</span></button>`;
+}
+
+async function syncNow({ manual = false } = {}) {
+  if (!G.isConnected() || !G.driveAllowed()) { renderSyncPill(); return; }
+  if (sync.busy) { sync.again = true; return; }
+  sync.busy = (async () => {
+    renderSyncPill();
+    try {
+      await syncOnce();
+      sync.error = '';
+    } catch (err) {
+      sync.error = syncErrorText(err);
+      if (manual && sync.error) toast(sync.error);
+    }
+    sync.lastCheck = Date.now();
+  })();
+  await sync.busy;
+  sync.busy = null;
+  renderSyncPill();
+  if (sync.again) { sync.again = false; syncNow(); }
+}
+
+async function syncOnce() {
+  const remote = await G.driveInfo();
+  const meta = getSync(); // read after asking Drive, in case a choice was made meanwhile
+  const changed = localChanged(meta);
+  const remoteNew = !!remote && remote.savedAt !== meta.base;
+  if (remoteNew && busyWindow()) return; // try again once the window is closed
+  const data = remoteNew ? await G.driveRead(remote.id) : null;
+  if (remoteNew && (busyWindow() || getSync().base !== meta.base)) return;
+  const decision = R.syncDecision({
+    remoteSavedAt: remote ? remote.savedAt : null, base: meta.base || null, localChanged: changed,
+    localHasContent: R.hasContent(state), remoteHasContent: R.hasContent(data),
+  });
+  if (decision === 'push') await pushToDrive(remote ? remote.id : null);
+  else if (decision === 'pull') useDriveCopy(data, remote, meta.base ? 'Updated from your other device.' : 'Your data from Google Drive is here.');
+  else if (decision === 'ask') askWhichCopy(data, remote);
+  else setSync({ ...meta, fileId: remote ? remote.id : meta.fileId, at: Date.now() });
+}
+
+async function pushToDrive(id) {
+  if (!state.savedAt) { state.savedAt = new Date().toISOString(); save(state, { quiet: true }); }
+  const sent = state.savedAt;
+  const fileId = await G.driveWrite(id, JSON.stringify(state), sent);
+  setSync({ base: sent, fileId, at: Date.now() });
+}
+
+function useDriveCopy(data, remote, message) {
+  const openedToday = state.lastOpenDate;
+  state = normalize(data);
+  state.savedAt = remote.savedAt;
+  if (openedToday && (!state.lastOpenDate || openedToday > state.lastOpenDate)) state.lastOpenDate = openedToday;
+  save(state, { quiet: true });
+  setSync({ base: remote.savedAt, fileId: remote.id, at: Date.now() });
+  ui.planDay = null;
+  const msgs = dailyCheck();
+  if (modal.querySelector('[data-form="settings"]')) openModal(settingsHTML());
+  render();
+  [message, ...msgs].filter(Boolean).forEach(toast);
+}
+
+function copySummary(d, other) {
+  const open = (d.tasks || []).filter((t) => t.status === 'open').length;
+  const theirs = new Set((other.tasks || []).filter((t) => t.status === 'open').map((t) => t.title));
+  const onlyHere = (d.tasks || []).filter((t) => t.status === 'open' && !theirs.has(t.title)).map((t) => t.title);
+  const plan = (key) => ((d.days || {})[key]?.taskIds || []).length;
+  const when = d.savedAt ? `${fmtDay(R.toDateKey(new Date(d.savedAt)))}, ${t12m(new Date(d.savedAt).getHours() * 60 + new Date(d.savedAt).getMinutes())}` : 'unknown';
+  return `${open} open task${open === 1 ? '' : 's'} · ${plan(todayKey())} planned today · ${plan(tomorrowKey())} tomorrow<br>Last change: ${esc(when)}${onlyHere.length ? `<br>Only here: ${onlyHere.slice(0, 3).map(esc).join(', ')}${onlyHere.length > 3 ? ` and ${onlyHere.length - 3} more` : ''}` : ''}`;
+}
+
+function askWhichCopy(data, remote) {
+  if (busyWindow() || ui.conflictLater === remote.savedAt) return; // you closed it: ask again from the Sync button
+  ui.conflictLater = null;
+  ui.conflict = { data, remote };
+  openModal(`
+  <div class="modal" data-form="conflict">
+    <div class="modal-head"><h2 id="modal-title">Which copy should I keep?</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="sync-later" aria-label="Decide later">✕</button></div>
+    <p style="margin:0">This device and Google Drive both changed since they last matched.</p>
+    <div class="step-box" style="justify-content:space-between"><span><strong>Google Drive</strong><br><span class="hint">${copySummary({ ...data, savedAt: remote.savedAt }, state)}</span></span>
+      <button type="button" class="btn btn-dark" data-action="sync-pick" data-pick="drive">Use this one</button></div>
+    <div class="step-box" style="justify-content:space-between"><span><strong>This device</strong><br><span class="hint">${copySummary(state, data)}</span></span>
+      <button type="button" class="btn" data-action="sync-pick" data-pick="here">Use this one</button></div>
+    <span class="hint">The other copy is kept on this device, just in case.</span>
+  </div>`);
+}
+
+// A link that sets up Google on the phone in one tap (the Client ID is not a secret).
+function phoneLink() {
+  const params = new URLSearchParams({ connect: G.getClientId() });
+  if (G.getCalendarId()) params.set('cal', G.getCalendarId());
+  return `${location.origin}${location.pathname}#${params}`;
+}
+
+function takeSetupLink() {
+  if (!location.hash.startsWith('#connect=')) return;
+  const params = new URLSearchParams(location.hash.slice(1));
+  const id = (params.get('connect') || '').trim();
+  if (id.endsWith('.apps.googleusercontent.com')) {
+    G.setClientId(id);
+    if (params.get('cal')) G.setCalendarId(params.get('cal'));
+    ui.setupToast = true;
+  }
+  history.replaceState(null, '', `${location.pathname}#start`);
+}
+
 const actions = {
+  'sync-later': () => { ui.conflictLater = ui.conflict?.remote.savedAt || null; ui.conflict = null; closeModal(); },
+  'sync-now': async () => {
+    ui.conflictLater = null;
+    if (G.isConnected() && G.driveAllowed()) { sync.error = ''; await syncNow({ manual: true }); if (syncState() === 'ok') toast('Synced with Google Drive.'); return; }
+    try { await G.connect({ quick: G.driveAllowed() }); } catch (err) { toast(err.message); }
+  },
+  'sync-pick': (el) => {
+    const c = ui.conflict;
+    ui.conflict = null;
+    closeModal();
+    if (!c) return;
+    if (el.dataset.pick === 'drive') {
+      keepOtherCopy(state);
+      useDriveCopy(c.data, c.remote, 'Using the Google Drive copy.');
+    } else {
+      keepOtherCopy(c.data);
+      setSync({ ...getSync(), base: c.remote.savedAt, fileId: c.remote.id });
+      if (!state.savedAt || state.savedAt === c.remote.savedAt) state.savedAt = new Date().toISOString();
+      save(state, { quiet: true });
+      syncNow({ manual: true });
+      toast('Keeping this device. Saving it to Google Drive.');
+    }
+  },
+  'copy-phone-link': async () => {
+    try { await navigator.clipboard.writeText(phoneLink()); toast('Link copied. Send it to yourself and open it on the phone.'); }
+    catch { toast('Copy did not work. Select the link and copy it.'); }
+  },
   'plan-day': (el) => { ui.planDay = el.dataset.day; render(); },
   'go-plan-today': () => { ui.planDay = 'today'; location.hash = '#start'; },
   'filter-goal': (el) => { ui.goalFilter = ui.goalFilter === el.dataset.id ? null : el.dataset.id; render(); },
@@ -2455,10 +2652,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', async (e) => {
   const el = e.target;
-  if (el.dataset.change === 'intention') {
-    getDay(el.dataset.day).intention = el.value.trim();
-    save(state);
-  } else if (el.dataset.change === 'plan-length') {
+  if (el.dataset.change === 'plan-length') {
     const key = el.closest('.slots').dataset.day;
     const t = task(el.dataset.id);
     t.minutes = Number(el.value) || t.minutes;
@@ -2837,11 +3031,32 @@ document.addEventListener('pointerup', () => {
 
 window.addEventListener('hashchange', () => { render(); view.focus({ preventScroll: true }); window.scrollTo(0, 0); });
 
+// Ask the browser not to clear this site's data when space runs low.
+try { navigator.storage?.persist?.(); } catch { /* not supported */ }
+
+takeSetupLink();
+onSave(() => {
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(() => syncNow(), 1500);
+  renderSyncPill();
+});
+G.onConnect(() => { sync.error = ''; syncNow({ manual: true }); });
+modal.addEventListener('close', () => {
+  if (ui.conflict) { ui.conflictLater = ui.conflict.remote.savedAt; ui.conflict = null; renderSyncPill(); } // closed with Esc
+});
+modal.addEventListener('close', () => setTimeout(() => { if (G.isConnected() && Date.now() - sync.lastCheck > 5000) syncNow(); }, 0));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow();
+  if (document.visibilityState === 'hidden' && G.isConnected() && localChanged()) { clearTimeout(sync.timer); syncNow(); }
+});
+
 const startupMessages = dailyCheck();
 render();
 startupMessages.forEach(toast);
+if (ui.setupToast) toast('Google is set up on this device. Tap Sync and sign in to bring your data.');
 maybeWelcome();
 maybeAutoStart();
+syncNow();
 
 // Keep the "now" line and current block fresh, without disturbing typing.
 setInterval(() => {
@@ -2853,6 +3068,7 @@ setInterval(() => {
     maybeWelcome();
   }
   maybeAutoStart();
+  if (document.visibilityState === 'visible' && Date.now() - sync.lastCheck > 110000) syncNow();
 }, 60000);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

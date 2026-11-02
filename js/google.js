@@ -1,10 +1,12 @@
-// Google Calendar connection.
+// Google Calendar and Google Drive connection.
 // You sign in with Google in a pop-up; the app gets a short-lived pass
-// (about one hour) that stays in this browser tab. Nothing goes through GitHub.
+// (about one hour) that stays in this browser. Nothing goes through GitHub.
 // The Client ID comes from your own Google Cloud project (Settings).
+// Drive: only the app's own hidden folder (drive.appdata). It cannot see your other files.
 
 const CLIENT_KEY = 'personal-io:google-client-id';
-const SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const SCOPES = `https://www.googleapis.com/auth/calendar.events ${DRIVE_SCOPE}`;
 const CAL_KEY = 'personal-io:google-calendar-id';
 
 // Which calendar to use: blank means the signed-in account's main calendar.
@@ -15,6 +17,8 @@ export function getCalendarId() {
 export function setCalendarId(id) {
   try { if (id) localStorage.setItem(CAL_KEY, id.trim()); else localStorage.removeItem(CAL_KEY); } catch { /* storage blocked */ }
   cache.clear();
+  stored = {};
+  keepStored();
 }
 function apiBase() {
   return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(getCalendarId() || 'primary')}/events`;
@@ -24,17 +28,30 @@ function apiBase() {
 const TOKEN_KEY = 'personal-io:google-session';
 let token = null;
 let tokenExpires = 0;
+let driveOk = null; // true, false (not allowed at sign-in) or null (not known yet)
 try {
   const saved = JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null');
-  if (saved && saved.exp > Date.now()) { token = saved.token; tokenExpires = saved.exp; }
+  if (saved && saved.exp > Date.now()) { token = saved.token; tokenExpires = saved.exp; driveOk = saved.drive ?? null; }
 } catch { /* nothing saved */ }
 function keepToken() {
-  try { localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp: tokenExpires, as: connectedAs })); } catch { /* storage blocked */ }
+  try { localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp: tokenExpires, as: connectedAs, drive: driveOk })); } catch { /* storage blocked */ }
 }
+const listeners = [];
+export function onConnect(fn) { listeners.push(fn); }
 let tokenClient = null;
 let connectedAs = (() => { try { return JSON.parse(localStorage.getItem('personal-io:google-session') || 'null')?.as || ''; } catch { return ''; } })();
 let gisLoading = null;
-const cache = new Map(); // dateKey -> events
+const cache = new Map(); // dateKey -> events fetched since this page opened
+
+// The last events seen for each day, kept so the calendar still shows them after the hour is up.
+const STORED_KEY = 'personal-io:google-events';
+let stored = (() => { try { return JSON.parse(localStorage.getItem(STORED_KEY) || '{}') || {}; } catch { return {}; } })();
+function keepStored() {
+  const from = new Date(Date.now() - 2 * 86400000);
+  const cut = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`;
+  Object.keys(stored).forEach((k) => { if (k < cut) delete stored[k]; });
+  try { localStorage.setItem(STORED_KEY, JSON.stringify(stored)); } catch { /* too big or blocked */ }
+}
 
 export function getClientId() {
   try { return localStorage.getItem(CLIENT_KEY) || ''; } catch { return ''; }
@@ -48,6 +65,8 @@ export function setClientId(id) {
 export function isConfigured() { return getClientId().endsWith('.apps.googleusercontent.com'); }
 export function isConnected() { return !!token && Date.now() < tokenExpires; }
 export function connectedName() { return isConnected() ? connectedAs : ''; }
+export function lastAccount() { return connectedAs; }
+export function driveAllowed() { return driveOk !== false; }
 
 function loadGis() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -64,7 +83,8 @@ function loadGis() {
 }
 
 // Opens the Google pop-up. Must be called from a click.
-export async function connect() {
+// quick: reconnect the same account without the account picker (after the hour is up).
+export async function connect({ quick = false } = {}) {
   if (!isConfigured()) throw new Error('Add your Google Client ID in Settings first.');
   await loadGis();
   return new Promise((resolve, reject) => {
@@ -75,6 +95,8 @@ export async function connect() {
         if (resp.error) { reject(new Error('Google sign-in was not completed.')); return; }
         token = resp.access_token;
         tokenExpires = Date.now() + (Number(resp.expires_in) - 60) * 1000;
+        const oauth = window.google.accounts.oauth2;
+        driveOk = typeof oauth.hasGrantedAllScopes === 'function' ? !!oauth.hasGrantedAllScopes(resp, DRIVE_SCOPE) : null;
         keepToken();
         cache.clear();
         // Ask which calendar this is, so the app can show "Connected to: ...".
@@ -82,11 +104,14 @@ export async function connect() {
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { connectedAs = d && d.summary ? d.summary : ''; })
           .catch(() => { connectedAs = ''; })
-          .finally(() => { keepToken(); resolve(); });
+          .finally(() => { keepToken(); resolve(); listeners.forEach((fn) => fn()); });
       },
       error_callback: () => reject(new Error('Google sign-in was closed.')),
     });
-    tokenClient.requestAccessToken({ prompt: 'select_account' }); // always let you pick the account (Berkeley or personal)
+    // The first time, pick the account (Berkeley or personal). After that, one tap reconnects the same one.
+    // (With a shared calendar, the name shown is that calendar's, not the account, so no hint then.)
+    const hint = quick && connectedAs.includes('@') && !getCalendarId() ? { login_hint: connectedAs } : {};
+    tokenClient.requestAccessToken(quick && connectedAs ? { prompt: '', ...hint } : { prompt: 'select_account' });
   });
 }
 
@@ -139,11 +164,16 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
     };
   });
   cache.set(dateKey, events);
+  stored[dateKey] = events;
+  keepStored();
   return events;
 }
 
-// What was last fetched for a day, without asking Google again (null if never fetched).
-export function cachedDay(dateKey) { return cache.get(dateKey) || null; }
+// What was last seen for a day, without asking Google again (null if never fetched).
+// After the sign-in hour this is the copy kept from the last time.
+export function cachedDay(dateKey) { return cache.get(dateKey) || stored[dateKey] || null; }
+// Only what was fetched since this page opened.
+export function freshDay(dateKey) { return cache.get(dateKey) || null; }
 
 // Timed events for several days, each with its date: [{ date, id, title, start, minutes, ... }].
 // Skips all-day items and the blocks this app wrote.
@@ -188,6 +218,59 @@ export async function writeDay(dateKey, items, previousIds = []) {
   }
   cache.delete(dateKey);
   return ids;
+}
+
+// ---------- Google Drive: one copy of your data ----------
+// A single file in the app's hidden Drive folder. Same sign-in as the calendar.
+
+const DRIVE = 'https://www.googleapis.com/drive/v3/files';
+const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
+const FILE_NAME = 'personal-io-data.json';
+
+async function drive(url, options = {}) {
+  if (!isConnected()) throw new Error('not-connected');
+  const res = await fetch(url, { ...options, headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) } });
+  if (res.status === 401) { token = null; try { localStorage.removeItem(TOKEN_KEY); } catch { /* fine */ } throw new Error('not-connected'); }
+  if (res.status === 403) {
+    let msg = '';
+    try { msg = (await res.json())?.error?.message || ''; } catch { /* ignore */ }
+    if (/has not been used|is disabled/i.test(msg)) throw new Error('drive-off');
+    driveOk = false;
+    keepToken();
+    throw new Error('drive-not-allowed');
+  }
+  if (res.status === 404) throw new Error('drive-missing');
+  if (!res.ok) throw new Error(`Google Drive said no (${res.status}).`);
+  return res;
+}
+
+// The Drive copy's id and when it was saved, or null if there is none yet.
+export async function driveInfo() {
+  const q = encodeURIComponent(`name='${FILE_NAME}'`);
+  const res = await drive(`${DRIVE}?spaces=appDataFolder&q=${q}&orderBy=modifiedTime%20desc&fields=files(id,modifiedTime,appProperties)`);
+  const f = ((await res.json()).files || [])[0];
+  driveOk = true;
+  return f ? { id: f.id, savedAt: f.appProperties?.savedAt || f.modifiedTime } : null;
+}
+
+export async function driveRead(id) {
+  const res = await drive(`${DRIVE}/${encodeURIComponent(id)}?alt=media`);
+  return JSON.parse(await res.text());
+}
+
+// Saves the text as the Drive copy. Returns the file id.
+export async function driveWrite(id, text, savedAt) {
+  const b = `pio${Math.random().toString(36).slice(2)}`;
+  const meta = id ? { appProperties: { savedAt } } : { name: FILE_NAME, parents: ['appDataFolder'], appProperties: { savedAt } };
+  const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${text}\r\n--${b}--`;
+  const url = id ? `${UPLOAD}/${encodeURIComponent(id)}?uploadType=multipart&fields=id` : `${UPLOAD}?uploadType=multipart&fields=id`;
+  try {
+    const res = await drive(url, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body });
+    return (await res.json()).id;
+  } catch (err) {
+    if (err.message === 'drive-missing' && id) return driveWrite(null, text, savedAt); // the file was removed; make a new one
+    throw err;
+  }
 }
 
 // ---------- Gmail (read only, on request) ----------

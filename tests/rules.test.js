@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validateTask, promoteDueTasks, isStale, buildDay, applyReview,
+  validateTask, promoteDueTasks, isStale, applyReview,
   dayTimeNeeded, colorForTasks, daysUntil, DEFAULT_SETTINGS,
 } from '../js/rules.js';
 
@@ -102,36 +102,6 @@ test('block color follows the most pressing task', () => {
   assert.equal(colorForTasks([task({ priority: 'nice' })]), 'yellow');
 });
 
-test('buildDay packs flexible tasks into blocks and adds commute before a timed meeting', () => {
-  const coffee = task({ id: 'coffee', place: 'commute', destination: 'SF', fixedTime: '14:00', minutes: 45 });
-  const a = task({ id: 'a', minutes: 90, priority: 'both', deadline: '2026-10-27' });
-  const b = task({ id: 'b', minutes: 60 });
-  const day = buildDay([coffee, a, b], DEFAULT_SETTINGS);
-  assert.equal(day.events[0].kind, 'commute');
-  assert.equal(day.events[0].start, '13:30');
-  assert.equal(day.blocks[0].start, '08:00');
-  assert.deepEqual(day.blocks[0].taskIds, ['a', 'b']);
-  assert.equal(day.blocks[0].color, 'blue');
-});
-
-test('a commuting task without a time is flagged', () => {
-  const day = buildDay([task({ id: 'x', place: 'commute', destination: 'SF' })]);
-  assert.deepEqual(day.needsTime, ['x']);
-});
-
-test('blocks stop before a fixed meeting', () => {
-  const meeting = task({ id: 'm', fixedTime: '10:00', minutes: 30 });
-  const big = task({ id: 'big', minutes: 180 });
-  const small = task({ id: 's', minutes: 60 });
-  const day = buildDay([meeting, big, small]);
-  // 08:00 to 10:00 only has room for the 60 minute task; the big one waits for 14:30.
-  assert.deepEqual(day.blocks[0].taskIds, ['s']);
-  assert.equal(day.blocks[0].start, '08:00');
-  assert.ok(day.blocks[0].minutes <= 120);
-  assert.deepEqual(day.blocks[1].taskIds, ['big']);
-  assert.equal(day.blocks[1].start, '14:30');
-});
-
 test('review: done closes the task, not started counts a push and keeps the reason', () => {
   const tasks = [task({ id: 'a' }), task({ id: 'b' })];
   const { tasks: out, log } = applyReview(tasks, {
@@ -145,8 +115,8 @@ test('review: done closes the task, not started counts a push and keeps the reas
   assert.equal(log.length, 2);
 });
 
-// ---------- calendar events, template steps, brain dump ----------
-import { eventsOn, templateSteps, splitDump } from '../js/rules.js';
+// ---------- calendar events, template steps ----------
+import { eventsOn, templateSteps } from '../js/rules.js';
 
 test('weekly events repeat on the same weekday', () => {
   const evs = [{ id: 'c', title: 'Class', date: '2026-10-20', start: '09:00', minutes: 90, repeat: 'weekly' }];
@@ -155,23 +125,10 @@ test('weekly events repeat on the same weekday', () => {
   assert.equal(eventsOn(evs, '2026-10-13').length, 0); // before it started
 });
 
-test('blocks avoid calendar events and the commute before them', () => {
-  const t = task({ id: 't', minutes: 60 });
-  const cls = { id: 'c', title: 'Class', date: '2026-10-27', start: '08:30', minutes: 90, commute: true };
-  // Commute starts 08:00, class ends 10:00, so the block starts at 10:00.
-  const day = buildDay([t], DEFAULT_SETTINGS, [cls]);
-  assert.equal(day.blocks[0].start, '10:00');
-});
-
 test('template steps always give three steps', () => {
   const s = templateSteps('Write the essay', 'silent');
   assert.equal(s.length, 3);
   assert.ok(s[1].includes('Write the essay'));
-});
-
-test('brain dump splits sentences into task lines', () => {
-  const lines = splitDump('Email the professor about the paper. Buy a suit for the wedding\nok\ncall the bank and then book flights');
-  assert.deepEqual(lines, ['Email the professor about the paper', 'Buy a suit for the wedding', 'Call the bank', 'Book flights']);
 });
 
 import { to12h, from12h, parseTime } from '../js/rules.js';
@@ -185,13 +142,6 @@ test('12-hour time converts both ways', () => {
   assert.equal(parseTime('2:30 pm'), '14:30');
   assert.equal(parseTime('8:00'), '08:00');
   assert.equal(parseTime('13 PM'), null);
-});
-
-test('buildDay can keep your own order', () => {
-  const low = task({ id: 'low', priority: 'nice', minutes: 60 });
-  const high = task({ id: 'high', priority: 'both', deadline: '2026-10-27', minutes: 60 });
-  assert.deepEqual(buildDay([low, high]).blocks[0].taskIds, ['high', 'low']);
-  assert.deepEqual(buildDay([low, high], DEFAULT_SETTINGS, [], { keepOrder: true }).blocks[0].taskIds, ['low', 'high']);
 });
 
 import { lastActiveDay, daySummary } from '../js/rules.js';
@@ -300,4 +250,38 @@ test('an old ! task with a far deadline can still be renamed, but not newly made
   const old = task({ id: 'u', priority: 'urgent', deadline: '2026-11-10' });
   assert.deepEqual(validateTask({ ...old, title: 'Renamed' }, [old], today), []);
   assert.ok(validateTask({ ...old, deadline: '2026-11-12' }, [old], today).length > 0);
+});
+
+import { defaultPlanDay, hasContent, syncDecision } from '../js/rules.js';
+
+test('the Plan page opens on the day that has a plan', () => {
+  assert.equal(defaultPlanDay(10, 0, 0), 'today');
+  assert.equal(defaultPlanDay(10, 2, 0), 'today');
+  assert.equal(defaultPlanDay(19, 0, 3), 'tomorrow'); // set tomorrow's plan at 7 PM, reopened: still there
+  assert.equal(defaultPlanDay(21, 3, 0), 'tomorrow');
+});
+
+test('hasContent ignores a brand new, empty app', () => {
+  assert.equal(hasContent({ goals: [{ id: 'life' }], tasks: [], days: {} }), false);
+  assert.equal(hasContent({ goals: [{ id: 'life' }], tasks: [{ id: 'a' }] }), true);
+  assert.equal(hasContent({ goals: [{ id: 'life' }], tasks: [], days: { '2026-11-02': { taskIds: ['a'] } } }), true);
+  assert.equal(hasContent(null), false);
+});
+
+test('sync: first device sends its data, a new device takes the Drive copy', () => {
+  assert.equal(syncDecision({ remoteSavedAt: null, base: null, localChanged: true, localHasContent: true }), 'push');
+  assert.equal(syncDecision({ remoteSavedAt: null, base: null }), 'none');
+  assert.equal(syncDecision({ remoteSavedAt: 'r1', base: null, localChanged: false, remoteHasContent: true }), 'pull');
+});
+
+test('sync: only one side changed', () => {
+  assert.equal(syncDecision({ remoteSavedAt: 'r1', base: 'r1', localChanged: true }), 'push');
+  assert.equal(syncDecision({ remoteSavedAt: 'r1', base: 'r1', localChanged: false }), 'none');
+  assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: false }), 'pull');
+});
+
+test('sync: both changed asks, unless one side is empty', () => {
+  assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: true, localHasContent: true, remoteHasContent: true }), 'ask');
+  assert.equal(syncDecision({ remoteSavedAt: 'r2', base: 'r1', localChanged: true, localHasContent: true, remoteHasContent: false }), 'push');
+  assert.equal(syncDecision({ remoteSavedAt: 'r2', base: null, localChanged: true, localHasContent: false, remoteHasContent: true }), 'pull');
 });
