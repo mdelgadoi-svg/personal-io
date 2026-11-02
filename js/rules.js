@@ -453,7 +453,49 @@ export function mergeData(base, local, remote) {
     if (base && same(r, x)) return l;
     if (l === undefined) return r; // only one side has it (no base): keep it
     if (r === undefined) return l;
+    // No base to compare with: a task marked done or trashed stays that way.
+    if (!base && l.status && r.status && l.status !== r.status) return l.status === 'open' ? r : l;
     return localNewer ? l : r;
+  };
+  // A set (like the tasks in a day): keep additions from both sides, removals from either side.
+  const mergeSet = (x, l, r) => {
+    const [bl, ll, rl] = [x || [], l || [], r || []];
+    const removed = new Set(base ? bl.filter((id) => !ll.includes(id) || !rl.includes(id)) : []);
+    return [...new Set([...ll, ...rl])].filter((id) => !removed.has(id));
+  };
+  const mergeMap = (x = {}, l = {}, r = {}) => {
+    const out = {};
+    new Set([...Object.keys(l), ...Object.keys(r)]).forEach((k) => {
+      const v = pick(x[k], l[k], r[k]);
+      if (v !== undefined) out[k] = v;
+    });
+    return out;
+  };
+  // A day with nothing planned and nothing set counts as no day at all.
+  const realDay = (d) => (d && ((d.taskIds || []).length || d.set || (d.googleIds || []).length) ? d : undefined);
+  // Days are joined field by field, so a plan made on one device is never replaced by the other's.
+  const mergeDay = (x, l, r) => {
+    [x, l, r] = [realDay(x), realDay(l), realDay(r)];
+    if (!l && !r) return undefined;
+    if (same(l, r)) return l;
+    if (base && same(l, x)) return r;
+    if (base && same(r, x)) return l;
+    const [dx, dl, dr] = [x || {}, l || {}, r || {}];
+    const out = {};
+    new Set([...Object.keys(dl), ...Object.keys(dr)]).forEach((k) => {
+      if (k === 'taskIds' || k === 'googleIds') out[k] = mergeSet(dx[k], dl[k], dr[k]);
+      else if (k === 'times' || k === 'reviewed' || k === 'startShown') out[k] = mergeMap(dx[k], dl[k], dr[k]);
+      else if (k === 'plan') out[k] = (localNewer ? dl.plan : dr.plan) || dl.plan || dr.plan || null; // rebuilt by the app
+      else {
+        const v = pick(dx[k], dl[k], dr[k]);
+        if (v !== undefined) out[k] = v;
+      }
+    });
+    out.taskIds = out.taskIds || [];
+    out.set = !!(dl.set || dr.set);
+    // The joined plan is not exactly what either device sent to Google Calendar.
+    if (out.set && (!same(out.taskIds, dl.taskIds || []) || !same(out.taskIds, dr.taskIds || []))) out.planStale = true;
+    return out;
   };
   const byId = (key) => {
     const map = (arr) => new Map((arr || []).map((v) => [v.id, v]));
@@ -463,14 +505,17 @@ export function mergeData(base, local, remote) {
   };
   const days = {};
   new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})]).forEach((k) => {
-    const v = pick((b.days || {})[k], (local.days || {})[k], (remote.days || {})[k]);
+    const v = mergeDay((b.days || {})[k], (local.days || {})[k], (remote.days || {})[k]);
     if (v !== undefined) days[k] = v;
   });
-  // Records that only grow: keep everything from both.
+  // Records that only grow: keep everything from both. (A return is one per day.)
   const union = (key) => {
     const seen = new Set();
-    return [...(local[key] || []), ...(remote[key] || [])].filter((v) => {
-      const k = JSON.stringify(v);
+    const id = key === 'returns' ? (v) => `${v.date}|${v.lastActive}` : (v) => JSON.stringify(v);
+    const all = [...(local[key] || []), ...(remote[key] || [])];
+    if (key === 'returns') all.sort((a, z) => Number(!!z.plannedAfter) - Number(!!a.plannedAfter));
+    return all.filter((v) => {
+      const k = id(v);
       if (seen.has(k)) return false;
       seen.add(k);
       return true;

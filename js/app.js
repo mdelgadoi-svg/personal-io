@@ -54,9 +54,9 @@ function task(id) { return state.tasks.find((t) => t.id === id); }
 function stepsOf(t) { return t.firstSteps && t.firstSteps.length ? t.firstSteps : (t.firstStep ? [t.firstStep] : []); }
 
 function getDay(key) {
-  if (!state.days[key]) {
-    state.days[key] = { intention: '', taskIds: [], times: {}, slots: S().daySlots, plan: null, planStale: false, set: false, reviewed: {}, googleIds: [] };
-  }
+  const blank = { intention: '', taskIds: [], times: {}, slots: S().daySlots, plan: null, planStale: false, set: false, reviewed: {}, googleIds: [] };
+  if (!state.days[key]) state.days[key] = blank;
+  else if (state.days[key].slots === undefined) state.days[key] = { ...blank, ...state.days[key] }; // a day joined from two devices
   return state.days[key];
 }
 
@@ -2028,7 +2028,10 @@ function settingsHTML() {
 // ---------- actions ----------
 
 async function addToDay(taskId, dayKey) {
-  const day = getDay(dayKey);
+  if (G.isConnected() && !G.freshDay(dayKey)) {
+    try { await G.eventsForDay(dayKey); } catch { /* place with what we know */ }
+  }
+  const day = getDay(dayKey); // after waiting, in case a sync brought newer data meanwhile
   if (day.taskIds.includes(taskId)) return;
   if (day.taskIds.length >= day.slots) {
     toast(day.slots < S().daySlotsMax ? 'All slots are full. Open another slot first.' : `${S().daySlotsMax} tasks is the most for one day.`);
@@ -2039,9 +2042,6 @@ async function addToDay(taskId, dayKey) {
   const at = day.taskIds.findIndex((id) => rank(task(id)) > mine);
   if (at === -1) day.taskIds.push(taskId); else day.taskIds.splice(at, 0, taskId);
   const t = task(taskId);
-  if (G.isConnected() && !G.freshDay(dayKey)) {
-    try { await G.eventsForDay(dayKey); } catch { /* place with what we know */ }
-  }
   placeTask(t, dayKey);
   syncPlan(dayKey);
   const when = timeOn(t, dayKey);
@@ -2148,17 +2148,20 @@ async function setPlan(dayKey) {
   }
   try {
     if (!G.isConnected()) await withTimeout(G.connect({ quick: G.driveAllowed() }), 120000, 'the Google window did not finish');
+    let day = getDay(dayKey); // a sync may have brought newer data while Google was opening
     day.googlePending = !clearing;
     save(state);
     render();
-    day.googleIds = await G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []);
+    const ids = await G.writeDay(dayKey, googleItemsFor(day), day.googleIds || []);
+    day = getDay(dayKey);
+    day.googleIds = ids;
     day.googlePending = false;
     if (clearing) day.set = false;
     save(state);
     render();
     toast(clearing ? 'Removed your old plan from Google Calendar.' : 'Added to your Google Calendar.');
   } catch (err) {
-    day.googlePending = !clearing;
+    getDay(dayKey).googlePending = !clearing;
     save(state);
     render();
     toast(`Google Calendar was not updated: ${err.message === 'not-connected' ? 'sign-in needed' : err.message.replace(/\.$/, '')}.`, { label: 'Try again', data: { action: 'set-plan', day: dayKey } });
@@ -2262,8 +2265,20 @@ async function syncOnce() {
     keepOtherCopy(state);
     const joined = normalize(R.mergeData(meta.base ? getBaseCopy() : null, state, { ...data, savedAt: remote.savedAt }));
     useDriveCopy(joined, remote, 'Joined your changes from both devices.', data);
+    // Redraw each joined day's plan from its tasks and times, keeping whether it was set.
+    Object.keys(state.days).forEach((k) => {
+      const d = getDay(k);
+      const { set, planStale } = d;
+      if (d.times) syncPlan(k);
+      Object.assign(d, { set, planStale: !!planStale });
+    });
     save(state); // counts as a change, so the joined copy goes back to Drive
-  } else setSync({ ...meta, fileId: remote ? remote.id : meta.fileId, at: Date.now() });
+    renderWhenFree();
+  } else {
+    setSync({ ...meta, fileId: remote ? remote.id : meta.fileId, at: Date.now() });
+    // Both sides match: keep that copy as the starting point for a later join, if it is missing.
+    if (remote && remote.savedAt === meta.base && !getBaseCopy()) setBaseCopy(JSON.stringify(await G.driveRead(remote.id)));
+  }
 }
 
 async function pushToDrive(id) {
@@ -2271,7 +2286,7 @@ async function pushToDrive(id) {
   const sent = state.savedAt;
   const text = JSON.stringify(state);
   const fileId = await G.driveWrite(id, text, sent);
-  setSync({ base: sent, fileId, at: Date.now() });
+  setSync({ base: sent, fileId, at: Date.now(), account: G.lastAccount() });
   setBaseCopy(text);
 }
 
@@ -2283,7 +2298,7 @@ function useDriveCopy(data, remote, message, driveData = data) {
   state.savedAt = remote.savedAt;
   if (openedToday && (!state.lastOpenDate || openedToday > state.lastOpenDate)) state.lastOpenDate = openedToday;
   save(state, { quiet: true });
-  setSync({ base: remote.savedAt, fileId: remote.id, at: Date.now() });
+  setSync({ base: remote.savedAt, fileId: remote.id, at: Date.now(), account: G.lastAccount() });
   setBaseCopy(JSON.stringify(driveData));
   if (firstTime) ui.planDay = null;
   const msgs = dailyCheck();
@@ -2292,8 +2307,10 @@ function useDriveCopy(data, remote, message, driveData = data) {
 }
 
 // If Google refuses the sign-in (for example, a school account that blocks Drive), the calendar can connect alone.
+// The button shows only after a second try fails, so closing the window once does not turn sync off.
 function connectFailed(err) {
-  toast(err.message, G.calendarOnly() ? null : { label: 'Calendar only', data: { action: 'calendar-only' } });
+  ui.connectFails = (ui.connectFails || 0) + 1;
+  toast(err.message, G.calendarOnly() || ui.connectFails < 2 ? null : { label: 'Calendar only', data: { action: 'calendar-only' } });
 }
 
 // A link that sets up Google on the phone in one tap (the Client ID is not a secret).
@@ -3021,7 +3038,14 @@ onSave(() => {
   sync.timer = setTimeout(() => syncNow(), 1500);
   renderSyncPill();
 });
-G.onConnect(() => { sync.error = ''; syncNow({ manual: true }); });
+G.onConnect(() => {
+  sync.error = '';
+  ui.connectFails = 0;
+  // Another Google account has another Drive copy: join with it as if for the first time.
+  const meta = getSync();
+  if (meta.account && G.lastAccount() && meta.account !== G.lastAccount()) setSync({});
+  syncNow({ manual: true });
+});
 modal.addEventListener('close', () => setTimeout(() => {
   if (ui.needRender && !userBusy()) { ui.needRender = false; render(); }
   if (G.isConnected()) syncNow();

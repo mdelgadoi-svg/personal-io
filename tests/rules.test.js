@@ -317,3 +317,36 @@ test('merge: both edited the same task, the newer copy wins; no base keeps both 
   assert.deepEqual(u.tasks.map((t) => t.id).sort(), ['x', 'y']);
   assert.deepEqual(Object.keys(u.days).sort(), ['d1', 'd2']);
 });
+
+test('merge: plans for the same day from both devices are joined, removals respected', () => {
+  const D = '2026-11-02';
+  const base = { savedAt: '1', tasks: [], days: { [D]: { taskIds: ['a'], times: { a: '09:00' }, set: true } } };
+  const phone = { savedAt: '2', tasks: [], days: { [D]: { taskIds: ['a', 'rent'], times: { a: '09:00', rent: '10:00' }, set: true } } };
+  const computer = { savedAt: '3', tasks: [], days: { [D]: { taskIds: ['a', 'email'], times: { a: '09:00', email: '11:00' }, set: true } } };
+  const m = mergeData(base, phone, computer);
+  assert.deepEqual(m.days[D].taskIds.sort(), ['a', 'email', 'rent']);
+  assert.equal(m.days[D].times.rent, '10:00');
+  assert.equal(m.days[D].planStale, true);
+  const removed = mergeData(base, { savedAt: '2', days: { [D]: { taskIds: [], set: true, times: {} } } }, { savedAt: '3', days: { [D]: { taskIds: ['a', 'email'], set: true } } });
+  assert.deepEqual(removed.days[D].taskIds, ['email']);
+});
+
+test('merge: an empty day opened on one device never wipes a plan made on the other', () => {
+  const D = '2026-11-03';
+  const base = { savedAt: '1', tasks: [], days: {} };
+  const phone = { savedAt: '2', tasks: [], days: { [D]: { taskIds: ['a', 'b'], times: { a: '09:00' }, set: true, googleIds: ['g1'] } } };
+  const computer = { savedAt: '3', tasks: [], days: { [D]: { taskIds: [], times: {}, slots: 3, set: false, googleIds: [] } } };
+  const m = mergeData(base, computer, phone);
+  assert.deepEqual(m.days[D].taskIds, ['a', 'b']);
+  assert.equal(m.days[D].set, true);
+  assert.deepEqual(m.days[D].googleIds, ['g1']);
+});
+
+test('merge without a base: done or trashed wins over open; returns are not doubled', () => {
+  const m = mergeData(null,
+    { savedAt: '2', tasks: [T('a', { status: 'done' })], returns: [{ date: 'd', lastActive: 'c', plannedAfter: false }] },
+    { savedAt: '3', tasks: [T('a')], returns: [{ date: 'd', lastActive: 'c', plannedAfter: true }] });
+  assert.equal(m.tasks[0].status, 'done');
+  assert.equal(m.returns.length, 1);
+  assert.equal(m.returns[0].plannedAfter, true);
+});
