@@ -2,7 +2,7 @@
 // Saved in this browser right away. When Google is connected, one copy also lives in
 // your Google Drive (a hidden app folder), so the computer and the phone see the same data.
 
-import { DEFAULT_SETTINGS } from './rules.js';
+import { DEFAULT_SETTINGS, mergeData } from './rules.js';
 
 const KEY = 'personal-io:v1';
 const SYNC_KEY = 'personal-io:sync';         // { base, fileId, at }: the last version both sides had
@@ -59,6 +59,14 @@ export function onSave(fn) { onChange = fn; }
 // quiet: housekeeping the app does by itself (dates, rebuilt times). It does not count as a change
 // to send to Drive, so opening the app on another device never looks like an edit.
 export function save(state, { quiet = false } = {}) {
+  // Another window of the app saved newer data (for example a tab left open overnight that missed it):
+  // never write this older copy over it. Housekeeping just takes the newer data; a real change is joined to it.
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { /* unreadable: keep going */ }
+  if (stored && stored.savedAt && (!state.savedAt || stored.savedAt > state.savedAt)) {
+    if (quiet) { Object.assign(state, normalize(stored)); return true; }
+    Object.assign(state, normalize(mergeData(null, state, stored)), { savedAt: stored.savedAt });
+  }
   if (!quiet) {
     // Always later than the last change, even if two happen in the same moment.
     const last = Date.parse(state.savedAt || '') || 0;
