@@ -1,6 +1,6 @@
 // Personal IO storage.
 // For now everything is saved in this browser on this device.
-// When Google is connected, goals and tasks will live in Google Tasks
+// Data stays in this browser. Google Calendar receives the planned tasks when you set a plan.
 // and blocks in Google Calendar, so phone and computer share them.
 
 import { DEFAULT_SETTINGS } from './rules.js';

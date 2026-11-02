@@ -1,35 +1,26 @@
 # Personal IO
 
-A personal planning app built around how an ADHD brain actually starts work.
+A private daily planner: goals, a few tasks a day with hard limits on what counts as urgent, each task placed at a real time on your calendar, and help to start and to resume.
 
 **Open it:** https://mdelgadoi-svg.github.io/personal-io/
 
 ## How it works
 
-1. **Goals** (up to 10) are the big outcomes, each with a one or two sentence *why*.
-2. **Tasks** always serve a goal. Each has a priority, a deadline, a time estimate,
-   a **first-minute step**, and where it can be done:
-   *Everywhere*, *Requires silent space*, or *Requires commuting* (adds 30 min before).
-3. **Priorities and limits** (open tasks):
-   - ★! Important + urgent: max 3, deadline today or tomorrow
-   - ★ Important: max 4
-   - ! Urgent: max 3
-   - 🤔 Nice to have: no limit
-   - ★ tasks move up to ★! on their own when the deadline gets close (if there's room).
-   - ★ tasks untouched for 21 days ask "still important?"
-4. **Plan the day** (3 slots, open up to 7), then **Build my blocks**: tasks are packed into
-   2 to 4 hour deep work blocks. Meetings with a fixed time stay put, with commute before them.
-5. **End of block review**: Done / Still working / Not started, plus the reason.
-   Unfinished tasks go back to the backlog, and everything is kept in the **Record**.
+1. **Goals** (up to 10), each with a one or two sentence *why*. Every task serves a goal.
+2. **Priorities, with limits on open tasks:**
+   - ★! Important + urgent: max 2, deadline today or tomorrow
+   - ★ Important: max 3
+   - ! Urgent: max 3, deadline today or tomorrow
+   - 🤔 Tasks for later: no limit, deadline optional
+   - ★ tasks move up to ★! when the deadline gets close, if there is room.
+3. **Plan today or tomorrow:** 3 slots (up to 7). Each task goes into the first free time that fits its length, around your Google Calendar. Drag it on the calendar or use "Change time". **Set plan** writes it to Google Calendar.
+4. **Start:** one step per minute on the start screen.
+5. **How did it go?** Done, still working, or not started, plus where you left off. Unfinished work goes back to the list.
 
-Calendar colors: **blue** do now, **green** should do (flexible), **yellow** might help,
-**purple** commute.
+## Your data
 
-## Data
-
-Version 1 saves in the browser on each device. Use **Settings → Download backup** now and then.
-Next version: Google Calendar and Google Tasks, so phone and computer share one plan.
-Nothing else is connected.
+Everything is saved in the browser, on each device and Chrome profile separately. Nothing is stored on GitHub.
+Use **Settings → Download backup** every week, and **Restore from backup** on a new device or profile.
 
 ## Install as an app
 
@@ -38,7 +29,7 @@ Nothing else is connected.
 
 ## For maintenance
 
-- Plain HTML, CSS and JavaScript. No build step.
-- Rules (limits, urgency, blocks, review) live in `js/rules.js` and are tested:
-  `node --test tests/*.test.js`
+- Plain HTML, CSS and JavaScript. No build step. See `CLAUDE.md` for how the code is organized.
+- Unit tests: `node --test tests/*.test.js`
+- Browser checks: `bash tests/e2e/run_all.sh` (needs Python Playwright with Chromium)
 - When app files change, bump `VERSION` in `sw.js` so installed copies update.
