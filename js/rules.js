@@ -173,11 +173,6 @@ export function sortForPlanning(tasks) {
 
 // ---------- time needed for a day ----------
 
-export function taskTotalMinutes(task, settings = DEFAULT_SETTINGS) {
-  const commute = task.place === 'commute' ? settings.commuteMinutes : 0;
-  return (task.minutes || 0) + commute;
-}
-
 export function dayTimeNeeded(tasks, settings = DEFAULT_SETTINGS) {
   let work = 0;
   let commute = 0;
@@ -210,90 +205,6 @@ export function eventsOn(events, dateKey) {
     if (e.until && dateKey > e.until) return false;
     return parseDateKey(e.date).getDay() === weekday;
   }).sort((a, b) => a.start.localeCompare(b.start));
-}
-
-// Time taken by calendar events, including the commute before in-person ones.
-export function busyFromEvents(events, settings = DEFAULT_SETTINGS) {
-  return events.map((e) => {
-    const start = toMinutes(e.start) - (e.commute ? settings.commuteMinutes : 0);
-    return [start, toMinutes(e.start) + e.minutes];
-  });
-}
-
-// ---------- building the day ----------
-
-// Tasks with a fixed time (and every commuting task) become their own events.
-// Everything else is packed into deep work blocks of 2 to 4 hours,
-// avoiding anything already on the calendar (calendarEvents).
-export function buildDay(tasks, settings = DEFAULT_SETTINGS, calendarEvents = [], { keepOrder = false } = {}) {
-  const events = [];
-  const needsTime = [];
-  const flexible = [];
-
-  for (const t of tasks) {
-    if (t.fixedTime) {
-      const start = toMinutes(t.fixedTime);
-      if (t.place === 'commute') {
-        events.push({
-          kind: 'commute', taskId: t.id,
-          start: toHHMM(start - settings.commuteMinutes), minutes: settings.commuteMinutes,
-          title: `Commute to ${t.destination || 'the meeting'}`,
-        });
-      }
-      events.push({ kind: 'task', taskId: t.id, start: t.fixedTime, minutes: t.minutes, title: t.title });
-    } else if (t.place === 'commute') {
-      needsTime.push(t.id);
-    } else {
-      flexible.push(t);
-    }
-  }
-
-  const busy = [
-    ...events.map((e) => [toMinutes(e.start), toMinutes(e.start) + e.minutes]),
-    ...busyFromEvents(calendarEvents, settings),
-  ].sort((a, b) => a[0] - b[0]);
-  const blocks = [];
-  const didNotFit = [];
-  // Your own order (dragged in the plan) wins; otherwise most pressing first.
-  const queue = keepOrder ? [...flexible] : sortForPlanning(flexible);
-
-  for (const startText of settings.blockStarts) {
-    if (queue.length === 0) break;
-    let start = toMinutes(startText);
-    // Skip past anything already scheduled at the block's start (repeat for back-to-back events).
-    let moved = true;
-    while (moved) {
-      moved = false;
-      for (const [a, b] of busy) if (start >= a && start < b) { start = b; moved = true; }
-    }
-    // The block can run until the next fixed event, or the maximum length.
-    let limit = start + settings.maxBlockMinutes;
-    for (const [a] of busy) if (a > start && a < limit) limit = a;
-    const room = limit - start;
-
-    // Take tasks in priority order, skipping any that don't fit in what's left.
-    const inBlock = [];
-    let used = 0;
-    for (let i = 0; i < queue.length; ) {
-      if (used + queue[i].minutes <= room) {
-        const [t] = queue.splice(i, 1);
-        inBlock.push(t);
-        used += t.minutes;
-      } else {
-        i += 1;
-      }
-    }
-    if (inBlock.length > 0) {
-      const minutes = Math.min(room, Math.max(used, Math.min(settings.minBlockMinutes, room)));
-      blocks.push({
-        start: toHHMM(start), minutes,
-        taskIds: inBlock.map((t) => t.id),
-        color: colorForTasks(inBlock),
-      });
-    }
-  }
-  for (const t of queue) didNotFit.push(t.id);
-  return { blocks, events, needsTime, didNotFit };
 }
 
 // ---------- end of block review ----------
@@ -335,18 +246,6 @@ export function templateSteps(title, place, computer = place !== 'commute') {
     silent: 'Find a quiet spot and put your phone away',
   }[place] || 'Put your phone away and clear your space';
   return [setup, `Get out what you need for: ${name}`, 'Do the first small piece for 60 seconds'];
-}
-
-// ---------- brain dump without AI ----------
-
-// Splits free text into short task-like lines (one per sentence or line).
-export function splitDump(text) {
-  return String(text || '')
-    .split(/\n|(?<=[.!?;])\s+|\s+(?:and then|also|then)\s+/i)
-    .map((s) => s.replace(/^[\s\-*•\d.)]+/, '').replace(/[.;]+$/, '').trim())
-    .filter((s) => s.split(/\s+/).length >= 2)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .slice(0, 25);
 }
 
 // "Write the essay" -> "Part 2 of Write the essay"; "Part 2 of X" -> "Part 3 of X". Skips names already taken.
@@ -504,4 +403,131 @@ export function daySummary(dateKey, { days = {}, log = [], tasks = [] } = {}) {
   const done = [...new Set(log.filter((l) => l.date === dateKey && l.result === 'done').map((l) => l.title))];
   const open = planned.filter((t) => t.status === 'open').length;
   return { planned: planned.length, done, open };
+}
+
+// ---------- which day the Plan page opens on ----------
+
+// Opens on the day that already has a plan, so a set plan never looks gone.
+// With nothing planned, evenings (8 PM on) open on tomorrow.
+export function defaultPlanDay(hour, todayCount, tomorrowCount) {
+  if (hour >= 20) return 'tomorrow';
+  if (todayCount > 0) return 'today';
+  if (tomorrowCount > 0) return 'tomorrow';
+  return 'today';
+}
+
+// ---------- keeping one copy in Google Drive ----------
+
+// True when the data holds anything you made (not just the starting goal).
+export function hasContent(data) {
+  if (!data) return false;
+  if ((data.tasks || []).length || (data.goals || []).length > 1 || (data.journal || []).length) return true;
+  return Object.values(data.days || {}).some((d) => d && (d.taskIds || []).length);
+}
+
+// What to do when this device meets the Drive copy.
+// remoteSavedAt: when the Drive copy was saved (null if there is none).
+// base: the version both sides had at the last sync (null on a device that never synced).
+// localChanged: you changed something here since then.
+// Returns 'none', 'push' (Drive gets this device), 'pull' (this device gets Drive) or 'ask'.
+export function syncDecision({ remoteSavedAt = null, base = null, localChanged = false, localHasContent = false, remoteHasContent = false }) {
+  if (!remoteSavedAt) return localChanged || localHasContent ? 'push' : 'none';
+  if (remoteSavedAt === base) return localChanged ? 'push' : 'none';
+  if (!localChanged) return 'pull';
+  if (!remoteHasContent) return 'push';
+  if (!localHasContent) return 'pull';
+  return 'merge';
+}
+
+// Joins two copies that both changed since base (the copy both had at the last sync).
+// Each task, goal, event and day is compared on its own: a side that did not touch it takes
+// the other side's version; if both touched the same one, the newer copy wins for that one.
+// Without a base (first sync), everything from both sides is kept.
+export function mergeData(base, local, remote) {
+  const b = base || {};
+  const localNewer = (local.savedAt || '') >= (remote.savedAt || '');
+  const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  const pick = (x, l, r) => {
+    if (same(l, r)) return l;
+    if (base && same(l, x)) return r;
+    if (base && same(r, x)) return l;
+    if (l === undefined) return r; // only one side has it (no base): keep it
+    if (r === undefined) return l;
+    // No base to compare with: a task marked done or trashed stays that way.
+    if (!base && l.status && r.status && l.status !== r.status) return l.status === 'open' ? r : l;
+    return localNewer ? l : r;
+  };
+  // A set (like the tasks in a day): keep additions from both sides, removals from either side.
+  const mergeSet = (x, l, r) => {
+    const [bl, ll, rl] = [x || [], l || [], r || []];
+    const removed = new Set(base ? bl.filter((id) => !ll.includes(id) || !rl.includes(id)) : []);
+    return [...new Set([...ll, ...rl])].filter((id) => !removed.has(id));
+  };
+  const mergeMap = (x = {}, l = {}, r = {}) => {
+    const out = {};
+    new Set([...Object.keys(l), ...Object.keys(r)]).forEach((k) => {
+      const v = pick(x[k], l[k], r[k]);
+      if (v !== undefined) out[k] = v;
+    });
+    return out;
+  };
+  // A day with nothing planned and nothing set counts as no day at all.
+  const realDay = (d) => (d && ((d.taskIds || []).length || d.set || (d.googleIds || []).length) ? d : undefined);
+  // Days are joined field by field, so a plan made on one device is never replaced by the other's.
+  const mergeDay = (x, l, r) => {
+    [x, l, r] = [realDay(x), realDay(l), realDay(r)];
+    if (!l && !r) return undefined;
+    if (same(l, r)) return l;
+    if (base && same(l, x)) return r;
+    if (base && same(r, x)) return l;
+    const [dx, dl, dr] = [x || {}, l || {}, r || {}];
+    const out = {};
+    new Set([...Object.keys(dl), ...Object.keys(dr)]).forEach((k) => {
+      if (k === 'taskIds' || k === 'googleIds') out[k] = mergeSet(dx[k], dl[k], dr[k]);
+      else if (k === 'times' || k === 'reviewed' || k === 'startShown') out[k] = mergeMap(dx[k], dl[k], dr[k]);
+      else if (k === 'plan') out[k] = (localNewer ? dl.plan : dr.plan) || dl.plan || dr.plan || null; // rebuilt by the app
+      else {
+        const v = pick(dx[k], dl[k], dr[k]);
+        if (v !== undefined) out[k] = v;
+      }
+    });
+    out.taskIds = out.taskIds || [];
+    out.set = !!(dl.set || dr.set);
+    // The joined plan is not exactly what either device sent to Google Calendar.
+    if (out.set && (!same(out.taskIds, dl.taskIds || []) || !same(out.taskIds, dr.taskIds || []))) out.planStale = true;
+    return out;
+  };
+  const byId = (key) => {
+    const map = (arr) => new Map((arr || []).map((v) => [v.id, v]));
+    const [mb, ml, mr] = [map(b[key]), map(local[key]), map(remote[key])];
+    const ids = [...new Set([...ml.keys(), ...mr.keys()])];
+    return ids.map((id) => pick(mb.get(id), ml.get(id), mr.get(id))).filter((v) => v !== undefined);
+  };
+  const days = {};
+  new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})]).forEach((k) => {
+    const v = mergeDay((b.days || {})[k], (local.days || {})[k], (remote.days || {})[k]);
+    if (v !== undefined) days[k] = v;
+  });
+  // Records that only grow: keep everything from both. (A return is one per day.)
+  const union = (key) => {
+    const seen = new Set();
+    const id = key === 'returns' ? (v) => `${v.date}|${v.lastActive}` : (v) => JSON.stringify(v);
+    const all = [...(local[key] || []), ...(remote[key] || [])];
+    if (key === 'returns') all.sort((a, z) => Number(!!z.plannedAfter) - Number(!!a.plannedAfter));
+    return all.filter((v) => {
+      const k = id(v);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+  const later = (x, y) => ((x || '') > (y || '') ? x : y) || null;
+  return {
+    ...(localNewer ? remote : local), ...(localNewer ? local : remote),
+    settings: pick(b.settings, local.settings, remote.settings),
+    goals: byId('goals'), tasks: byId('tasks'), events: byId('events'), days,
+    log: union('log'), journal: union('journal'), returns: union('returns'),
+    lastOpenDate: later(local.lastOpenDate, remote.lastOpenDate),
+    lastDailyCheck: later(local.lastDailyCheck, remote.lastDailyCheck),
+  };
 }

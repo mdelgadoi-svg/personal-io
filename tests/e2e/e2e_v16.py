@@ -55,7 +55,7 @@ with sync_playwright() as p:
     pg.drag_and_drop('[data-task-drag="t2"]', '.col-day'); pg.wait_for_timeout(200)
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')")); print('8 dragged into today:', s['days'].get(TODAY,{}).get('taskIds'))
     # caps: 3rd both
-    pg.click('.col-backlog [data-action="new-task"]'); pg.wait_for_selector('form[data-form="task"]')
+    pg.click('[data-action="new-task"]:visible >> nth=0'); pg.wait_for_selector('form[data-form="task"]')
     pg.fill('#f-title','Write memo'); pg.wait_for_timeout(100)
     print('5 auto steps:', [pg.input_value(f'#f-step{i}') for i in range(3)])
     pg.click('[data-group="computer"] [data-value="no"]'); print('5 away steps:', pg.input_value('#f-step0'))

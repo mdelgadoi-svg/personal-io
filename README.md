@@ -19,8 +19,10 @@ A private daily planner: goals, a few tasks a day with hard limits on what count
 
 ## Your data
 
-Everything is saved in the browser, on each device and Chrome profile separately. Nothing is stored on GitHub.
-Use **Settings → Download backup** every week, and **Restore from backup** on a new device or profile.
+Saved in the browser first, and one copy in your Google Drive (a hidden app folder) while Google is connected, so the computer and the phone show the same data. Nothing is stored on GitHub.
+- First time: turn on the **Google Drive API** in your Google Cloud project, then tap **Sync** at the top and sign in.
+- Phone: **Settings → Use it on your phone**, send yourself the link, open it on the phone, tap **Sync**.
+- **Download backup** in Settings is still there as an extra copy.
 
 ## Install as an app
 
