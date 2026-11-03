@@ -9,7 +9,50 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const CAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 // If your Google account blocks Drive for this app, the calendar still works on its own.
 const NO_DRIVE_KEY = 'personal-io:calendar-only';
-export function calendarOnly() { try { return localStorage.getItem(NO_DRIVE_KEY) === '1'; } catch { return false; } }
+export function calendarOnly() { if (usingBridge()) return false; try { return localStorage.getItem(NO_DRIVE_KEY) === '1'; } catch { return false; } }
+
+// ---------- Google bridge: a small script in your own Google account (bridge/Code.gs) ----------
+// When it is set up, the calendar and your data go through it: no sign-in pop-up, no hourly reconnect.
+const BRIDGE_KEY = 'personal-io:bridge';
+export function getBridge() {
+  try { const b = JSON.parse(localStorage.getItem(BRIDGE_KEY) || 'null'); return b && b.url && b.key ? b : null; } catch { return null; }
+}
+export function setBridge(b) {
+  try { if (b) localStorage.setItem(BRIDGE_KEY, JSON.stringify(b)); else localStorage.removeItem(BRIDGE_KEY); } catch { /* storage blocked */ }
+  cache.clear();
+}
+export function usingBridge() { return !!getBridge(); }
+export function looksLikeBridge(url) { return /^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[\w-]+\/exec$/.test(String(url || '').trim()); }
+
+async function bridge(action, payload = {}) {
+  const b = getBridge();
+  if (!b) throw new Error('not-connected');
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), 30000);
+  let res;
+  try {
+    // Plain text body: the browser sends it without an extra permission check, which Apps Script needs.
+    res = await fetch(b.url, { method: 'POST', body: JSON.stringify({ key: b.key, action, ...payload }), signal: stop.signal });
+  } catch (err) {
+    throw new Error(err.name === 'AbortError' ? 'Your Google bridge did not answer. Try again' : 'Could not reach your Google bridge. Check your internet');
+  } finally {
+    clearTimeout(timer);
+  }
+  let out;
+  try { out = await res.json(); } catch { throw new Error('Your Google bridge did not answer correctly. Check the setup in Settings'); }
+  if (out.error === 'key') throw new Error('The bridge key does not match. Set up the bridge again in Settings');
+  if (out.error && /Calendar is not defined/.test(out.error)) throw new Error('Add the Google Calendar API service to your script (Services +)');
+  if (out.error) throw new Error(out.error);
+  return out;
+}
+
+// Checks the bridge answers and learns which account it runs as.
+export async function pingBridge() {
+  const out = await bridge('ping');
+  const b = getBridge();
+  setBridge({ ...b, account: out.account || '' });
+  return out.account || '';
+}
 export function setCalendarOnly(on) { try { if (on) localStorage.setItem(NO_DRIVE_KEY, '1'); else localStorage.removeItem(NO_DRIVE_KEY); } catch { /* storage blocked */ } }
 const scopes = () => (calendarOnly() ? CAL_SCOPE : `${CAL_SCOPE} ${DRIVE_SCOPE}`);
 const CAL_KEY = 'personal-io:google-calendar-id';
@@ -67,11 +110,11 @@ export function setClientId(id) {
   } catch { /* storage blocked */ }
   tokenClient = null;
 }
-export function isConfigured() { return getClientId().endsWith('.apps.googleusercontent.com'); }
-export function isConnected() { return !!token && Date.now() < tokenExpires; }
-export function connectedName() { return isConnected() ? connectedAs : ''; }
-export function lastAccount() { return connectedAs; }
-export function driveAllowed() { return driveOk !== false && !calendarOnly(); }
+export function isConfigured() { return usingBridge() || getClientId().endsWith('.apps.googleusercontent.com'); }
+export function isConnected() { return usingBridge() || (!!token && Date.now() < tokenExpires); }
+export function connectedName() { return usingBridge() ? getBridge().account || '' : isConnected() ? connectedAs : ''; }
+export function lastAccount() { return usingBridge() ? getBridge().account || '' : connectedAs; }
+export function driveAllowed() { return usingBridge() || (driveOk !== false && !calendarOnly()); }
 
 function loadGis() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -90,6 +133,7 @@ function loadGis() {
 // Opens the Google pop-up. Must be called from a click.
 // quick: reconnect the same account without the account picker (after the hour is up).
 export async function connect({ quick = false } = {}) {
+  if (usingBridge()) { await pingBridge(); listeners.forEach((fn) => fn()); return; }
   if (!isConfigured()) throw new Error('Add your Google Client ID in Settings first.');
   await loadGis();
   return new Promise((resolve, reject) => {
@@ -142,12 +186,34 @@ function dayRange(dateKey) {
 export async function eventsForDay(dateKey, { fresh = false } = {}) {
   if (!fresh && cache.has(dateKey)) return cache.get(dateKey);
   const { start, end } = dayRange(dateKey);
-  const params = new URLSearchParams({
-    timeMin: start.toISOString(), timeMax: end.toISOString(),
-    singleEvents: 'true', orderBy: 'startTime', maxResults: '100',
-  });
-  const data = await call(`${apiBase()}?${params}`);
-  const events = (data.items || []).filter((e) => e.status !== 'cancelled').map((e) => {
+  let items;
+  if (usingBridge()) {
+    items = (await bridge('events', { timeMin: start.toISOString(), timeMax: end.toISOString(), calendarId: getCalendarId() || undefined })).items;
+  } else {
+    const params = new URLSearchParams({
+      timeMin: start.toISOString(), timeMax: end.toISOString(),
+      singleEvents: 'true', orderBy: 'startTime', maxResults: '100',
+    });
+    items = (await call(`${apiBase()}?${params}`)).items;
+  }
+  return keepDay(dateKey, mapDay(items || [], start, end));
+}
+
+function keepDay(dateKey, events) {
+  cache.set(dateKey, events);
+  stored[dateKey] = events;
+  keepStored();
+  return events;
+}
+
+// Google's events for one day, in the app's shape.
+function mapDay(items, start, end) {
+  return items.filter((e) => e.status !== 'cancelled').filter((e) => {
+    // Only what touches this day (the bridge can send several days at once).
+    const s = e.start?.dateTime ? new Date(e.start.dateTime) : new Date(`${e.start?.date}T00:00:00`);
+    const f = e.end?.dateTime ? new Date(e.end.dateTime) : new Date(`${e.end?.date}T00:00:00`);
+    return s < end && f > start;
+  }).map((e) => {
     if (e.start?.date) return { id: e.id, title: e.summary || '(no title)', allDay: true };
     const s = new Date(e.start.dateTime);
     const f = new Date(e.end.dateTime);
@@ -168,10 +234,6 @@ export async function eventsForDay(dateKey, { fresh = false } = {}) {
       fromApp: e.extendedProperties?.private?.personalIo === '1',
     };
   });
-  cache.set(dateKey, events);
-  stored[dateKey] = events;
-  keepStored();
-  return events;
 }
 
 // What was last seen for a day, without asking Google again (null if never fetched).
@@ -188,7 +250,16 @@ export async function eventsAhead(startKey, days) {
     const dt = new Date(y, m - 1, d + i);
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   });
-  const lists = await Promise.all(keys.map((k) => eventsForDay(k)));
+  let lists;
+  if (usingBridge()) {
+    // One call for the whole range: the bridge is slower per call than Google itself.
+    const first = dayRange(keys[0]).start;
+    const last = dayRange(keys[keys.length - 1]).end;
+    const items = (await bridge('events', { timeMin: first.toISOString(), timeMax: last.toISOString(), calendarId: getCalendarId() || undefined })).items || [];
+    lists = keys.map((k) => { const { start, end } = dayRange(k); return keepDay(k, mapDay(items, start, end)); });
+  } else {
+    lists = await Promise.all(keys.map((k) => eventsForDay(k)));
+  }
   return lists.flatMap((list, i) => list.filter((e) => !e.allDay && !e.fromApp).map((e) => ({ ...e, date: keys[i] })));
 }
 
@@ -201,24 +272,32 @@ function toIso(dateKey, hhmm, addMinutes = 0) {
   return new Date(y, m - 1, d, h, min + addMinutes).toISOString();
 }
 
+function eventBody(dateKey, it) {
+  return {
+    summary: it.title,
+    description: it.description || '',
+    start: { dateTime: toIso(dateKey, it.start) },
+    end: { dateTime: toIso(dateKey, it.start, it.minutes) },
+    colorId: COLOR_ID[it.color] || COLOR_ID.green,
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] },
+    extendedProperties: { private: { personalIo: '1' } },
+  };
+}
+
 // Writes the day's plan to Google Calendar, replacing what the app wrote before.
 // items: [{ title, start, minutes, color, description }]
 export async function writeDay(dateKey, items, previousIds = []) {
+  if (usingBridge()) {
+    const out = await bridge('writeDay', { calendarId: getCalendarId() || undefined, deleteIds: previousIds, bodies: items.map((it) => eventBody(dateKey, it)) });
+    cache.delete(dateKey);
+    return out.ids || [];
+  }
   for (const id of previousIds) {
     try { await call(`${apiBase()}/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch { /* already gone */ }
   }
   const ids = [];
   for (const it of items) {
-    const body = {
-      summary: it.title,
-      description: it.description || '',
-      start: { dateTime: toIso(dateKey, it.start) },
-      end: { dateTime: toIso(dateKey, it.start, it.minutes) },
-      colorId: COLOR_ID[it.color] || COLOR_ID.green,
-      reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] },
-      extendedProperties: { private: { personalIo: '1' } },
-    };
-    const created = await call(apiBase(), { method: 'POST', body: JSON.stringify(body) });
+    const created = await call(apiBase(), { method: 'POST', body: JSON.stringify(eventBody(dateKey, it)) });
     ids.push(created.id);
   }
   cache.delete(dateKey);
@@ -262,6 +341,10 @@ async function drive(url, options = {}) {
 
 // The Drive copy's id and when it was saved, or null if there is none yet.
 export async function driveInfo() {
+  if (usingBridge()) {
+    const out = await bridge('info');
+    return out.savedAt ? { id: 'bridge', savedAt: out.savedAt } : null;
+  }
   const q = encodeURIComponent(`name='${FILE_NAME}'`);
   const res = await drive(`${DRIVE}?spaces=appDataFolder&q=${q}&orderBy=modifiedTime%20desc&fields=files(id,modifiedTime,appProperties)`);
   const f = ((await res.json()).files || [])[0];
@@ -270,12 +353,22 @@ export async function driveInfo() {
 }
 
 export async function driveRead(id) {
+  if (usingBridge()) {
+    const out = await bridge('read');
+    return out.text ? JSON.parse(out.text) : null;
+  }
   const res = await drive(`${DRIVE}/${encodeURIComponent(id)}?alt=media`);
   return JSON.parse(await res.text());
 }
 
 // Saves the text as the Drive copy. Returns the file id.
-export async function driveWrite(id, text, savedAt) {
+// expect: when the Drive copy was saved as this device last saw it; the bridge refuses if it changed since.
+export async function driveWrite(id, text, savedAt, expect = null) {
+  if (usingBridge()) {
+    const out = await bridge('write', { text, savedAt, expect });
+    if (out.conflict) throw new Error('conflict');
+    return 'bridge';
+  }
   const b = `pio${Math.random().toString(36).slice(2)}`;
   const meta = id ? { appProperties: { savedAt } } : { name: FILE_NAME, parents: ['appDataFolder'], appProperties: { savedAt } };
   const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${text}\r\n--${b}--`;

@@ -1922,6 +1922,34 @@ function reviewHTML(blockIndex) {
   </form>`;
 }
 
+// The bridge: a small script in your own Google account. No sign-in, no reconnecting.
+function bridgeSetupHTML() {
+  const step = (n, html) => `<div class="step-box" style="align-items:flex-start"><span class="step-n">${n}</span><div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0">${html}</div></div>`;
+  return `<span class="hint">Set up once (about 10 minutes). Then the calendar and your data never need a sign-in.</span>
+    ${step(1, '<span>Open <strong>script.google.com</strong> with your Berkeley account. Click <strong>New project</strong>.</span>')}
+    ${step(2, `<span>Delete the code there and paste yours.</span>
+      <button type="button" class="btn btn-small btn-dark" style="align-self:flex-start" data-action="copy-bridge-code">Copy my code</button>
+      <textarea class="input mono" id="bridge-code" rows="4" readonly hidden aria-label="Your bridge code"></textarea>`)}
+    ${step(3, '<span>On the left, <strong>Services +</strong>, pick <strong>Google Calendar API</strong>, click <strong>Add</strong>. Save (Ctrl+S).</span>')}
+    ${step(4, '<span><strong>Deploy</strong> &gt; <strong>New deployment</strong> &gt; gear &gt; <strong>Web app</strong>. Execute as: <strong>Me</strong>. Who has access: <strong>Anyone</strong>. Deploy, allow access, copy the Web app URL.</span><span class="hint">Google says "not verified"? It is your own script: Advanced &gt; Go to project.</span>')}
+    ${step(5, `<label for="s-bridge">Paste the Web app URL</label>
+      <input class="input mono" id="s-bridge" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+      <button type="button" class="btn btn-small btn-dark" style="align-self:flex-start" data-action="connect-bridge">Connect</button>`)}
+    <span class="hint">No "Anyone" option in step 4? Berkeley blocks it. Tell Claude.</span>`;
+}
+
+function bridgeOnHTML() {
+  return `<span class="chip chip-done" style="align-self:flex-start">Connected through your bridge${G.connectedName() ? ': ' + esc(G.connectedName()) : ''}</span>
+    ${sync.error ? `<div class="note note-warn">${esc(sync.error)}</div>` : ''}
+    <div class="step-box" style="align-items:flex-start"><div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0">
+      <strong>Your link</strong>
+      <span class="hint">Bookmark it and open it on your phone. If a browser loses your data, open this link. Keep it private.</span>
+      <input class="input mono" readonly value="${esc(bridgeLink())}" aria-label="Your link">
+      <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-bridge-link">Copy link</button>
+    </div></div>
+    <button type="button" class="btn-link" style="align-self:flex-start" data-action="remove-bridge">Stop using the bridge on this device</button>`;
+}
+
 function settingsHTML() {
   return `
   <form class="modal" data-form="settings" novalidate>
@@ -1939,8 +1967,11 @@ function settingsHTML() {
       <input class="input" type="number" min="3" id="s-stale" name="staleDays" value="${S().staleDays}" style="max-width:160px"></div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
-      <strong>Google Calendar and Drive</strong>
-      <span class="hint">Your plan goes to Google Calendar. One copy of all your data goes to Google Drive, so the computer and the phone show the same thing.</span>
+      <strong>Google</strong>
+      ${G.usingBridge() ? bridgeOnHTML() : bridgeSetupHTML()}
+      <details ${!G.usingBridge() && G.getClientId() ? 'open' : ''}>
+      <summary class="hint" style="cursor:pointer">Other way: sign in with a Client ID (asks again every hour)</summary>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px">
       <div class="step-box" style="align-items:flex-start">
         <span class="step-n">1</span>
         <div style="flex:1; display:flex; flex-direction:column; gap:6px">
@@ -1979,6 +2010,8 @@ function settingsHTML() {
           <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-phone-link">Copy link</button>
         </div>
       </div>` : ''}
+      </div>
+      </details>
       <details>
         <summary class="hint" style="cursor:pointer">Plan B: use a calendar shared with you</summary>
         <div class="field" style="margin-top:8px"><label for="s-calid">Which calendar</label>
@@ -2235,6 +2268,7 @@ async function syncNow({ manual = false } = {}) {
       await syncOnce();
       sync.error = '';
     } catch (err) {
+      if (err.message === 'conflict') { sync.again = true; sync.error = ''; return; } // the other device saved first: look again
       sync.error = syncErrorText(err);
       if (manual && sync.error) toast(sync.error);
     }
@@ -2259,7 +2293,7 @@ async function syncOnce() {
     remoteSavedAt: remote ? remote.savedAt : null, base: meta.base || null, localChanged: changed,
     localHasContent: R.hasContent(state), remoteHasContent: R.hasContent(data),
   });
-  if (decision === 'push') await pushToDrive(remote ? remote.id : null);
+  if (decision === 'push') await pushToDrive(remote ? remote.id : null, remote ? remote.savedAt : null);
   else if (decision === 'pull') useDriveCopy(data, remote, meta.base ? 'Updated from your other device.' : 'Your data from Google Drive is here.');
   else if (decision === 'merge') {
     keepOtherCopy(state);
@@ -2281,11 +2315,11 @@ async function syncOnce() {
   }
 }
 
-async function pushToDrive(id) {
+async function pushToDrive(id, expect = null) {
   if (!state.savedAt) { state.savedAt = new Date().toISOString(); save(state, { quiet: true }); }
   const sent = state.savedAt;
   const text = JSON.stringify(state);
-  const fileId = await G.driveWrite(id, text, sent);
+  const fileId = await G.driveWrite(id, text, sent, expect);
   setSync({ base: sent, fileId, at: Date.now(), account: G.lastAccount() });
   setBaseCopy(text);
 }
@@ -2313,6 +2347,13 @@ function connectFailed(err) {
   toast(err.message, G.calendarOnly() || ui.connectFails < 2 ? null : { label: 'Calendar only', data: { action: 'calendar-only' } });
 }
 
+// Your personal link: it carries the bridge address and key, so opening it sets up any device or browser.
+// Keep it private (anyone with it can read your plan).
+function bridgeLink() {
+  const b = G.getBridge();
+  return b ? `${location.origin}${location.pathname}#${new URLSearchParams({ bridge: b.url, k: b.key })}` : '';
+}
+
 // A link that sets up Google on the phone in one tap (the Client ID is not a secret).
 function phoneLink() {
   const params = new URLSearchParams({ connect: G.getClientId() });
@@ -2321,6 +2362,17 @@ function phoneLink() {
 }
 
 function takeSetupLink() {
+  if (location.hash.startsWith('#bridge=')) {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const url = (params.get('bridge') || '').trim();
+    const key = (params.get('k') || '').trim();
+    if (G.looksLikeBridge(url) && key) {
+      if (!G.getBridge() || G.getBridge().url !== url || G.getBridge().key !== key) { G.setBridge({ url, key }); setSync({}); }
+      ui.bridgeToast = true;
+    }
+    history.replaceState(null, '', `${location.pathname}#start`);
+    return;
+  }
   if (!location.hash.startsWith('#connect=')) return;
   const params = new URLSearchParams(location.hash.slice(1));
   const id = (params.get('connect') || '').trim();
@@ -2341,6 +2393,58 @@ const actions = {
   'calendar-only': async () => {
     G.setCalendarOnly(true);
     try { await G.connect(); toast('Calendar connected. Your data stays on this device only.'); render(); } catch (err) { toast(err.message); }
+  },
+  'copy-bridge-code': async () => {
+    const PENDING = 'personal-io:bridge-pending';
+    let key = '';
+    try { key = localStorage.getItem(PENDING) || ''; } catch { /* blocked */ }
+    if (!key) {
+      key = Array.from(crypto.getRandomValues(new Uint8Array(24)), (n) => n.toString(16).padStart(2, '0')).join('');
+      try { localStorage.setItem(PENDING, key); } catch { /* blocked */ }
+    }
+    let code = '';
+    try { code = (await (await fetch('bridge/Code.gs', { cache: 'no-store' })).text()).replace('__KEY__', key); }
+    catch { toast('Could not load the code. Check your internet.'); return; }
+    try { await navigator.clipboard.writeText(code); toast('Copied. Paste it in the script.'); }
+    catch {
+      const box = modal.querySelector('#bridge-code');
+      if (box) { box.value = code; box.hidden = false; box.select(); }
+      toast('Select the code below and copy it.');
+    }
+  },
+  'connect-bridge': async (el) => {
+    const url = (modal.querySelector('#s-bridge')?.value || '').trim();
+    let key = '';
+    try { key = localStorage.getItem('personal-io:bridge-pending') || ''; } catch { /* blocked */ }
+    if (!G.looksLikeBridge(url)) { toast('That is not a Web app URL. It ends in /exec.'); return; }
+    if (!key) { toast('Do step 2 first: Copy my code.'); return; }
+    el.disabled = true;
+    G.setBridge({ url, key });
+    try {
+      await G.pingBridge();
+    } catch (err) {
+      G.setBridge(null);
+      el.disabled = false;
+      toast(`${err.message.replace(/\.$/, '')}. Check step 4: Who has access must be Anyone.`);
+      return;
+    }
+    try { localStorage.removeItem('personal-io:bridge-pending'); } catch { /* fine */ }
+    setSync({}); // a new place for your data: join with whatever is there
+    openModal(settingsHTML());
+    toast('Connected. Your calendar and data now go through your bridge.');
+    await syncNow({ manual: true });
+    render();
+  },
+  'copy-bridge-link': async () => {
+    try { await navigator.clipboard.writeText(bridgeLink()); toast('Copied. Bookmark it and send it to your phone.'); }
+    catch { toast('Copy did not work. Select the link and copy it.'); }
+  },
+  'remove-bridge': () => {
+    if (!confirm('Stop using the bridge on this device? Your data stays in your Drive.')) return;
+    G.setBridge(null);
+    setSync({});
+    openModal(settingsHTML());
+    render();
   },
   'copy-phone-link': async () => {
     try { await navigator.clipboard.writeText(phoneLink()); toast('Link copied. Send it to yourself and open it on the phone.'); }
@@ -3064,8 +3168,9 @@ document.addEventListener('visibilitychange', () => {
 const startupMessages = dailyCheck();
 render();
 startupMessages.forEach(toast);
-if (ui.setupToast) toast('Google is set up on this device. Tap Sync and sign in to bring your data.');
-else if (G.isConfigured() && !G.isConnected() && !G.calendarOnly() && getSync().fileId) toast('This device may be behind your other one.', { label: 'Sync now', data: { action: 'sync-now' } });
+if (ui.bridgeToast) toast('Connected to your Google bridge. Bringing your data.');
+else if (ui.setupToast) toast('Google is set up on this device. Tap Sync and sign in to bring your data.');
+else if (!G.usingBridge() && G.isConfigured() && !G.isConnected() && !G.calendarOnly() && getSync().fileId) toast('This device may be behind your other one.', { label: 'Sync now', data: { action: 'sync-now' } });
 maybeWelcome();
 maybeAutoStart();
 syncNow();

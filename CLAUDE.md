@@ -40,7 +40,8 @@ Core method (enforced in `js/rules.js`):
 | `js/app.js` | Every screen and action (large; one `actions` table, render functions return HTML strings) |
 | `js/rules.js` | Pure logic, no DOM. Limits, validation, urgency, free time, overlap lanes, "task" detection. Tested |
 | `js/store.js` | Load and save `localStorage` (quiet saves for housekeeping), sync bookkeeping, backup download and restore |
-| `js/google.js` | Google sign-in (token client), Calendar v3 read/write, Drive appdata file, Gmail read-only on request |
+| `js/google.js` | Google bridge transport, or Google sign-in (token client); Calendar v3 read/write, data file, Gmail read-only on request |
+| `bridge/Code.gs` | The Apps Script he pastes into his Berkeley account (web app, runs as him). Settings copies it with his key filled in |
 | `js/ai.js` | Claude API from the browser with his own key (model `claude-sonnet-5-5`, effort medium). Always optional |
 | `sw.js` | Offline cache. **Bump `VERSION` on every change to app files** |
 | `tests/rules.test.js` | Unit tests for `rules.js` |
@@ -50,7 +51,9 @@ Core method (enforced in `js/rules.js`):
 
 ## Data
 
-Saved first in the browser's `localStorage`. While Google is connected, one copy also lives in his Google Drive (hidden app folder, file `personal-io-data.json`), so the computer and the phone share it. Code changes never erase it.
+Saved first in the browser's `localStorage`, which his computer's Chrome can wipe on restart (Nov 3, 2026). The real copy lives in his Google Drive, so the computer and the phone share it and a wiped browser loses nothing. Code changes never erase it.
+
+The Google bridge (v1.10, preferred): `bridge/Code.gs`, an Apps Script web app in his Berkeley account (execute as me, access Anyone), called with a secret key. Actions: `ping`, `info`, `read`, `write` (refuses with `conflict` if the copy changed since `expect`; script lock), `events`, `writeDay` (Advanced Calendar service, so event ids match the REST API). Data file: Drive folder "Personal IO", `personal-io-data.json`; `savedAt` in script properties. No sign-in and no hourly reconnect. `personal-io:bridge` keeps `{ url, key, account }`. "Your link" in Settings (`#bridge=<url>&k=<key>`) sets up any browser or phone and restores a wiped one; keep it private. The older Client ID sign-in path stays under "Other way" in Settings.
 
 How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `R.mergeData`):
 - Every real change sets `savedAt` (always moves forward). Housekeeping saves (`save(state, { quiet: true })`: daily check, last open date, rebuilt times, closing the welcome without input, start screen shown) do not, so opening the app on another device never counts as an edit.
@@ -67,6 +70,7 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 - Task: `id, status (open|done|trashed), title, goalId, priority, deadline, minutes, firstSteps[], computer, place (everywhere|silent|commute), fixedDate, fixedTime, eventRef, progress, needs[]`
 - Day (key `YYYY-MM-DD`): `taskIds, times, slots, plan (rebuilt by syncPlan), set, planStale, googlePending, googleIds, reviewed (by task id)`
 - Other keys: `personal-io:claude-key`, `google-client-id`, `google-calendar-id`, `google-session` (token for its hour, plus whether Drive was allowed), `google-events` (last Google events per day, shown after the hour), `sync`, `sync-base`, `other-copy`, `calendar-only`, `v1-unreadable` (data that failed to load, kept instead of overwritten), `voice-lang`, `start-pic`
+- Also `personal-io:bridge`, `bridge-pending` (key made by "Copy my code", until Connect).
 - Not synced (per device): Claude key, start picture, voice language. The phone gets the Client ID from the "Use it on your phone" link in Settings (`#connect=<client id>`).
 - When changing the data shape, keep old data working (see `ensureTimes` for the pattern). Never require a reset.
 
@@ -74,6 +78,7 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 
 - Google Calendar (`calendar.events` scope) with the Client ID from his personal Google Cloud project; he signs in with his Berkeley account.
 - Google Drive (`drive.appdata` scope only, same sign-in) for the one copy of his data. Approved by him on Nov 2, 2026. Needs the Drive API enabled in his Cloud project.
+- The Google bridge (Apps Script in his Berkeley account) for calendar and data without sign-in. Approved by him on Nov 3, 2026 (brief R5 option A). If Berkeley blocks "Anyone" access, the fallback is his personal Gmail account.
 - Gmail read-only, only when he clicks "Read my last 2 weeks".
 - Claude API with his own key. Everything must still work without it (templates as fallback).
 
@@ -92,10 +97,14 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 ## Things that look like bugs but are by design
 
 - Data differs between devices until each one taps Sync (Google sign-in) at least once.
-- Google sign-in lasts about an hour; after that the header pill says Sync and one tap reconnects. Google events from the last connection stay on the calendar meanwhile.
+- With the bridge there is no sign-in at all. Without it, Google sign-in lasts about an hour; after that the header pill says Sync and one tap reconnects. Google events from the last connection stay on the calendar meanwhile.
 - The Plan page opens on the day that has a plan (today if it has tasks, otherwise tomorrow if it has tasks); from 8 PM it opens on tomorrow.
 - Dragging tasks works with a mouse; on a phone, buttons and the "Change time" window are used instead.
 - The start screen opens by itself once when a planned task's time begins, only if the app is open.
+
+## His v2 brief (Nov 2, 2026)
+
+He sent `PERSONAL_IO_V2_BRIEF.md`: one-box capture with zero required fields (R1), automatic priority (R2), calendar as front door with date ranges and linked blocks (R3), fewer words (R4), no reconnecting (R5), review screen (R6). Build in phases and stop after each for his go. Order he chose on Nov 3: R5 bridge first (done in v1.10), then Phase 1 (R1, R2, R4). His answers: bridge in the Berkeley account; Work vs Personal by goal; no Claude API key (all inference with plain rules).
 
 ## Open ideas (not approved, do not build without asking)
 
