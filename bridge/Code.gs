@@ -12,7 +12,7 @@ function doPost(e) {
   let out;
   try {
     const req = JSON.parse(e.postData.contents);
-    if (req.key !== KEY) throw new Error('key');
+    if (KEY === '__' + 'KEY__' || req.key !== KEY) throw new Error('key');
     out = handle(req);
   } catch (err) {
     out = { error: String(err && err.message ? err.message : err) };
@@ -27,11 +27,8 @@ function doGet() {
 function handle(req) {
   switch (req.action) {
     case 'ping': return { ok: true, account: Session.getEffectiveUser().getEmail() };
-    case 'info': return { savedAt: props().getProperty('savedAt') || null, hasFile: !!dataFile(false) };
-    case 'read': {
-      const f = dataFile(false);
-      return { savedAt: props().getProperty('savedAt') || null, text: f ? f.getBlob().getDataAsString('UTF-8') : null };
-    }
+    case 'info': return { savedAt: current().savedAt };
+    case 'read': { const c = current(); return { savedAt: c.savedAt, text: c.savedAt ? c.text : null }; }
     case 'write': return write(req);
     case 'events': {
       const res = Calendar.Events.list(req.calendarId || CAL, {
@@ -41,7 +38,13 @@ function handle(req) {
     }
     case 'writeDay': {
       const cal = req.calendarId || CAL;
-      (req.deleteIds || []).forEach((id) => { try { Calendar.Events.remove(cal, id); } catch (err) { /* already gone */ } });
+      // Only removes events Personal IO wrote itself.
+      (req.deleteIds || []).forEach((id) => {
+        try {
+          const ev = Calendar.Events.get(cal, id);
+          if (ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.personalIo === '1') Calendar.Events.remove(cal, id);
+        } catch (err) { /* already gone */ }
+      });
       const ids = (req.bodies || []).map((body) => Calendar.Events.insert(body, cal).id);
       return { ids };
     }
@@ -54,27 +57,34 @@ function write(req) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const now = props().getProperty('savedAt') || null;
+    const now = current().savedAt;
     if ((req.expect || null) !== now) return { conflict: true, savedAt: now };
-    const f = dataFile(true);
-    f.setContent(req.text);
-    props().setProperty('savedAt', req.savedAt);
+    dataFile(true).setContent(req.text);
     return { ok: true, savedAt: req.savedAt };
   } finally {
     lock.releaseLock();
   }
 }
 
-function props() { return PropertiesService.getScriptProperties(); }
+// The data file says when it was saved, so a second copy of this script sees the same thing.
+function current() {
+  const f = dataFile(false);
+  if (!f) return { savedAt: null, text: null };
+  const text = f.getBlob().getDataAsString('UTF-8');
+  let savedAt = null;
+  try { savedAt = JSON.parse(text).savedAt || null; } catch (err) { /* empty or unreadable */ }
+  return { savedAt, text };
+}
 
+// Skips anything in the trash.
 function dataFile(create) {
-  const folders = DriveApp.getFoldersByName(FOLDER);
+  const folders = DriveApp.searchFolders("title = '" + FOLDER + "' and trashed = false");
   let folder = folders.hasNext() ? folders.next() : null;
   if (!folder) {
     if (!create) return null;
     folder = DriveApp.createFolder(FOLDER);
   }
-  const files = folder.getFilesByName(FILE);
+  const files = folder.searchFiles("title = '" + FILE + "' and trashed = false");
   if (files.hasNext()) return files.next();
   return create ? folder.createFile(FILE, '{}', 'application/json') : null;
 }

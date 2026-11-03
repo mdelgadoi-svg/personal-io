@@ -22,7 +22,8 @@ export function setBridge(b) {
   cache.clear();
 }
 export function usingBridge() { return !!getBridge(); }
-export function looksLikeBridge(url) { return /^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[\w-]+\/exec$/.test(String(url || '').trim()); }
+// Personal accounts: /macros/s/<id>/exec. Berkeley (Workspace): /a/macros/berkeley.edu/s/<id>/exec.
+export function looksLikeBridge(url) { return /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|a\/[^/]+\/macros|macros)\/s\/[\w-]+\/exec$/.test(String(url || '').trim()); }
 
 async function bridge(action, payload = {}) {
   const b = getBridge();
@@ -392,8 +393,9 @@ let gmailExpires = 0;
 
 export function gmailConnected() { return !!gmailToken && Date.now() < gmailExpires; }
 
+export function gmailReady() { return getClientId().endsWith('.apps.googleusercontent.com'); }
 export async function connectGmail() {
-  if (!isConfigured()) throw new Error('Add your Google Client ID in Settings first.');
+  if (!gmailReady()) throw new Error('Reading email needs the Client ID (Settings > Google > Other way).');
   await loadGis();
   return new Promise((resolve, reject) => {
     const client = window.google.accounts.oauth2.initTokenClient({

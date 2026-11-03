@@ -11,7 +11,11 @@ TOM = '2026-11-04'
 st = {"version": 1, "settings": {}, "goals": [{"id": "life", "title": "Keep life running", "why": "x"}],
       "tasks": [{"id": "a", "title": "Send application", "goalId": "life", "priority": "both", "deadline": TOM, "minutes": 60, "place": "everywhere", "status": "open", "createdAt": "2026-10-30T10:00:00Z"}],
       "events": [], "days": {}, "log": [], "journal": [], "returns": [], "lastOpenDate": D, "lastDailyCheck": D}
-fake = {'key': None, 'savedAt': None, 'text': None, 'inserted': [], 'deleted': [], 'conflicts': 0}
+fake = {'key': None, 'text': None, 'inserted': [], 'deleted': [], 'conflicts': 0}
+# Like bridge/Code.gs: when the copy was saved comes from the data file itself.
+def saved_at():
+    try: return json.loads(fake['text']).get('savedAt') if fake['text'] else None
+    except Exception: return None
 
 def bridge(route):
     body = json.loads(route.request.post_data or '{}')
@@ -20,13 +24,13 @@ def bridge(route):
     if fake['key'] is None or body.get('key') != fake['key']:
         out = {'error': 'key'}
     elif a == 'ping': out = {'ok': True, 'account': 'mdelgadoi@berkeley.edu'}
-    elif a == 'info': out = {'savedAt': fake['savedAt'], 'hasFile': fake['text'] is not None}
-    elif a == 'read': out = {'savedAt': fake['savedAt'], 'text': fake['text']}
+    elif a == 'info': out = {'savedAt': saved_at()}
+    elif a == 'read': out = {'savedAt': saved_at(), 'text': fake['text'] if saved_at() else None}
     elif a == 'write':
-        if body.get('expect') != fake['savedAt']:
-            fake['conflicts'] += 1; out = {'conflict': True, 'savedAt': fake['savedAt']}
+        if body.get('expect') != saved_at():
+            fake['conflicts'] += 1; out = {'conflict': True, 'savedAt': saved_at()}
         else:
-            fake['text'] = body['text']; fake['savedAt'] = body['savedAt']; out = {'ok': True, 'savedAt': body['savedAt']}
+            fake['text'] = body['text']; out = {'ok': True, 'savedAt': body['savedAt']}
     elif a == 'events':
         items = []
         if body.get('timeMin', '') <= '2026-11-04T18:00' and body.get('timeMax', '') >= '2026-11-04T19:00':
@@ -107,4 +111,16 @@ with sync_playwright() as p:
     pc.click('[data-action="sync-now"]'); pc.wait_for_timeout(2000)
     final = sorted(t['title'] for t in json.loads(fake['text'])['tasks'])
     print('bridge after both:', final, '| phone:', sorted(t['title'] for t in data(pp)['tasks']) == final, '| computer:', sorted(t['title'] for t in data(pc)['tasks']) == final)
+    # set up a second script after a wipe (new key, same Drive file): it brings the data, never overwrites it
+    before = sorted(t['title'] for t in json.loads(fake['text'])['tasks'])
+    fake['key'] = 'f' * 48
+    fresh = b.new_context(viewport={'width': 1400, 'height': 1000})
+    pf = page(fresh, hour=10, day=4)
+    from urllib.parse import urlencode
+    pf.goto(BASE + '#' + urlencode({'bridge': 'https://script.google.com/a/macros/berkeley.edu/s/AKfyNEW/exec', 'k': fake['key']})); pf.wait_for_timeout(300); pf.reload(); pf.wait_for_timeout(1500)
+    if pf.locator('#modal[open]').count(): pf.keyboard.press('Escape'); pf.wait_for_timeout(200)
+    print('second script brings the data:', sorted(t['title'] for t in data(pf)['tasks']) == before)
+    pf.fill('#cap-text', 'Buy milk'); pf.click('[data-action="quick-add"]'); pf.wait_for_timeout(2500)
+    after = sorted(t['title'] for t in json.loads(fake['text'])['tasks'])
+    print('nothing overwritten:', after == sorted(before + ['Buy milk']))
 print('errors', errors)
