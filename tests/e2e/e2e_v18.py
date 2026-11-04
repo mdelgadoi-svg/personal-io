@@ -44,7 +44,7 @@ with sync_playwright() as p:
     if pg.locator('[data-form="starter"]').count(): print('start screen opened by itself at the task time'); pg.click('[data-action="starter-close"]')
     print('plan footer:', pg.inner_text('.col-day .note')[:80].replace('\n',' '))
     # new task form: deadline label
-    pg.click('[data-action="new-task"]:visible >> nth=0'); pg.click('[data-group="priority"] [data-value="nice"]'); print('label:', pg.inner_text('#f-deadline-label')); pg.click('form [data-action="close-modal"]')
+    pg.click('[data-action="new-task"]:visible >> nth=0'); pg.click('[data-group="important"] [data-value="no"]'); print('label:', pg.inner_text('#f-deadline-label')); pg.click('form [data-action="close-modal"]')
     # picture
     pg.click('[data-action="open-settings"]'); pg.set_input_files('#s-pic',OUT+'/pic.jpg'); pg.wait_for_timeout(500)
     print('pic saved:', len(pg.evaluate("localStorage.getItem('personal-io:start-pic')") or ''), 'chars')

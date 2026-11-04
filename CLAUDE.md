@@ -23,11 +23,14 @@ A private daily planner that runs fully in the browser. No server, no database, 
 Live site: https://mdelgadoi-svg.github.io/personal-io/ (GitHub Pages, publishes from `main`).
 
 Core method (enforced in `js/rules.js`):
-- Goals: up to 10, each with a "why". Every task belongs to a goal. Default goal id `life` ("Keep life running").
-- Priorities and limits on open tasks: ★! `both` max 2, ★ `important` max 3, ! `urgent` max 3, 🤔 `nice` ("Tasks for later") no limit.
-- ★! and ! need a deadline today or tomorrow (`urgentWindowDays` 2). ★ tasks due that soon move up to ★! if there is room; if ★! is full the row offers "Change deadline" or "Move to 🤔".
-- Tasks for later may skip the deadline. No two open tasks with the same name.
-- A task saved earlier keeps its level and deadline without being blocked when rules change (the list shows a warning instead).
+- Goals: up to 10, each with a "why". Every task belongs to a goal (default `life`, "Keep life running"). **Goal order matters**: the first goal is the most important (↑ on the Goals tab).
+- **v2.0: he never picks a level.** He marks only what is **important** (one ☆/★ button on every task, in the capture box and the form). The **deadline** decides urgency (today, tomorrow or overdue, `urgentWindowDays` 2). `R.levelFields` computes `priority`: important + due soon = ★! `both`, important = ★ `important`, due soon = ! `urgent`, neither = 🤔 `nice`. `relevel()` in app.js runs on every render and save. Old tasks without `important` keep what ★! and ★ meant.
+- Nothing ever blocks: only a name is required (`validateTask`), no level caps, no deadline rules. Deadlines can be said in the title ("tomorrow", "Friday", "by Nov 10", "mañana"), read by `R.parseDeadline` at the start or end only.
+- Ranking (`R.rankTasks`): level, nearest deadline, goal order, oldest.
+- **The day proposal** (`R.proposeDay`, card on Today and Plan): up to 2 **Focus** tasks from the important ones, then the rest of the slots from what is due soon (later tasks are not proposed). Starred calendar items of that day come at their own time. "Use this plan" adds them and writes Google Calendar; "Change" opens the Plan page pre-filled. If he changes a star after that, "Your priorities changed. Update the plan" re-proposes (done tasks stay) and Google is only updated when he taps Update.
+- **Calendar events are just time.** One ☆ makes an event matter (a linked task, important, due that day). "☆ Doesn't matter" removes the link.
+- No two open tasks with the same name.
+- Planned tasks written to Google Calendar get reminders 10 minutes before and at the start (Google Calendar app on Android, calendar.google.com on the computer).
 - Day plan: 3 slots (up to 7). Each task gets its own start time (`day.times[taskId]`) in the first free time that fits its length, around calendar events. The list follows the times.
 - Talking or typing a note never creates tasks by itself. Only the word "task" (or "tarea") names one; Claude may suggest at most 3, unticked.
 
@@ -67,8 +70,8 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 - The header pill shows the state: Sync / Sync now (connect), Saving, Synced, Sync off, Sync problem.
 
 - `personal-io:v1`: main JSON `{ settings, goals, tasks, events, days, log, journal, returns, lastOpenDate, lastDailyCheck }`
-- Task: `id, status (open|done|trashed), title, goalId, priority, deadline, minutes, firstSteps[], computer, place (everywhere|silent|commute), fixedDate, fixedTime, eventRef, progress, needs[]`
-- Day (key `YYYY-MM-DD`): `taskIds, times, slots, plan (rebuilt by syncPlan), set, planStale, googlePending, googleIds, reviewed (by task id)`
+- Task: `id, status (open|done|trashed), title, goalId, important, priority (computed), deadline, minutes, firstSteps[], computer, place (everywhere|silent|commute), fixedDate, fixedTime, eventRef, progress, needs[]`
+- Day (key `YYYY-MM-DD`): `taskIds, times, slots, plan (rebuilt by syncPlan), set, planStale, googlePending, googleIds, reviewed (by task id), focus (ids from the proposal), prioChanged`
 - Other keys: `personal-io:claude-key`, `google-client-id`, `google-calendar-id`, `google-session` (token for its hour, plus whether Drive was allowed), `google-events` (last Google events per day, shown after the hour), `sync`, `sync-base`, `other-copy`, `calendar-only`, `v1-unreadable` (data that failed to load, kept instead of overwritten), `voice-lang`, `start-pic`
 - Also `personal-io:bridge`, `bridge-pending` (key made by "Copy my code", until Connect).
 - Not synced (per device): Claude key, start picture, voice language. The phone gets the Client ID from the "Use it on your phone" link in Settings (`#connect=<client id>`).
@@ -104,7 +107,7 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 
 ## His v2 brief (Nov 2, 2026)
 
-He sent `PERSONAL_IO_V2_BRIEF.md`: one-box capture with zero required fields (R1), automatic priority (R2), calendar as front door with date ranges and linked blocks (R3), fewer words (R4), no reconnecting (R5), review screen (R6). Build in phases and stop after each for his go. Order he chose on Nov 3: R5 bridge first (done in v1.10), then Phase 1 (R1, R2, R4). His answers: bridge in the Berkeley account; Work vs Personal by goal; no Claude API key (all inference with plain rules).
+He sent `PERSONAL_IO_V2_BRIEF.md`: one-box capture with zero required fields (R1), automatic priority (R2), calendar as front door with date ranges and linked blocks (R3), fewer words (R4), no reconnecting (R5), review screen (R6). Build in phases and stop after each for his go. Order he chose on Nov 3: R5 bridge first (done in v1.10), then Phase 1 (R1, R2, R4). v2.0 (Nov 4) did R1/R2 his way: one Important button plus the deadline, the morning proposal, star-only meetings, 10 and 0 minute reminders. Still open from the brief: splitting several tasks from one line, minutes from history, R3 date ranges, R4 word budget, R6 review. His answers: bridge in the Berkeley account; Work vs Personal by goal; no Claude API key (all inference with plain rules).
 
 ## Open ideas (not approved, do not build without asking)
 

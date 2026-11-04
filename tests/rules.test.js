@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validateTask, promoteDueTasks, isStale, applyReview,
+  validateTask, isStale, applyReview,
   dayTimeNeeded, colorForTasks, daysUntil, DEFAULT_SETTINGS,
 } from '../js/rules.js';
 
@@ -21,68 +21,12 @@ test('daysUntil counts calendar days', () => {
   assert.equal(daysUntil('2026-10-26', today), 0);
 });
 
-test('a task needs a name, goal, deadline and time', () => {
-  const problems = validateTask({ priority: 'important' }, [], today);
-  assert.equal(problems.length, 4);
-});
-
-test('nice to have can skip the deadline', () => {
-  assert.deepEqual(validateTask(task({ priority: 'nice', deadline: '' }), [], today), []);
-});
-
 test('two open tasks cannot share a name (ignoring case and spaces)', () => {
   const existing = [task({ title: 'Write the essay' })];
   const problems = validateTask(task({ title: '  write  the ESSAY ' }), existing, today);
-  assert.ok(problems.some((p) => p.includes('already in your backlog')));
+  assert.ok(problems.some((p) => p.includes('already in your list')));
   // A finished task with the same name is fine.
   assert.deepEqual(validateTask(task({ title: 'Write the essay' }), [task({ title: 'Write the essay', status: 'done' })], today), []);
-});
-
-test('★! is limited to 2 open tasks', () => {
-  const existing = [1, 2].map((i) => task({ title: `T${i}`, priority: 'both', deadline: '2026-10-27' }));
-  const problems = validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today);
-  assert.ok(problems.some((p) => p.includes('full')));
-});
-
-test('done tasks do not count toward the limit', () => {
-  const existing = [task({ title: 'A', priority: 'both', deadline: '2026-10-27', status: 'done' }), task({ title: 'B', priority: 'both', deadline: '2026-10-27' })];
-  assert.deepEqual(validateTask(task({ priority: 'both', deadline: '2026-10-27' }), existing, today), []);
-});
-
-test('★ is limited to 3 and ! to 3', () => {
-  const full = [1, 2, 3].map((i) => task({ title: `I${i}`, priority: 'important' }));
-  assert.ok(validateTask(task({ priority: 'important' }), full, today).length > 0);
-  const three = [1, 2, 3].map((i) => task({ title: `U${i}`, priority: 'urgent' }));
-  assert.ok(validateTask(task({ priority: 'urgent' }), three, today).length > 0);
-});
-
-test('★! needs a deadline today or tomorrow', () => {
-  const problems = validateTask(task({ priority: 'both', deadline: '2026-11-10' }), [], today);
-  assert.ok(problems.some((p) => p.includes('today or tomorrow')));
-});
-
-test('commuting tasks need a destination', () => {
-  const problems = validateTask(task({ place: 'commute', destination: '' }), [], today);
-  assert.ok(problems.some((p) => p.includes('where you need to go')));
-});
-
-test('important tasks due soon move up to ★! while there is room', () => {
-  const tasks = [task({ priority: 'important', deadline: '2026-10-27' })];
-  const { tasks: out, messages } = promoteDueTasks(tasks, today);
-  assert.equal(out[0].priority, 'both');
-  assert.equal(messages.length, 1);
-});
-
-test('promotion is blocked when ★! is full', () => {
-  const tasks = [
-    task({ priority: 'both', deadline: '2026-10-26' }),
-    task({ priority: 'both', deadline: '2026-10-27' }),
-    task({ priority: 'both', deadline: '2026-10-27' }),
-    task({ priority: 'important', deadline: '2026-10-27' }),
-  ];
-  const { tasks: out } = promoteDueTasks(tasks, today);
-  assert.equal(out[3].priority, 'important');
-  assert.equal(out[3].promotionBlocked, true);
 });
 
 test('important tasks untouched for 21 days are stale', () => {
@@ -203,13 +147,6 @@ test('steps differ for computer and non-computer tasks', () => {
 
 import { cleanListLine } from '../js/rules.js';
 
-test('a task already at a full level can still be edited', () => {
-  const old = [1, 2, 3].map((i) => task({ id: `b${i}`, title: `B${i}`, priority: 'both', deadline: '2026-10-27' }));
-  assert.deepEqual(validateTask({ ...old[2], title: 'B3 fixed' }, old, today), []);
-  // moving another task up to a full level is still blocked
-  assert.ok(validateTask(task({ id: 'x', priority: 'both', deadline: '2026-10-27' }), old, today).length > 0);
-});
-
 test('pasted lines lose bullets, not real words', () => {
   assert.equal(cleanListLine('- Reply to Andre'), 'Reply to Andre');
   assert.equal(cleanListLine('2. Book flights'), 'Book flights');
@@ -239,17 +176,6 @@ test('a task goes in the first free time that fits', () => {
   assert.equal(findFreeSlot(60, busy, 21 * 60 + 30), null);
   // commuting needs 30 minutes before as well
   assert.equal(findFreeSlot(30, busy, 8 * 60, 22 * 60, 30), '11:00');
-});
-
-test('! also needs a deadline today or tomorrow', () => {
-  assert.ok(validateTask(task({ priority: 'urgent', deadline: '2026-11-10' }), [], today).some((p) => p.includes('today or tomorrow')));
-  assert.deepEqual(validateTask(task({ priority: 'urgent', deadline: '2026-10-27' }), [], today), []);
-});
-
-test('an old ! task with a far deadline can still be renamed, but not newly made', () => {
-  const old = task({ id: 'u', priority: 'urgent', deadline: '2026-11-10' });
-  assert.deepEqual(validateTask({ ...old, title: 'Renamed' }, [old], today), []);
-  assert.ok(validateTask({ ...old, deadline: '2026-11-12' }, [old], today).length > 0);
 });
 
 import { defaultPlanDay, hasContent, syncDecision, mergeData } from '../js/rules.js';
@@ -349,4 +275,70 @@ test('merge without a base: done or trashed wins over open; returns are not doub
   assert.equal(m.tasks[0].status, 'done');
   assert.equal(m.returns.length, 1);
   assert.equal(m.returns[0].plannedAfter, true);
+});
+
+import { levelOf, levelFields, rankTasks, proposeDay, parseDeadline } from '../js/rules.js';
+
+test('only a name is needed; nothing blocks on level, deadline, goal or length', () => {
+  assert.deepEqual(validateTask({ title: '' }, [], today), ['Give the task a name.']);
+  const many = [1, 2, 3, 4].map((n) => task({ id: `b${n}`, title: `B${n}`, priority: 'both', deadline: '2026-10-27' }));
+  assert.deepEqual(validateTask({ title: 'Anything', priority: 'both', deadline: '2026-12-30' }, many, today), []);
+});
+
+test('important plus the deadline decide the level', () => {
+  assert.equal(levelOf({ important: true, deadline: '2026-10-27' }, today), 'both');
+  assert.equal(levelOf({ important: true, deadline: '2026-11-20' }, today), 'important');
+  assert.equal(levelOf({ important: false, deadline: '2026-10-26' }, today), 'urgent');
+  assert.equal(levelOf({ important: false, deadline: '2026-10-20' }, today), 'urgent'); // overdue
+  assert.equal(levelOf({ important: false }, today), 'nice');
+});
+
+test('tasks from before v2.0 keep what they meant', () => {
+  assert.deepEqual(levelFields({ priority: 'important', deadline: '2026-10-27' }, today), { important: true, priority: 'both', promotionBlocked: false });
+  assert.deepEqual(levelFields({ priority: 'urgent', deadline: '2026-11-30' }, today), { important: false, priority: 'nice', promotionBlocked: false });
+  assert.equal(levelFields({ priority: 'nice', important: true }, today).priority, 'important');
+});
+
+test('ranking: level, then deadline, then goal order, then oldest', () => {
+  const goals = [{ id: 'life' }, { id: 'job' }, { id: 'school' }];
+  const list = [
+    { id: 'late-later', priority: 'nice' },
+    { id: 'school', priority: 'important', deadline: '2026-11-10', goalId: 'school' },
+    { id: 'job', priority: 'important', deadline: '2026-11-10', goalId: 'job' },
+    { id: 'life', priority: 'important', deadline: '2026-11-10', goalId: 'life' },
+    { id: 'soon', priority: 'important', deadline: '2026-11-01', goalId: 'school' },
+    { id: 'top', priority: 'both', deadline: '2026-10-27' },
+  ];
+  assert.deepEqual(rankTasks(list, goals).map((t) => t.id), ['top', 'soon', 'job', 'school', 'life', 'late-later']);
+});
+
+test('the day proposal: 2 focus from the important ones, then what is due soon', () => {
+  const D = '2026-10-26';
+  const t = (id, priority, extra = {}) => ({ id, title: id, status: 'open', priority, important: priority === 'both' || priority === 'important', ...extra });
+  const tasks = [
+    t('i1', 'both', { deadline: '2026-10-26' }), t('i2', 'important', { deadline: '2026-11-01' }), t('i3', 'important', { deadline: '2026-11-05' }),
+    t('u1', 'urgent', { deadline: '2026-10-27' }), t('later', 'nice'),
+    t('meet', 'both', { deadline: D, eventRef: { src: 'google', id: 'g', date: D } }),
+    t('other-day', 'both', { deadline: '2026-10-27', eventRef: { src: 'google', id: 'h', date: '2026-10-27' } }),
+  ];
+  const p = proposeDay({ tasks, dayKey: D, slots: 3 });
+  assert.deepEqual(p.focus, ['i1', 'i2']);
+  assert.deepEqual(p.also, ['u1']);
+  assert.deepEqual(p.calendar, ['meet']);
+  assert.deepEqual(p.why.i1, { important: true, days: 0 });
+  const none = proposeDay({ tasks: [t('u1', 'urgent', { deadline: D }), t('u2', 'urgent', { deadline: '2026-10-27' }), t('later', 'nice')], dayKey: D });
+  assert.deepEqual(none.focus, ['u1', 'u2']);
+  assert.deepEqual(none.also, []);
+});
+
+test('a deadline said at the start or end of the title is read and removed', () => {
+  const T = '2026-11-04'; // a Wednesday
+  assert.deepEqual(parseDeadline('Send CV to Ana tomorrow', T), { title: 'Send CV to Ana', deadline: '2026-11-05' });
+  assert.deepEqual(parseDeadline('Call mom on Friday', T), { title: 'Call mom', deadline: '2026-11-06' });
+  assert.deepEqual(parseDeadline('Pay rent by Nov 10', T), { title: 'Pay rent', deadline: '2026-11-10' });
+  assert.deepEqual(parseDeadline('Mañana llamar a Pancho', T), { title: 'Llamar a Pancho', deadline: '2026-11-05' });
+  assert.deepEqual(parseDeadline('Entregar ensayo 15 de noviembre', T), { title: 'Entregar ensayo', deadline: '2026-11-15' });
+  assert.deepEqual(parseDeadline('Send report Jan 5', T), { title: 'Send report', deadline: '2027-01-05' });
+  assert.deepEqual(parseDeadline('Fix the Monday report', T), { title: 'Fix the Monday report', deadline: '' });
+  assert.deepEqual(parseDeadline('Buy milk', T), { title: 'Buy milk', deadline: '' });
 });

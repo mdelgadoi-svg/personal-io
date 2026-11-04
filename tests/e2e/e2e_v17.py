@@ -47,7 +47,7 @@ with sync_playwright() as p:
     rows=lambda: [pg.inner_text(f'.col-day .plan-row >> nth={i}').split('\n')[:3] for i in range(pg.locator('.col-day .plan-row').count())]
     print('after adding:', rows())
     print('calendar section:', pg.inner_text('.cal-suggest').replace('\n',' | ')[:200])
-    pg.click('.cal-suggest .busy-row:has-text("Irina") [data-priority="important"]'); pg.wait_for_timeout(150)
+    pg.click('.cal-suggest .busy-row:has-text("Irina") [data-action="busy-prio"]'); pg.wait_for_timeout(150)
     print('after Irina:', rows())
     pg.screenshot(path=OUT+'/v17_plan.png')
     # drag Study 1 hour later on the calendar

@@ -25,7 +25,14 @@ const fmtDay = (key, opts = { weekday: 'short', month: 'short', day: 'numeric' }
 const longDay = (key) => fmtDay(key, { weekday: 'long', month: 'long', day: 'numeric' });
 const S = () => state.settings;
 
+// The level (★!, ★, !, later) comes from "important" plus the deadline, never from a pick.
+function relevel() {
+  const k = todayKey();
+  state.tasks.forEach((t) => Object.assign(t, R.levelFields(t, k, S())));
+}
+
 function persist(messages = []) {
+  relevel();
   if (!save(state)) toast('Could not save on this device. Download a backup from Settings.');
   render();
   messages.forEach(toast);
@@ -168,9 +175,10 @@ function stepsHTML(steps, cls = 'steps') {
 function dailyCheck() {
   const key = todayKey();
   if (state.lastDailyCheck === key) return [];
-  const { tasks, messages } = R.promoteDueTasks(state.tasks, key, S());
+  relevel();
+  const messages = [];
   const cutoff = Date.now() - 30 * 86400000;
-  state.tasks = tasks.filter((t) => t.status !== 'trashed' || !t.trashedAt || Date.parse(t.trashedAt) > cutoff);
+  state.tasks = state.tasks.filter((t) => t.status !== 'trashed' || !t.trashedAt || Date.parse(t.trashedAt) > cutoff);
   state.lastDailyCheck = key;
   save(state, { quiet: true });
   return messages;
@@ -219,6 +227,7 @@ function currentTab() {
 }
 
 function render() {
+  relevel();
   if (state.days[todayKey()]) ensureTimes(todayKey());
   const tab = currentTab();
   document.querySelectorAll('[data-tab]').forEach((a) => {
@@ -242,19 +251,6 @@ function renderNowPill() {
   if (!current) { pill.innerHTML = ''; return; }
   const end = t12m(current.start + current.minutes);
   pill.innerHTML = `<a class="now-pill" href="#today"><span class="dot"></span><span><strong>Now</strong><span class="long">: ${esc(itemTitle(current))}</span> · until ${end}</span></a>`;
-}
-
-function keyHTML() {
-  const c = R.countByPriority(state.tasks);
-  const cap = (p) => R.PRIORITIES[p].cap;
-  return `
-  <section class="card key" aria-label="Priority key">
-    <strong>Key</strong>
-    <span>${markHTML('both')} Important + urgent <span class="muted">· ${c.both} of ${cap('both')} · due today or tomorrow</span></span>
-    <span>${markHTML('important')} Important <span class="muted">· ${c.important} of ${cap('important')}</span></span>
-    <span>${markHTML('urgent')} Urgent <span class="muted">· ${c.urgent} of ${cap('urgent')}</span></span>
-    <span>${markHTML('nice')} Tasks for later <span class="muted">· no limit</span></span>
-  </section>`;
 }
 
 // ----- calendar drawing (shared) -----
@@ -421,7 +417,7 @@ function calItemHTML(c) {
         ${t.status === 'done' ? '<strong>Done.</strong> ' : ''}In your list as ${markHTML(t.priority)} <strong>${esc(R.PRIORITIES[t.priority].label)}</strong>${goal(t.goalId) ? ` · Goal: ${esc(goal(t.goalId).title)}` : ''}
       </div>
       <div class="modal-foot" style="justify-content:space-between">
-        <div style="display:flex; gap:12px; flex-wrap:wrap">${editOwn}<button type="button" class="btn-link" data-action="cal-untrack" data-id="${t.id}">Remove from my list</button></div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap">${editOwn}<button type="button" class="btn-link" data-action="cal-untrack" data-id="${t.id}">☆ Doesn't matter</button></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <button type="button" class="btn" data-action="edit-task" data-id="${t.id}">Open task</button>
           ${t.status === 'open' ? `<button type="button" class="btn btn-success" data-action="complete-task" data-id="${t.id}">✓ Mark done</button>` : ''}
@@ -435,12 +431,8 @@ function calItemHTML(c) {
     ${head}
     <div class="errors" hidden></div>
     <div class="field"><span class="field-label">Turn it into a task:</span>
-      <div class="prio-grid">
-        <button type="button" class="prio-btn prio-both" data-action="cal-prioritize" data-priority="both">${markHTML('both')}<span>Important + urgent</span></button>
-        <button type="button" class="prio-btn prio-urgent" data-action="cal-prioritize" data-priority="urgent">${markHTML('urgent')}<span>Urgent</span></button>
-        <button type="button" class="prio-btn prio-important" data-action="cal-prioritize" data-priority="important">${markHTML('important')}<span>Important</span></button>
-        <button type="button" class="prio-btn prio-nice" data-action="cal-prioritize" data-priority="nice">${markHTML('nice')}<span>For later</span></button>
-      </div>
+      <span class="hint">Right now it is just time on your day.</span>
+      <button type="button" class="btn btn-dark" style="align-self:flex-start" data-action="cal-prioritize">☆ This matters</button>
     </div>
     <div class="field"><label for="ci-goal">For which goal?</label>
       <select class="input" id="ci-goal">${state.goals.map((g) => `<option value="${g.id}" ${g.id === lastGoal ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select></div>
@@ -502,8 +494,9 @@ function captureHTML() {
         <div class="cap-input-row">
           <input class="input" id="cap-text" type="text" placeholder="e.g., Send my application" autocomplete="off" aria-describedby="cap-hint">
           ${SpeechRec ? `<button type="button" class="btn mic mic-icon" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}<span class="visually-hidden">Start talking</span></button>` : ''}
+          <button type="button" class="btn cap-star" data-action="cap-important" aria-pressed="${!!ui.capImportant}">${ui.capImportant ? '★ Important' : '☆ Important'}</button>
         </div>
-        <span class="hint" id="cap-hint">Type or tap the mic and say it. Press Enter to add it to 🤔 Tasks for later. · <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
+        <span class="hint" id="cap-hint">Say a day ("tomorrow", "Friday") and it becomes the deadline. · <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
       </div>
       <div class="capture-actions">
         <button type="button" class="btn btn-dark" data-action="quick-add">Add task</button>
@@ -587,9 +580,9 @@ function backlogGroupsHTML({ addTo = null, goalFilter = null, full = false } = {
 
   return R.PRIORITY_ORDER.map((p) => {
     const info = R.PRIORITIES[p];
-    const list = R.sortForPlanning(open.filter((t) => t.priority === p));
+    const list = R.rankTasks(open.filter((t) => t.priority === p), state.goals);
     const isOpen = !!ui.open[p];
-    const count = info.cap === Infinity ? `${list.length}` : `${counts[p]} of ${info.cap}${counts[p] >= info.cap ? ' · full' : ''}`;
+    const count = `${list.length}`;
     const rows = list.map((t) => taskRowHTML(t, { addTo, day, tKey, full })).join('')
       || '<div class="item"><span class="hint">Nothing here.</span></div>';
     return `<div class="card group group-${p}" data-drop-priority="${p}">
@@ -626,18 +619,18 @@ function taskRowHTML(t, { addTo, day, tKey, full }) {
       <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${when}${placeChip(t)}</div>
       ${t.progress ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
       ${t.pushCount ? `<div class="item-meta"><span class="due-soon">Pushed ${t.pushCount}x${t.lastReason ? ' · ' + esc(t.lastReason.toLowerCase()) : ''}</span></div>` : ''}
-      ${(t.priority === 'both' || t.priority === 'urgent') && t.deadline && !R.isUrgentByDate(t, tKey, S()) ? `<div class="item-meta"><span class="chip chip-warn">Due ${esc(fmtDay(t.deadline))}: not urgent yet</span>
-        <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Change deadline</button>
-        <button class="btn btn-small" data-action="to-important" data-id="${t.id}">Move to ★</button></div>` : ''}
-      ${t.promotionBlocked ? `<div class="item-meta"><span class="chip chip-warn">Due soon, but ★! is full</span>
-        <button class="btn btn-small" data-action="edit-task" data-id="${t.id}">Change deadline</button>
-        <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">Move to 🤔</button></div>` : ''}
       ${stale ? `<div class="item-meta" style="color: var(--ink)">Untouched ${S().staleDays}+ days. Still important?
-          <button class="btn btn-small" data-action="keep-task" data-id="${t.id}">Keep</button>
-          <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">Move to 🤔</button></div>` : ''}
+          <button class="btn btn-small" data-action="keep-task" data-id="${t.id}">Yes</button>
+          <button class="btn btn-small" data-action="demote-task" data-id="${t.id}">No</button></div>` : ''}
     </div>
-    <div class="item-actions">${actions}<button type="button" class="icon-x icon-trash" data-action="trash-task" data-id="${t.id}" aria-label="Trash ${esc(t.title)}: no longer a task" title="No longer a task">${TRASH_ICON}</button></div>
+    <div class="item-actions">${starHTML(t)}${actions}<button type="button" class="icon-x icon-trash" data-action="trash-task" data-id="${t.id}" aria-label="Trash ${esc(t.title)}: no longer a task" title="No longer a task">${TRASH_ICON}</button></div>
   </div>`;
+}
+
+// One button decides what matters. The deadline decides what is urgent.
+function starHTML(t) {
+  const on = R.isImportant(t);
+  return `<button type="button" class="star-btn" data-action="toggle-important" data-id="${t.id}" aria-pressed="${on}" aria-label="${esc(t.title)}: important" title="${on ? 'Important. Tap to unmark' : 'Mark as important'}">${on ? '★' : '☆'}</button>`;
 }
 
 const TRASH_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"></path></svg>';
@@ -776,7 +769,7 @@ function planRowHTML(t, key, word) {
   <article class="plan-row${done ? ' is-done' : ''}" data-id="${t.id}">
     <div class="plan-time">${start ? `<strong>${t12(start)}</strong><span>${t12m(R.toMinutes(start) + (t.minutes || 30))}</span>` : '<strong class="due-soon">No time</strong>'}</div>
     <div class="plan-body">
-      <div class="slot-title-row">${markHTML(t.priority)}<span class="slot-title">${esc(t.title)}</span></div>
+      <div class="slot-title-row">${markHTML(t.priority)}<span class="slot-title">${esc(t.title)}</span>${(getDay(key).focus || []).includes(t.id) ? '<span class="chip chip-focus">Focus</span>' : ''}</div>
       <div class="item-meta"><span>${R.formatMinutes(t.minutes || 0)}</span>${goalLabel(t)}${onCal ? `<span>${CAL_ICON} On your calendar</span>` : ''}${t.place === 'commute' ? `<span>+${S().commuteMinutes} min commute</span>` : ''}</div>
       ${clash ? `<div class="item-meta"><span class="due-soon">Overlaps ${esc(clash.title)}</span></div>` : ''}
       ${!start && !onCal ? '<div class="item-meta"><span class="due-soon">No free time left that fits. Pick a time.</span></div>' : ''}
@@ -823,6 +816,7 @@ function dayColumnHTML(dayKey) {
   return `
   <div class="col-head"><h2>${isToday ? 'Today' : 'Tomorrow'} · ${esc(fmtDay(dayKey, { weekday: 'long' }))}</h2>
     <span class="meta">${tasks.length} of ${day.slots} · ${R.formatMinutes(need.total)}</span></div>
+  ${proposalHTML(dayKey)}
   <div class="slots" data-day="${dayKey}">${tasks.map((t) => planRowHTML(t, dayKey, word)).join('')}</div>
   ${free ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Add from your list, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
   ${day.slots < S().daySlotsMax ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
@@ -836,20 +830,92 @@ function calendarSuggestHTML(dayKey) {
   const items = all.filter((c) => !c.task && (!isToday || R.toMinutes(c.start) + c.minutes > nowMinutes()));
   const busy = R.busyMinutes(all.map((c) => ({ ...c, commuteMinutes: S().commuteMinutes })));
   if (!items.length) return '';
-  const btn = (c, p, label) => `<button type="button" class="btn btn-small" data-action="busy-prio" data-priority="${p}" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-label="${esc(c.title)}: ${label}">${markHTML(p)}</button>`;
+  const btn = (c) => `<button type="button" class="star-btn" data-action="busy-prio" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${dayKey}" aria-pressed="false" aria-label="${esc(c.title)}: this matters" title="This matters">☆</button>`;
   return `
   <div class="card group cal-suggest">
     <div class="cal-suggest-head">
       <strong>${CAL_ICON} Also on your calendar ${isToday ? 'today' : esc(fmtDay(dayKey, { weekday: 'long' }))}</strong>
       ${busy > 600 ? `<span class="busy-line">${R.formatMinutes(busy)} booked. Busy is not the same as doing what matters.</span>` : ''}
-      <span class="hint">Add any to your priorities?</span>
+      <span class="hint">Just time on your day. Tap ☆ on the ones that matter.</span>
     </div>
     ${items.slice(0, 12).map((c) => `
     <div class="busy-row">
       <span><span class="mono">${t12(c.start)}</span> ${esc(c.title)}</span>
-      <span class="busy-btns">${btn(c, 'both', 'important and urgent')}${btn(c, 'urgent', 'urgent')}${btn(c, 'important', 'important')}${btn(c, 'nice', 'for later')}</span>
+      <span class="busy-btns">${btn(c)}</span>
     </div>`).join('')}
   </div>`;
+}
+
+// ----- the day the app proposes -----
+// The important ones become Focus (up to 2), then what is due soon fills the day.
+// Starred calendar items come at their own time. You accept with one tap or change it.
+
+function proposalFor(dayKey) {
+  return R.proposeDay({ tasks: state.tasks, goals: state.goals, dayKey, slots: getDay(dayKey).slots || S().daySlots, settings: S() });
+}
+
+function whyText(w, dayKey) {
+  if (!w) return '';
+  const parts = [];
+  if (w.important) parts.push('important');
+  if (w.days !== null) parts.push(w.days < 0 ? 'overdue' : w.days === 0 ? 'due today' : w.days === 1 ? 'due tomorrow' : `due ${fmtDay(R.addDays(dayKey, w.days), w.days < 7 ? { weekday: 'short' } : { month: 'short', day: 'numeric' })}`);
+  return parts.join(', ');
+}
+
+function samePlan(p, day) {
+  const proposed = new Set([...p.focus, ...p.also, ...p.calendar]);
+  const open = day.taskIds.filter((id) => task(id)?.status === 'open');
+  const focus = (day.focus || []).filter((id) => task(id)?.status === 'open');
+  return open.length === proposed.size && open.every((id) => proposed.has(id))
+    && focus.length === p.focus.length && focus.every((id, i) => id === p.focus[i]);
+}
+
+function proposalHTML(dayKey) {
+  const day = getDay(dayKey);
+  const word = dayKey === todayKey() ? 'today' : 'tomorrow';
+  const p = proposalFor(dayKey);
+  // Starred calendar items sit in the day by themselves; the proposal stays until you pick tasks.
+  const picked = day.taskIds.filter((id) => task(id) && !task(id).eventRef);
+  if (picked.length || day.set) {
+    if (!day.prioChanged || samePlan(p, day)) return '';
+    return `<div class="note note-warn prop-note"><span>Your priorities changed.</span>
+      <span style="display:flex; gap:8px"><button class="btn btn-small btn-dark" data-action="repropose" data-day="${dayKey}">Update the plan</button><button class="btn btn-small" data-action="keep-plan" data-day="${dayKey}">Keep it</button></span></div>`;
+  }
+  if (!p.focus.length && !p.also.length && !p.calendar.length) return '';
+  const row = (id) => {
+    const t = task(id);
+    return `<li>${markHTML(t.priority)} <span class="prop-title">${esc(t.title)}</span> <span class="hint">${esc(whyText(p.why[id], dayKey))}${t.eventRef ? ` · ${t12(t.fixedTime)}` : ''}</span></li>`;
+  };
+  return `<section class="card card-pad proposal" aria-label="Proposal for ${word}">
+    <h2>My proposal for ${word}</h2>
+    ${p.focus.length ? `<div class="prop-group"><span class="eyebrow">Focus</span><ol>${p.focus.map(row).join('')}</ol></div>` : ''}
+    ${p.also.length || p.calendar.length ? `<div class="prop-group"><span class="eyebrow">Also ${word}</span><ul>${[...p.calendar, ...p.also].map(row).join('')}</ul></div>` : ''}
+    <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
+  </section>`;
+}
+
+// Puts the proposal in the day. replace: drop open tasks that are no longer proposed (done ones stay).
+async function applyProposal(dayKey, { replace = false } = {}) {
+  if (G.isConnected() && !G.freshDay(dayKey)) {
+    try { await G.eventsForDay(dayKey); } catch { /* place with what we know */ }
+  }
+  const day = getDay(dayKey);
+  const p = proposalFor(dayKey);
+  const ids = [...p.focus, ...p.also, ...p.calendar];
+  day.times = day.times || {};
+  if (replace) {
+    day.taskIds.filter((id) => task(id)?.status === 'open' && !ids.includes(id)).forEach((id) => {
+      day.taskIds = day.taskIds.filter((x) => x !== id);
+      delete day.times[id];
+    });
+  }
+  ids.forEach((id) => { if (!day.taskIds.includes(id)) day.taskIds.push(id); });
+  day.slots = Math.min(S().daySlotsMax, Math.max(day.slots || S().daySlots, day.taskIds.length));
+  day.focus = p.focus;
+  day.prioChanged = false;
+  // Focus first, so it gets the earliest free time.
+  ids.forEach((id) => { const t = task(id); if (t && !day.times[id]) placeTask(t, dayKey); });
+  syncPlan(dayKey);
 }
 
 // ----- today -----
@@ -881,6 +947,7 @@ function todayTaskRowHTML(t, key) {
       ${t.progress && t.status !== 'done' ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
     </div>
     <div class="item-actions">
+      ${((day && day.focus) || []).includes(t.id) && t.status === 'open' ? '<span class="chip chip-focus">Focus</span>' : ''}
       <span class="chip ${st.cls}">${st.word}</span>
       ${askHow ? `<button class="btn btn-small" data-action="review" data-block="${index}">How did it go?</button>` : ''}
       ${t.status !== 'done' ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button>
@@ -909,12 +976,15 @@ function renderToday() {
       <div class="col-head"><h2>Also done today</h2></div>
       <div class="card list">${extras.map((t) => todayTaskRowHTML(t, key)).join('')}</div>` : '';
 
-  if (!day || !day.taskIds.length) {
+  const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
+  if (!day || !day.taskIds.length || (onlyCalendar && proposalHTML(key))) {
+    // The proposal comes first: it is the first thing to see in the morning.
     return `${head}
+    ${proposalHTML(key) || ''}
     ${captureHTML()}
     <div class="cols">
       <section class="col" style="flex: 1.2 1 380px">
-        <div class="card empty">No plan for today yet.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-today">Plan today</button></div>
+        ${proposalHTML(key) ? '' : '<div class="card empty">Nothing to propose yet. Add tasks above, and tap ☆ on the ones that matter.</div>'}
         ${extraHTML}
       </section>
       ${calendar}
@@ -945,6 +1015,7 @@ function renderToday() {
     <span><strong>${R.formatMinutes(need.total)}</strong> planned</span>
     ${!day.set ? '<span class="chip chip-warn">Plan not set yet · <a href="#start">set it</a></span>' : ''}
   </div>
+  ${proposalHTML(key)}
   ${nowCardHTML(current, next)}
   ${captureHTML()}
   <div class="cols">
@@ -1577,14 +1648,14 @@ function reviewPasted() {
 // ----- goals -----
 
 function renderGoals() {
-  const cards = state.goals.map((g) => {
+  const cards = state.goals.map((g, i) => {
     const open = state.tasks.filter((t) => t.goalId === g.id && t.status === 'open');
     const done = state.tasks.filter((t) => t.goalId === g.id && t.status === 'done').length;
     return `
     <article class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
       <div style="display:flex; justify-content:space-between; gap:8px; align-items:center">
-        <h2 style="font-size:18px">${esc(g.title)}</h2>
-        <button class="btn btn-small" data-action="edit-goal" data-id="${g.id}">Edit</button>
+        <h2 style="font-size:18px">${i + 1}. ${esc(g.title)}</h2>
+        <span style="display:flex; gap:6px">${i > 0 ? `<button class="btn btn-small" data-action="goal-up" data-id="${g.id}" aria-label="Move ${esc(g.title)} up">↑</button>` : ''}<button class="btn btn-small" data-action="edit-goal" data-id="${g.id}">Edit</button></span>
       </div>
       ${g.why ? `<div style="color: var(--ink-2)">Why: ${esc(g.why)}</div>` : ''}
       <div class="item-meta"><span>${open.length} open</span><span>${done} done</span></div>
@@ -1594,7 +1665,7 @@ function renderGoals() {
   }).join('');
   return `
   <section class="page-head">
-    <div><h1>Goals</h1><div class="sub">The big outcomes. Every task serves one of them. Up to ${S().maxGoals}.</div></div>
+    <div><h1>Goals</h1><div class="sub">Most important first. Tasks follow this order.</div></div>
     ${state.goals.length < S().maxGoals ? '<button class="btn btn-dark" data-action="new-goal">+ New goal</button>' : ''}
   </section>
   <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">${cards}</div>`;
@@ -1651,7 +1722,7 @@ function openModal(html, wide = false) {
 function closeModal() { modal.close(); modal.innerHTML = ''; }
 
 function taskFormHTML(t, opts) {
-  const draft = t || { priority: 'important', place: 'everywhere', goalId: opts.goalId || state.goals[0]?.id, minutes: 30, ...(opts.prefill || {}) };
+  const draft = t || { important: false, priority: 'nice', place: 'everywhere', goalId: opts.goalId || state.goals[0]?.id, minutes: 30, ...(opts.prefill || {}) };
   const pressed = (v, cur) => `aria-pressed="${v === cur}"`;
   const steps = stepsOf(draft);
   const mode = draft.stepsBy === 'me' ? 'me' : 'suggest';
@@ -1669,16 +1740,14 @@ function taskFormHTML(t, opts) {
     <div class="row">
       <div class="field"><label for="f-goal">Which goal does it serve?</label>
         <select class="input" id="f-goal" name="goalId">${state.goals.map((g) => `<option value="${g.id}" ${g.id === draft.goalId ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select></div>
-      <div class="field"><span class="field-label" id="f-prio-l">Priority</span>
-        <div class="seg priority" role="group" aria-labelledby="f-prio-l" data-group="priority">
-          <button type="button" data-value="both" ${pressed('both', draft.priority)} aria-label="Important and urgent">${markHTML('both')}</button>
-          <button type="button" data-value="important" ${pressed('important', draft.priority)} aria-label="Important">${markHTML('important')}</button>
-          <button type="button" data-value="urgent" ${pressed('urgent', draft.priority)} aria-label="Urgent">${markHTML('urgent')}</button>
-          <button type="button" data-value="nice" ${pressed('nice', draft.priority)} aria-label="Tasks for later">${markHTML('nice')}</button>
+      <div class="field"><span class="field-label" id="f-imp-l">Important?</span>
+        <div class="seg" role="group" aria-labelledby="f-imp-l" data-group="important">
+          <button type="button" data-value="yes" ${pressed(true, R.isImportant(draft))}>★ Yes</button>
+          <button type="button" data-value="no" ${pressed(false, R.isImportant(draft))}>Not now</button>
         </div></div>
     </div>
     <div class="row">
-      <div class="field"><label for="f-deadline" id="f-deadline-label">${draft.priority === 'nice' ? 'Deadline (optional)' : 'Deadline'}</label>
+      <div class="field"><label for="f-deadline" id="f-deadline-label">Deadline (optional)</label>
         <input class="input" type="date" id="f-deadline" name="deadline" value="${esc(draft.deadline || '')}" data-change="form-deadline"></div>
       <div class="field"><label for="f-minutes">How long will it take? (minutes)</label>
         <input class="input" type="number" min="5" step="5" id="f-minutes" name="minutes" value="${esc(draft.minutes || '')}" data-change="form-cal-redraw">
@@ -2084,16 +2153,23 @@ async function addToDay(taskId, dayKey) {
   if (G.isConfigured() && !G.isConnected()) toast('Google Calendar is not connected, so this time may clash with your events.', { label: 'Connect', data: { action: 'connect-google' } });
 }
 
-// Moves a task to another priority list, if the rules allow it.
+// Dropping a task on ★! or ★ marks it important; on ! or later, not important. The deadline does the rest.
 function changePriority(id, priority) {
+  setImportant(id, priority === 'both' || priority === 'important');
+}
+
+function setImportant(id, important) {
   const t = task(id);
-  if (!t || t.priority === priority) return;
-  const problems = R.validateTask({ ...t, priority }, state.tasks, todayKey(), S());
-  if (problems.length) { toast(problems[0], { label: 'Edit task', data: { action: 'edit-task', id } }); return; }
-  Object.assign(t, { priority, promotionBlocked: false, lastTouchedAt: new Date().toISOString() });
-  Object.entries(state.days).forEach(([key, d]) => { if (key >= todayKey() && d.taskIds.includes(id)) syncPlan(key); });
-  ui.open[priority] = true;
-  persist([`${t.title} is now ${R.PRIORITIES[priority].mark} ${R.PRIORITIES[priority].label}.`]);
+  if (!t || R.isImportant(t) === important) return;
+  Object.assign(t, { important, lastTouchedAt: new Date().toISOString() });
+  Object.assign(t, R.levelFields(t, todayKey(), S()));
+  Object.entries(state.days).forEach(([key, d]) => {
+    if (key < todayKey() || !d.taskIds.length) return;
+    if (d.taskIds.includes(id)) syncPlan(key);
+    d.prioChanged = true; // the proposal for that day may be different now
+  });
+  ui.open[t.priority] = true;
+  persist([`${important ? '★ Important' : 'Not important'}: ${t.title}`]);
 }
 
 // "What's on your mind?" One line becomes a 🤔 task, or a logged win.
@@ -2120,9 +2196,15 @@ function quickCapture(alreadyDone) {
     persist([existing ? `Marked done: ${t.title}` : `Logged as done: ${t.title}`]);
   } else {
     if (existing) { input.setAttribute('aria-invalid', 'true'); toast(`"${existing.title}" is already in your list.`); return; }
-    state.tasks.push({ id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0, title, goalId: 'life', priority: 'nice', deadline: '', minutes: 30, firstSteps: [], firstStep: '', stepsBy: 'me', place: 'everywhere', destination: '', fixedDate: '', fixedTime: null, needs: [], promotionBlocked: false, source: 'capture' });
-    ui.open.nice = true;
-    persist([`Added to 🤔 Tasks for later: ${title}. Give it a priority when you are ready.`]);
+    // "Send CV tomorrow": tomorrow becomes the deadline.
+    const said = R.parseDeadline(title, todayKey());
+    if (R.sameTitle(said.title, R.openTasks(state.tasks))) { input.setAttribute('aria-invalid', 'true'); toast(`"${said.title}" is already in your list.`); return; }
+    const t = { id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0, title: said.title, goalId: goal(ui.lastGoal) ? ui.lastGoal : 'life', important: !!ui.capImportant, deadline: said.deadline, minutes: 30, firstSteps: [], firstStep: '', stepsBy: 'me', place: 'everywhere', destination: '', fixedDate: '', fixedTime: null, needs: [], promotionBlocked: false, source: 'capture' };
+    Object.assign(t, R.levelFields(t, todayKey(), S()));
+    state.tasks.push(t);
+    ui.open[t.priority] = true;
+    ui.capImportant = false;
+    persist([`Added: ${markText(t)}${said.title}${said.deadline ? `, due ${fmtDay(said.deadline)}` : ''}.`]);
   }
   document.getElementById('cap-text')?.focus();
 }
@@ -2512,20 +2594,19 @@ const actions = {
     const { root, c } = calFromModal();
     if (!c) { closeModal(); return; }
     const goalId = root.querySelector('#ci-goal').value;
-    const draft = taskFromCalendar(c, { priority: el.dataset.priority, goalId });
-    const problems = R.validateTask(draft, state.tasks, todayKey(), S());
-    if (problems.length) { showErrors(root, problems); return; }
+    const draft = taskFromCalendar(c, { important: true, goalId });
+    Object.assign(draft, R.levelFields(draft, todayKey(), S()));
     state.tasks.push(draft);
     ui.lastGoal = goalId;
     const placed = addCalendarTaskToDay(draft, c.date);
     closeModal();
-    persist([`${R.PRIORITIES[draft.priority].mark} ${draft.title} is in your ${R.PRIORITIES[draft.priority].label} list.${placed ? '' : ' (That day already has 7 tasks.)'}`]);
+    persist([`★ Matters: ${draft.title}${placed ? '' : ' (That day already has 7 tasks.)'}`]);
   },
   'cal-done': () => {
     const { root, c } = calFromModal();
     if (!c) { closeModal(); return; }
     const nowIso = new Date().toISOString();
-    const t = taskFromCalendar(c, { priority: 'nice', deadline: '', goalId: root.querySelector('#ci-goal').value, status: 'done', doneAt: nowIso });
+    const t = taskFromCalendar(c, { important: false, deadline: '', goalId: root.querySelector('#ci-goal').value, status: 'done', doneAt: nowIso });
     state.tasks.push(t);
     state.log.push({ at: nowIso, date: todayKey(), taskId: t.id, title: t.title, result: 'done', reason: null });
     closeModal();
@@ -2545,7 +2626,7 @@ const actions = {
     state.tasks = state.tasks.filter((t) => t.id !== id);
     Object.values(state.days).forEach((d) => { d.taskIds = d.taskIds.filter((x) => x !== id); });
     closeModal();
-    persist(['Removed from your list. The calendar event stays.']);
+    persist(["Doesn't matter: just time on your day now."]);
   },
   'trash-task': (el) => {
     const t = task(el.dataset.id);
@@ -2565,13 +2646,7 @@ const actions = {
   'untrash-task': (el) => {
     const t = task(el.dataset.id);
     if (!t || t.status !== 'trashed') return;
-    const check = (priority) => R.validateTask({ ...t, priority, status: 'open' }, state.tasks, todayKey(), S());
-    let note = '';
-    if (check(t.priority).length) {
-      if (check('nice').length) { toast(check(t.priority)[0]); return; }
-      note = ` It came back as 🤔 Tasks for later. ${check(t.priority)[0]}`;
-      t.priority = 'nice';
-    }
+    const note = '';
     t.status = 'open';
     (t.trashedFrom || []).forEach((key) => { const d = state.days[key]; if (d && key >= todayKey() && !d.taskIds.includes(t.id) && d.taskIds.length < d.slots) { d.taskIds.push(t.id); placeTask(t, key); syncPlan(key); } });
     delete t.trashedFrom;
@@ -2580,12 +2655,11 @@ const actions = {
   'busy-prio': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
     if (!c) return;
-    const draft = taskFromCalendar(c, { priority: el.dataset.priority, goalId: goal(ui.lastGoal) ? ui.lastGoal : 'life' });
-    const problems = R.validateTask(draft, state.tasks, todayKey(), S());
-    if (problems.length) { toast(problems[0]); return; }
+    const draft = taskFromCalendar(c, { important: true, goalId: goal(ui.lastGoal) ? ui.lastGoal : 'life' });
+    Object.assign(draft, R.levelFields(draft, todayKey(), S()));
     state.tasks.push(draft);
     addCalendarTaskToDay(draft, c.date);
-    persist([`${R.PRIORITIES[draft.priority].mark} ${draft.title} is in your task list. Click it to change the goal.`]);
+    persist([`★ Matters: ${draft.title}`]);
   },
   'busy-ok': (el) => { getDay(el.dataset.day).busyOk = true; persist(); },
   'start-task': (el) => openStarter(task(el.dataset.id)),
@@ -2620,7 +2694,6 @@ const actions = {
     } catch (err) { status.textContent = err.message; }
   },
   'open-email': () => openModal(emailHTML()),
-  'to-important': (el) => changePriority(el.dataset.id, 'important'),
   'clear-pic': (el) => {
     try { localStorage.removeItem(PIC_KEY); } catch { /* fine */ }
     const holder = el.closest('div');
@@ -2674,7 +2747,35 @@ const actions = {
   },
   'reopen-task': (el) => { Object.assign(task(el.dataset.id), { status: 'open', doneAt: null }); persist(); },
   'keep-task': (el) => { task(el.dataset.id).lastTouchedAt = new Date().toISOString(); persist(['Kept. It stays important.']); },
-  'demote-task': (el) => { Object.assign(task(el.dataset.id), { priority: 'nice', promotionBlocked: false, lastTouchedAt: new Date().toISOString() }); persist(['Moved to tasks for later.']); },
+  'demote-task': (el) => setImportant(el.dataset.id, false),
+  'accept-proposal': async (el) => {
+    const key = el.dataset.day;
+    el.disabled = true;
+    await applyProposal(key);
+    persist();
+    await setPlan(key); // writes Google Calendar with the reminders
+  },
+  'change-proposal': async (el) => {
+    const key = el.dataset.day;
+    await applyProposal(key);
+    ui.planDay = key === todayKey() ? 'today' : 'tomorrow';
+    persist(['Change anything, then tap Set plan.']);
+    if (location.hash !== '#start') location.hash = '#start';
+  },
+  'repropose': async (el) => {
+    const key = el.dataset.day;
+    await applyProposal(key, { replace: true });
+    persist([getDay(key).set ? 'Plan updated. Tap "Update Google Calendar" when you are ready.' : 'Plan updated.']);
+  },
+  'keep-plan': (el) => { getDay(el.dataset.day).prioChanged = false; persist(); },
+  'toggle-important': (el) => { const t = task(el.dataset.id); if (t) setImportant(t.id, !R.isImportant(t)); },
+  'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.textContent = ui.capImportant ? '★ Important' : '☆ Important'; },
+  'goal-up': (el) => {
+    const i = state.goals.findIndex((g) => g.id === el.dataset.id);
+    if (i <= 0) return;
+    [state.goals[i - 1], state.goals[i]] = [state.goals[i], state.goals[i - 1]];
+    persist(['Goal moved up. Its tasks now come first.']);
+  },
   'delete-task': () => {
     const id = modal.querySelector('form').dataset.id;
     if (!confirm('Delete this task for good?')) return;
@@ -2734,7 +2835,6 @@ document.addEventListener('click', (e) => {
     group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === pick)));
     const name = group.dataset.group;
     const taskForm = modal.querySelector('form[data-form="task"]');
-    if (name === 'priority' && taskForm) taskForm.querySelector('#f-deadline-label').textContent = pick.dataset.value === 'nice' ? 'Deadline (optional)' : 'Deadline';
     if (name === 'place') {
       modal.querySelectorAll('.commute-fields').forEach((n) => { n.hidden = pick.dataset.value !== 'commute'; });
       if (taskForm) autoSteps(taskForm);
@@ -2841,9 +2941,9 @@ modal.addEventListener('submit', (e) => {
       ...(existing || { id: newId(), status: 'open', createdAt: nowIso, pushCount: 0 }),
       title: data.get('title').trim(),
       goalId: data.get('goalId'),
-      priority: pressedValue(form, 'priority') || 'important',
+      important: pressedValue(form, 'important') === 'yes',
       deadline: data.get('deadline') || '',
-      minutes: Number(data.get('minutes')) || 0,
+      minutes: Number(data.get('minutes')) || 30,
       firstSteps,
       firstStep: firstSteps[0] || '',
       stepsBy: pressedValue(form, 'stepsBy') || 'me',
@@ -3128,7 +3228,7 @@ document.addEventListener('pointerup', () => {
   form.querySelector('#f-date').value = day;
   form.querySelector('#f-minutes').value = Math.abs(to - from);
   const deadline = form.querySelector('#f-deadline');
-  if (!deadline.value && pressedValue(form, 'priority') !== 'nice') deadline.value = day;
+  if (!deadline.value) deadline.value = day;
   const end = start + Math.abs(to - from);
   const clash = calendarItems(day).find((c) => R.toMinutes(c.start) < end && R.toMinutes(c.start) + c.minutes > start);
   if (clash) toast(`Heads up: this overlaps "${clash.title}" at ${t12(clash.start)}.`);
