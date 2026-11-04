@@ -175,6 +175,7 @@ function stepsHTML(steps, cls = 'steps') {
 function dailyCheck() {
   const key = todayKey();
   if (state.lastDailyCheck === key) return [];
+  ui.planDay = null; // a tab left open overnight shows the new today, not yesterday's "tomorrow"
   relevel();
   const messages = [];
   const cutoff = Date.now() - 30 * 86400000;
@@ -245,7 +246,7 @@ function render() {
 function renderNowPill() {
   const pill = document.getElementById('now-pill');
   const { current } = currentAndNext();
-  if (!current) { pill.innerHTML = ''; return; }
+  if (!current || currentTab() === 'start') { pill.innerHTML = ''; return; } // the main screen shows it in Plan
   const end = t12m(current.start + current.minutes);
   pill.innerHTML = `<a class="now-pill" href="#start" data-action="go-plan-today"><span class="dot"></span><span><strong>Now</strong><span class="long">: ${esc(itemTitle(current))}</span> · until ${end}</span></a>`;
 }
@@ -404,7 +405,7 @@ function calItemHTML(c) {
   const head = `
     <div class="modal-head"><div><div class="date-line">${esc(when)}</div><h2 id="modal-title">${esc(c.title)}</h2><div class="hint">${source}</div></div>
       <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>`;
-  const editOwn = '';
+  const editOwn = c.src === 'own' ? `<button type="button" class="btn-link" data-action="delete-own-event" data-id="${esc(c.id)}">Delete this event</button>` : '';
   const t = c.task;
   if (t) {
     return `
@@ -503,7 +504,7 @@ function firstRunHTML() {
   return `
   <section class="first-run card card-pad">
     <h1>Welcome to Personal IO</h1>
-    <p>It helps you decide what matters each day. First, connect your Google Calendar and Gmail, so it starts from what you already have.</p>
+    <p>It helps you decide what matters each day. First, connect your Google Calendar (and then Gmail, if you like), so it starts from what you already have.</p>
     ${bridgeSetupHTML()}
     <button type="button" class="btn-link" style="align-self:flex-start" data-action="skip-first-run">Skip for now, I'll add tasks myself</button>
   </section>`;
@@ -560,21 +561,12 @@ function renderStart() {
     </section>
     <section class="col col-cal card card-pad" aria-label="Calendar">
       <div class="col-head"><h2>Calendar</h2><span class="meta">${esc(fmtDay(dayKey))}</span></div>
-      ${calendarBlockHTML('cal-plan', dayKey, { px: 30, startHour: 7, endHour: 22, nowLine: dayKey === tKey })}
+      ${calendarBlockHTML('cal-plan', dayKey, { px: window.matchMedia('(max-width: 760px)').matches ? 44 : 30, startHour: 7, endHour: 22, nowLine: dayKey === tKey })}
     </section>
     <section class="col col-day" aria-label="${dayKey === tKey ? 'Today' : 'Tomorrow'}">
       ${dayColumnHTML(dayKey)}
     </section>
   </div>`;
-}
-
-function goalsStripHTML() {
-  return `
-  <section class="goal-strip" aria-label="Goals">
-    <span class="strip-label">Goals ${state.goals.length}/${S().maxGoals}</span>
-    ${state.goals.map((g) => `<button type="button" class="goal-pill" data-action="filter-goal" data-id="${g.id}" aria-pressed="${ui.goalFilter === g.id}" title="${esc(g.why || '')}">${esc(g.title)} <span class="n">${openCount(g.id)}</span></button>`).join('')}
-    ${state.goals.length < S().maxGoals ? '<button type="button" class="btn-link" data-action="new-goal">+ Goal</button>' : ''}
-  </section>`;
 }
 
 function goalsListHTML(selectable) {
@@ -788,11 +780,10 @@ function planRowHTML(t, key, word) {
     const index = day.plan ? day.plan.blocks.findIndex((b) => b.taskIds.includes(t.id)) : -1;
     const askHow = index >= 0 && !done && start && nowMinutes() >= R.toMinutes(start) && !(day.reviewed || {})[t.id];
     const st = todayStatus(t, key);
-    todayBtns = `<div class="row-actions">
+    todayBtns = `
       ${st.word !== 'To do' ? `<span class="chip ${st.cls}">${st.word}</span>` : ''}
       ${askHow ? `<button class="btn btn-small" data-action="review" data-block="${index}">How did it go?</button>` : ''}
-      ${!done ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button><button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
-    </div>`;
+      ${!done ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button><button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}`;
   }
   const editing = !onCal && (ui.editTime === t.id || !start);
   const clash = overlapWith(t, key);
@@ -811,11 +802,11 @@ function planRowHTML(t, key, word) {
         <div class="field"><label for="len-${t.id}">How long</label>
           <select class="input" id="len-${t.id}" data-change="plan-length" data-id="${t.id}">${lengths.map((m) => `<option value="${m}" ${m === t.minutes ? 'selected' : ''}>${R.formatMinutes(m)}</option>`).join('')}</select></div>
       </div>` : ''}
-      ${todayBtns}
-    </div>
-    <div class="plan-actions">
-      ${onCal ? '' : `<button type="button" class="btn btn-small" data-action="edit-time" data-id="${t.id}" aria-expanded="${editing}">${editing ? 'Done' : 'Change time'}</button>`}
-      <button type="button" class="icon-x" data-action="remove-from-day" data-id="${t.id}" data-day="${key}" aria-label="Remove ${esc(t.title)} from ${word}">${X_ICON}</button>
+      <div class="row-actions">
+        ${todayBtns}
+        ${onCal ? '' : `<button type="button" class="btn btn-small" data-action="edit-time" data-id="${t.id}" aria-expanded="${editing}">${editing ? 'Done' : 'Time'}</button>`}
+        <button type="button" class="icon-x row-x" data-action="remove-from-day" data-id="${t.id}" data-day="${key}" aria-label="Remove ${esc(t.title)} from ${word}">${X_ICON}</button>
+      </div>
     </div>
   </article>`;
 }
@@ -1460,8 +1451,8 @@ async function scanEmail(btn) {
     talkDraft = { named: [], suggested: found, after: () => {}, prefix: '', heading: 'Tasks found in your email', suggestLabel: 'Tick the ones that are real tasks for you.' };
     showTalkReview(origin);
   } catch (err) {
-    const msg = err.message === 'old-script'
-      ? 'Your script needs the new code once: Settings > Google > Copy my code, paste it over the old code, then Deploy > Manage deployments > Edit > New version > Deploy.'
+    const msg = err.message === 'old-script' || err.message === 'gmail-off'
+      ? 'Gmail is not added to your script yet. Do it once: Settings > Google > Add Gmail (4 steps, then New version).'
       : err.message === 'not-connected' ? 'Google sign-in expired. Try again.' : err.message;
     if (!origin.isConnected) { toast(`Email check stopped: ${msg}`); return; }
     status.textContent = msg;
@@ -1838,6 +1829,9 @@ function reviewHTML(blockIndex) {
 
 // The bridge: a small script in your own Google account. No sign-in, no reconnecting.
 function bridgeSetupHTML() {
+  return `<div class="bridge-setup" style="display:flex; flex-direction:column; gap:10px">${bridgeStepsHTML()}</div>`;
+}
+function bridgeStepsHTML() {
   const step = (n, html) => `<div class="step-box" style="align-items:flex-start"><span class="step-n">${n}</span><div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0">${html}</div></div>`;
   return `<div class="note note-info"><strong>Already set up?</strong> Open your link (your bookmark). Do not set it up again.</div>
     <span class="hint">First time only, on a computer (about 10 minutes). Then the calendar and your data never need a sign-in.</span>
@@ -1846,7 +1840,7 @@ function bridgeSetupHTML() {
       <button type="button" class="btn btn-small btn-dark" style="align-self:flex-start" data-action="copy-bridge-code">Copy my code</button>
       <textarea class="input mono" id="bridge-code" rows="4" readonly hidden aria-label="Your bridge code"></textarea>`)}
     ${step(3, '<span>On the left, <strong>Services +</strong>, pick <strong>Google Calendar API</strong>, click <strong>Add</strong>. Save (Ctrl+S, or Cmd+S on a Mac).</span>')}
-    ${step(4, '<span><strong>Deploy</strong> &gt; <strong>New deployment</strong> &gt; gear &gt; <strong>Web app</strong>. Execute as: <strong>Me</strong>. Who has access: <strong>Anyone</strong> (not "Anyone with Google account"). Deploy, allow access (Drive, Calendar, and Gmail read only), copy the Web app URL.</span><span class="hint">Google says "not verified"? It is your own script: Advanced &gt; Go to project.</span>')}
+    ${step(4, '<span><strong>Deploy</strong> &gt; <strong>New deployment</strong> &gt; gear &gt; <strong>Web app</strong>. Execute as: <strong>Me</strong>. Who has access: <strong>Anyone</strong> (not "Anyone with Google account"). Deploy, allow access (Drive and Calendar), copy the Web app URL.</span><span class="hint">Google says "not verified"? It is your own script: Advanced &gt; Go to project.</span>')}
     ${step(5, `<label for="s-bridge">Paste the Web app URL</label>
       <input class="input mono" id="s-bridge" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
       <button type="button" class="btn btn-small btn-dark" style="align-self:flex-start" data-action="connect-bridge">Connect</button>`)}
@@ -1862,12 +1856,15 @@ function bridgeOnHTML() {
       <input class="input mono" readonly value="${esc(bridgeLink())}" aria-label="Your link">
       <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-bridge-link">Copy link</button>
     </div></div>
-    <details><summary class="hint" style="cursor:pointer">Update the script (for email, once)</summary>
-      <div style="display:flex; flex-direction:column; gap:6px; margin-top:8px">
-        <span class="hint">Copy the code, paste it over the old code in script.google.com, then Deploy &gt; Manage deployments &gt; pencil &gt; Version: New version &gt; Deploy. Allow Gmail (read only). Your link stays the same.</span>
-        <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-bridge-code">Copy my code</button>
-        <textarea class="input mono" id="bridge-code" rows="4" readonly hidden aria-label="Your bridge code"></textarea>
-      </div></details>
+    <details class="bridge-setup"><summary class="hint" style="cursor:pointer">Add Gmail (once, read only)</summary>
+      <ol class="hint" style="margin:8px 0 0; padding-left:18px; display:flex; flex-direction:column; gap:6px">
+        <li>In your script at script.google.com, replace the code with yours: <button type="button" class="btn btn-small" data-action="copy-bridge-code">Copy my code</button></li>
+        <li>Project Settings (gear on the left): tick <strong>Show "appsscript.json" manifest file in editor</strong>.</li>
+        <li>Back in the Editor, open <strong>appsscript.json</strong> and replace everything: <button type="button" class="btn btn-small" data-action="copy-bridge-manifest">Copy settings file</button></li>
+        <li><strong>Deploy</strong> &gt; <strong>Manage deployments</strong> &gt; pencil &gt; Version: <strong>New version</strong> &gt; Deploy. Allow: it asks to read (not change) your Gmail.</li>
+      </ol>
+      <textarea class="input mono" id="bridge-code" rows="4" readonly hidden aria-label="Text to copy"></textarea>
+      <span class="hint">Your link stays the same. If your school account blocks Gmail, the calendar keeps working.</span></details>
     <button type="button" class="btn-link" style="align-self:flex-start" data-action="remove-bridge">Stop using the bridge on this device</button>`;
 }
 
@@ -1988,7 +1985,7 @@ async function addToDay(taskId, dayKey) {
   const day = getDay(dayKey); // after waiting, in case a sync brought newer data meanwhile
   if (day.taskIds.includes(taskId)) return;
   if (day.taskIds.length >= day.slots) {
-    toast(day.slots < S().daySlotsMax ? 'All slots are full. Open another slot first.' : `${S().daySlotsMax} tasks is the most for one day.`);
+    toast(day.slots < S().daySlotsMax ? 'All slots are full. Open another slot in Plan first.' : `${S().daySlotsMax} tasks is the most for one day.`);
     return;
   }
   const rank = (t) => (t ? R.PRIORITY_ORDER.indexOf(t.priority) : 99);
@@ -2000,7 +1997,7 @@ async function addToDay(taskId, dayKey) {
   syncPlan(dayKey);
   const when = timeOn(t, dayKey);
   const phone = window.matchMedia('(max-width: 760px)').matches;
-  persist([when ? `${t.title}: ${t12(when)} to ${t12m(R.toMinutes(when) + (t.minutes || 30))}. ${phone ? 'Tap it on the calendar to change the time.' : 'Drag it on the calendar to move it.'}` : `${t.title}: no free time left that fits. Pick a time.`]);
+  persist([when ? `${t.title}: ${t12(when)} to ${t12m(R.toMinutes(when) + (t.minutes || 30))}. ${phone ? 'Change the time in Plan.' : 'Drag it on the calendar to move it.'}` : `${t.title}: no free time left that fits. Pick a time.`]);
   if (G.isConfigured() && !G.isConnected()) toast('Google Calendar is not connected, so this time may clash with your events.', { label: 'Connect', data: { action: 'connect-google' } });
 }
 
@@ -2336,7 +2333,7 @@ const actions = {
     G.setCalendarOnly(true);
     try { await G.connect(); toast('Calendar connected. Your data stays on this device only.'); render(); } catch (err) { toast(err.message); }
   },
-  'copy-bridge-code': async () => {
+  'copy-bridge-code': async (el) => {
     const PENDING = 'personal-io:bridge-pending';
     // Connected already: the same key, so updating the script keeps everything working.
     let key = G.getBridge()?.key || '';
@@ -2354,13 +2351,13 @@ const actions = {
     code = code.replace('__KEY__', key);
     try { await navigator.clipboard.writeText(code); toast('Copied. Paste it in the script.'); }
     catch {
-      const box = document.querySelector('#bridge-code');
+      const box = el.closest('.bridge-setup, details')?.querySelector('#bridge-code');
       if (box) { box.value = code; box.hidden = false; box.select(); }
       toast('Select the code below and copy it.');
     }
   },
   'connect-bridge': async (el) => {
-    const url = (document.querySelector('#s-bridge')?.value || '').trim();
+    const url = (el.closest('.bridge-setup')?.querySelector('#s-bridge')?.value || '').trim();
     let key = '';
     try { key = localStorage.getItem('personal-io:bridge-pending') || ''; } catch { /* blocked */ }
     if (!G.looksLikeBridge(url)) { toast('That is not a Web app URL. It ends in /exec.'); return; }
@@ -2384,6 +2381,17 @@ const actions = {
     await syncNow({ manual: true });
     render();
   },
+  'copy-bridge-manifest': async (el) => {
+    let text = '';
+    try { const res = await fetch('bridge/appsscript.json', { cache: 'no-store' }); text = res.ok ? await res.text() : ''; } catch { /* offline */ }
+    if (!text.includes('gmail.readonly')) { toast('Could not load the settings file. Check your internet.'); return; }
+    try { await navigator.clipboard.writeText(text); toast('Copied. Paste it into appsscript.json.'); }
+    catch {
+      const box = el.closest('.bridge-setup, details')?.querySelector('#bridge-code');
+      if (box) { box.value = text; box.hidden = false; box.select(); }
+      toast('Select the text below and copy it.');
+    }
+  },
   'copy-bridge-link': async () => {
     try { await navigator.clipboard.writeText(bridgeLink()); toast('Copied. Bookmark it and send it to your phone.'); }
     catch { toast('Copy did not work. Select the link and copy it.'); }
@@ -2400,13 +2408,19 @@ const actions = {
     catch { toast('Copy did not work. Select the link and copy it.'); }
   },
   'plan-day': (el) => { ui.planDay = el.dataset.day; render(); },
+  'delete-own-event': (el) => {
+    const e = state.events.find((x) => x.id === el.dataset.id);
+    if (!e || !confirm(e.repeat === 'weekly' ? 'Delete this event and all its weekly repeats?' : 'Delete this event?')) return;
+    state.events = state.events.filter((x) => x.id !== e.id);
+    markPlansStale(e);
+    closeModal();
+    persist(['Event deleted.']);
+  },
   'skip-first-run': () => { S().onboarded = true; persist(); },
   'onboard-done': () => { S().onboarded = true; persist(["You're set. Add anything else in the box above."]); },
   'pane': (el) => { ui.pane = el.dataset.pane; render(); window.scrollTo(0, 0); },
   'go-plan-today': () => { ui.planDay = 'today'; ui.pane = 'day'; if (!location.hash || location.hash === '#start') render(); else location.hash = '#start'; },
   'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; ui.pane = 'day'; if (location.hash === '#start') render(); else location.hash = '#start'; },
-  'filter-goal': (el) => { ui.goalFilter = ui.goalFilter === el.dataset.id ? null : el.dataset.id; render(); },
-  'clear-filter': () => { ui.goalFilter = null; render(); },
   'toggle-group': (el) => { const g = el.dataset.groupName; ui.open[g] = !ui.open[g]; render(); },
   'toggle-done': () => { ui.showDone = !ui.showDone; render(); },
   'add-to-day': (el) => addToDay(el.dataset.id, el.dataset.day),
@@ -3065,6 +3079,7 @@ window.addEventListener('hashchange', () => { render(); view.focus({ preventScro
 try { navigator.storage?.persist?.(); } catch { /* not supported */ }
 
 takeSetupLink();
+if (!S().onboarded && state.tasks.length) { S().onboarded = true; save(state, { quiet: true }); } // already using the app
 // Saved data could not be read: start this device fresh from Drive instead of sending an empty copy.
 if (loadFailed()) setSync({ fileId: getSync().fileId });
 onSave(() => {

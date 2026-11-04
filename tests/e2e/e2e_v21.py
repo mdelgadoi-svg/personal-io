@@ -42,7 +42,7 @@ with sync_playwright() as p:
     ctx.grant_permissions(['clipboard-read', 'clipboard-write'], origin=BASE.rstrip('/'))
     pg = page(ctx)
     pg.goto(BASE); pg.wait_for_timeout(500)
-    print('first run shown:', pg.locator('.first-run').count() == 1, '| asks for calendar and Gmail:', 'Calendar and Gmail' in pg.inner_text('.first-run'))
+    print('first run shown:', pg.locator('.first-run').count() == 1, '| asks for calendar and Gmail:', 'Google Calendar' in pg.inner_text('.first-run') and 'Gmail' in pg.inner_text('.first-run'))
     print('first run is general (no Berkeley, no Claude):', 'Berkeley' not in pg.inner_text('.first-run') and 'Claude' not in pg.inner_text('.first-run'))
     pg.screenshot(path='tests/e2e/out/v21_first_run.png', full_page=True)
     pg.click('.first-run [data-action="copy-bridge-code"]'); pg.wait_for_timeout(400)
@@ -93,4 +93,32 @@ with sync_playwright() as p:
     pp.click('[data-action="pane"][data-pane="cal"]'); pp.wait_for_timeout(300); print('phone Calendar:', vis())
     pp.click('[data-action="pane"][data-pane="day"]'); pp.wait_for_timeout(200)
     pp.screenshot(path='tests/e2e/out/v21_phone_plan.png')
+    # someone already using the app (tasks, bridge) never sees the "coming up" card; overnight tab shows the new today
+    D2 = '2026-11-05'
+    t = lambda id, title, imp, dl: {"id": id, "title": title, "goalId": "life", "important": imp, "priority": "nice", "deadline": dl, "minutes": 30, "place": "everywhere", "status": "open", "createdAt": "2026-10-30T10:00:00Z"}
+    old = {"version": 1, "settings": {}, "lastOpenDate": D, "lastDailyCheck": D, "log": [], "journal": [], "returns": [],
+           "goals": [{"id": "life", "title": "Keep life running", "why": "x"}],
+           "events": [{"id": "own1", "title": "Spanish class", "date": "2026-10-29", "start": "18:00", "minutes": 60, "repeat": "weekly", "mode": "in_person", "commute": False}],
+           "tasks": [t('a', 'Send the long application to the fund before the deadline', True, D2), t('b', 'Prepare deck', True, D2), t('c', 'Call Pancho', False, D2)],
+           "days": {D2: {"taskIds": ["a", "b", "c"], "times": {"a": "09:00", "b": "10:00", "c": "11:00"}, "slots": 3, "set": True, "focus": ["a", "b"], "proposed": ["a", "b", "c"], "googleIds": [], "reviewed": {}}}}
+    c3 = b.new_context(viewport={'width': 1550, 'height': 900})
+    c3.add_init_script(f"if(!localStorage.getItem('s3')){{localStorage.setItem('personal-io:v1', {json.dumps(json.dumps(old))});localStorage.setItem('personal-io:bridge', JSON.stringify({{url:'{URL}', key:'{fake['key']}'}}));localStorage.setItem('s3','1')}}")
+    p3 = c3.new_page(); p3.on('pageerror', lambda e: errors.append(str(e)))
+    p3.clock.install(time=datetime.datetime(2026, 11, 4, 21, 0)); p3.route('https://script.google.com/**', bridge)
+    p3.goto(BASE); p3.wait_for_timeout(1200)
+    if p3.locator('#modal[open]').count(): p3.keyboard.press('Escape')
+    print('existing user: no coming-up card:', p3.locator('.onboard').count() == 0, '| 9 PM shows tomorrow:', p3.inner_text('.col-day h2'))
+    p3.clock.fast_forward('11:05:00'); p3.wait_for_timeout(800)  # the tab stays open overnight, now 8 AM
+    if p3.locator('#modal[open]').count(): p3.keyboard.press('Escape'); p3.wait_for_timeout(200)
+    p3.clock.fast_forward('00:01:05'); p3.wait_for_timeout(500)
+    print('next morning shows today:', p3.inner_text('.col-day h2'), '| rows:', p3.locator('.col-day .plan-row').count())
+    row = p3.locator('.col-day .plan-row').first.bounding_box()
+    print('plan row is compact (under 170px with a 2-line title):', row['height'] < 170, round(row['height']))
+    print('rows:', [p3.inner_text(f'.col-day .plan-row >> nth={i}').split(chr(10))[:3] for i in range(p3.locator('.col-day .plan-row').count())])
+    p3.screenshot(path='tests/e2e/out/v21_main_1550.png')
+    # an event made in the app before v2.1 can still be deleted
+    p3.click('#cal-plan .ev:has-text("Spanish class")'); p3.wait_for_timeout(200)
+    p3.on('dialog', lambda d: d.accept())
+    p3.click('[data-action="delete-own-event"]'); p3.wait_for_timeout(300)
+    print('own event deleted:', len(json.loads(p3.evaluate("localStorage.getItem('personal-io:v1')"))['events']) == 0)
 print('errors', errors)

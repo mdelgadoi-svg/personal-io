@@ -53,6 +53,7 @@ export async function bridgeEmails() {
     return (await bridge('emails')).emails || [];
   } catch (err) {
     if (/unknown action/.test(err.message)) throw new Error('old-script');
+    if (/Gmail is not defined|insufficient|permission/i.test(err.message)) throw new Error('gmail-off');
     throw err;
   }
 }

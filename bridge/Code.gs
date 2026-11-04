@@ -54,18 +54,21 @@ function handle(req) {
   }
 }
 
-// Read only: the last 2 weeks of mail (no promotions or social), subject, sender, date and the first lines.
+// Read only: the last 2 weeks of mail (no promotions or social): subject, sender, date and Gmail's short preview.
+// Uses the Gmail service with the read-only permission set in appsscript.json (Settings > Google > Add Gmail).
 // Nothing is changed in Gmail and no attachments are read.
 function recentEmails() {
-  const threads = GmailApp.search('newer_than:14d -category:promotions -category:social -category:forums', 0, 40);
-  return threads.map((th) => {
-    const m = th.getMessages().pop();
+  const q = 'newer_than:14d -category:promotions -category:social -category:forums';
+  const list = Gmail.Users.Messages.list('me', { q, maxResults: 40 });
+  return (list.messages || []).map((m) => {
+    const msg = Gmail.Users.Messages.get('me', m.id, { format: 'metadata', metadataHeaders: ['Subject', 'From', 'Date'] });
+    const head = (name) => (((msg.payload && msg.payload.headers) || []).find((x) => x.name.toLowerCase() === name) || {}).value || '';
     return {
-      subject: m.getSubject() || '(no subject)',
-      from: String(m.getFrom() || '').replace(/<.*>/, '').trim(),
-      date: Utilities.formatDate(m.getDate(), Session.getScriptTimeZone(), 'EEE, MMM d'),
-      snippet: String(m.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 220),
-      sent: false,
+      subject: head('subject') || '(no subject)',
+      from: head('from').replace(/<.*>/, '').trim(),
+      date: head('date').slice(0, 16),
+      snippet: String(msg.snippet || '').slice(0, 220),
+      sent: (msg.labelIds || []).indexOf('SENT') >= 0,
     };
   });
 }
