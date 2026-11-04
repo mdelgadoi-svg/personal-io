@@ -19,9 +19,9 @@ A private daily planner: goals, a few tasks a day with hard limits on what count
 
 ## Your data
 
-Saved in the browser first, and one copy in your Google Drive (a hidden app folder) while Google is connected, so the computer and the phone show the same data. Nothing is stored on GitHub.
-- First time: turn on the **Google Drive API** in your Google Cloud project, then tap **Sync** at the top and sign in.
-- Phone: **Settings → Use it on your phone**, send yourself the link, open it on the phone, tap **Sync**.
+Saved in the browser first, and the real copy in your Google Drive, so the computer and the phone show the same data and a wiped browser loses nothing. Nothing is stored on GitHub.
+- Set up once: **Settings > Google**, follow the 5 steps (a small script in your own Google account, the "bridge"). After that there is no Google sign-in.
+- **Your link** in Settings: bookmark it and open it on the phone. If a browser ever loses your data, open the link.
 - **Download backup** in Settings is still there as an extra copy.
 
 ## Install as an app
