@@ -101,58 +101,154 @@ export function isUrgentByDate(task, todayKey, settings = DEFAULT_SETTINGS) {
 }
 
 // Returns a list of problems. An empty list means the task can be saved.
-export function validateTask(task, allTasks, todayKey, settings = DEFAULT_SETTINGS) {
+// Only the name is needed (v2.0): the app fills in the rest and never blocks on levels or deadlines.
+export function validateTask(task, allTasks) {
   const problems = [];
   if (!task.title || !task.title.trim()) problems.push('Give the task a name.');
-  if (!task.goalId) problems.push('Every task belongs to a goal. Pick one.');
-  if (!task.deadline && task.priority !== 'nice') problems.push('This task needs a deadline. (Only 🤔 tasks for later can skip it.)');
-  if (!task.minutes || task.minutes <= 0) problems.push('Say how long it will take.');
-  if (task.place === 'commute' && !(task.destination || '').trim()) {
-    problems.push('Say where you need to go.');
-  }
-  // A task saved before keeps its level and deadline without being blocked (the list asks about it instead).
-  const prev = allTasks.find((t) => t.id === task.id);
-  const unchangedUrgency = prev && prev.status === 'open' && prev.priority === task.priority && prev.deadline === task.deadline;
-  if (task.priority === 'both' && task.deadline && !unchangedUrgency && !isUrgentByDate(task, todayKey, settings)) {
-    problems.push('★! means the deadline is today or tomorrow. Use ★ for later deadlines.');
-  }
-  if (task.priority === 'urgent' && task.deadline && !unchangedUrgency && !isUrgentByDate(task, todayKey, settings)) {
-    problems.push('! means the deadline is today or tomorrow. Change the deadline, or use 🤔 Tasks for later.');
-  }
-  const others = allTasks.filter((t) => t.id !== task.id);
-  const sameName = sameTitle(task.title, others.filter((t) => t.status === 'open'));
-  if (sameName) problems.push(`"${sameName.title}" is already in your backlog. Use a different name, or open that one.`);
-  const counts = countByPriority(others);
-  const info = PRIORITIES[task.priority];
-  // Editing a task that already holds this level never counts against the limit
-  // (so tasks from before a limit changed can still be fixed).
-  const before = allTasks.find((t) => t.id === task.id);
-  const keepsLevel = before && before.status === 'open' && before.priority === task.priority;
-  if (info && !keepsLevel && counts[task.priority] >= info.cap) {
-    problems.push(`${info.mark} ${info.label} is full (${info.cap} of ${info.cap}). Finish one or move one down a level first.`);
-  }
+  const others = allTasks.filter((t) => t.id !== task.id && t.status === 'open');
+  const sameName = sameTitle(task.title, others);
+  if (task.status !== 'done' && sameName) problems.push(`"${sameName.title}" is already in your list.`);
   return problems;
 }
 
-// Important tasks whose deadline is now close become important + urgent,
-// as long as there is room. Returns the changed tasks and messages.
-export function promoteDueTasks(tasks, todayKey, settings = DEFAULT_SETTINGS) {
-  const messages = [];
-  let bothCount = countByPriority(tasks).both;
-  const updated = tasks.map((t) => {
-    if (t.status !== 'open' || t.priority !== 'important') return t;
-    if (!isUrgentByDate(t, todayKey, settings)) return t;
-    if (bothCount < PRIORITIES.both.cap) {
-      bothCount += 1;
-      messages.push(`"${t.title}" is due soon, so it moved up to ★!.`);
-      return { ...t, priority: 'both', promotionBlocked: false };
-    }
-    if (!t.promotionBlocked) {
-      messages.push(`"${t.title}" is due soon, but ★! is full. Decide what moves down.`);
-    }
-    return { ...t, promotionBlocked: true };
+// ---------- the app decides the level (v2.0) ----------
+// You only mark what is important. The deadline decides what is urgent.
+
+// Older tasks (before v2.0) only had a level: ★! and ★ meant important.
+export function isImportant(task) {
+  if (task.important !== undefined) return !!task.important;
+  return task.priority === 'both' || task.priority === 'important';
+}
+
+export function levelOf(task, todayKey, settings = DEFAULT_SETTINGS) {
+  const important = isImportant(task);
+  const urgent = isUrgentByDate(task, todayKey, settings);
+  if (important && urgent) return 'both';
+  if (important) return 'important';
+  if (urgent) return 'urgent';
+  return 'nice';
+}
+
+// The fields to set on a task so its level matches today.
+export function levelFields(task, todayKey, settings = DEFAULT_SETTINGS) {
+  const important = isImportant(task);
+  return { important, priority: levelOf({ ...task, important }, todayKey, settings), promotionBlocked: false };
+}
+
+// Most pressing first: level, then nearest deadline (overdue first), then goal order
+// (the first goal in your list matters most; "Keep life running" last), then oldest.
+export function rankTasks(tasks, goals = []) {
+  const order = new Map(goals.map((g, i) => [g.id, g.id === 'life' ? 999 : i]));
+  return [...tasks].sort((a, b) => {
+    const p = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
+    if (p !== 0) return p;
+    const d = (a.deadline || '9999').localeCompare(b.deadline || '9999');
+    if (d !== 0) return d;
+    const g = (order.has(a.goalId) ? order.get(a.goalId) : 500) - (order.has(b.goalId) ? order.get(b.goalId) : 500);
+    if (g !== 0) return g;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
   });
-  return { tasks: updated, messages };
+}
+
+// The day the app proposes: up to 2 Focus tasks (the important ones), then the rest of the
+// slots from what is due soon. Starred calendar items of that day always come, at their own time.
+// Returns ids, plus why each was picked: { important, days } (days until the deadline, or null).
+// exclude: ids already planned on another day (for example today's tasks still ahead).
+export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DEFAULT_SETTINGS, exclude = [] }) {
+  const open = tasks.filter((t) => t.status === 'open' && !exclude.includes(t.id)
+    && !(t.eventRef && t.eventRef.date !== dayKey)
+    && !(t.fixedDate && t.fixedDate !== dayKey));
+  const ranked = rankTasks(open, goals);
+  const calendar = ranked.filter((t) => t.eventRef && t.eventRef.date === dayKey);
+  const rest = ranked.filter((t) => !calendar.includes(t) && t.priority !== 'nice');
+  const focus = rest.filter((t) => t.priority === 'both' || t.priority === 'important').slice(0, 2);
+  // No important task: the most pressing ones become the focus.
+  rest.filter((t) => !focus.includes(t)).slice(0, 2 - focus.length).forEach((t) => focus.push(t));
+  const left = rest.filter((t) => !focus.includes(t));
+  // Anything due that day or overdue always comes, even past the usual number of slots.
+  const dueNow = left.filter((t) => t.deadline && daysUntil(t.deadline, dayKey) <= 0);
+  const max = settings.daySlotsMax - calendar.length - focus.length;
+  const room = Math.max(0, Math.min(max, Math.max(slots - focus.length, dueNow.length)));
+  const also = [...dueNow, ...left.filter((t) => !dueNow.includes(t))].slice(0, room);
+  // Nothing important or due soon: offer the top tasks for later, so the day is never empty.
+  if (!focus.length && !also.length) {
+    ranked.filter((t) => !calendar.includes(t)).slice(0, Math.min(slots, Math.max(0, settings.daySlotsMax - calendar.length))).forEach((t) => also.push(t));
+  }
+  const why = {};
+  [...focus, ...also, ...calendar].forEach((t) => {
+    why[t.id] = { important: isImportant(t), days: t.deadline ? daysUntil(t.deadline, dayKey) : null };
+  });
+  return { focus: focus.map((t) => t.id), also: also.map((t) => t.id), calendar: calendar.map((t) => t.id), why };
+}
+
+// ---------- a deadline said in the title ----------
+
+const WEEKDAYS = [
+  ['sunday', 'domingo'], ['monday', 'lunes'], ['tuesday', 'martes'], ['wednesday', 'miercoles', 'miércoles'],
+  ['thursday', 'jueves'], ['friday', 'viernes'], ['saturday', 'sabado', 'sábado'],
+];
+const MONTHS = [
+  ['jan', 'january', 'ene', 'enero'], ['feb', 'february', 'febrero'], ['mar', 'march', 'marzo'], ['apr', 'april', 'abr', 'abril'],
+  ['may', 'mayo'], ['jun', 'june', 'junio'], ['jul', 'july', 'julio'], ['aug', 'august', 'ago', 'agosto'],
+  ['sep', 'sept', 'september', 'septiembre', 'setiembre'], ['oct', 'october', 'octubre'], ['nov', 'november', 'noviembre'], ['dec', 'december', 'dic', 'diciembre'],
+];
+const LEAD = '(?:by|on|due|before|until|for|para(?:\\s+el)?|el|antes\\s+del?|hasta\\s+el)';
+
+function monthIndex(word) {
+  const w = word.toLowerCase().replace(/\.$/, '');
+  return MONTHS.findIndex((names) => names.includes(w));
+}
+
+// "Send CV to Ana tomorrow" -> { title: 'Send CV to Ana', deadline: tomorrow }.
+// Only reads a date at the start or the end of the title, so words in the middle stay.
+export function parseDeadline(title, todayKey) {
+  const text = String(title || '').trim();
+  const day = WEEKDAYS.flat().join('|');
+  const month = MONTHS.flat().join('|');
+  const weekday = (m, plus = 0) => {
+    const want = WEEKDAYS.findIndex((names) => names.includes(m.toLowerCase()));
+    const now = parseDateKey(todayKey).getDay();
+    return addDays(todayKey, ((want - now + 7) % 7) + plus);
+  };
+  // lead: at the start, the form needs "on", "el", "by"... before it ("Sunday school prep" stays as it is).
+  const forms = [
+    { re: `(?:today|hoy)`, at: () => todayKey },
+    // "mañana" after "la" or "de" means "morning" ("correr en la mañana").
+    { re: `(?<!\\b(?:la|de|esta|en)\\s)(?:tomorrow|ma[ñn]ana)`, at: () => addDays(todayKey, 1) },
+    { re: `(?:next\\s+week|la\\s+pr[oó]xima\\s+semana|la\\s+semana\\s+que\\s+viene)`, at: () => addDays(todayKey, 7) },
+    { re: `next\\s+(${day})`, at: (m) => weekday(m[1], 7), lead: true },
+    { re: `this\\s+(${day})`, at: (m) => weekday(m[1]), lead: true },
+    { re: `(${day})`, at: (m) => weekday(m[1]), lead: true },
+    { re: `(${month})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?`, at: (m) => dateIn(todayKey, monthIndex(m[1]), Number(m[2])) },
+    { re: `(\\d{1,2})\\s+(?:de\\s+)?(${month})\\.?`, at: (m) => dateIn(todayKey, monthIndex(m[2]), Number(m[1])) },
+  ];
+  for (const f of forms) {
+    const end = new RegExp(`(?:[\\s,]+${LEAD})?[\\s,]+${f.re}[.!]?$`, 'iu');
+    const start = new RegExp(`^${f.lead ? `${LEAD}\\s+` : `(?:${LEAD}\\s+)?`}${f.re}[\\s,:]+`, 'iu');
+    for (const [re, atStart] of [[end, false], [start, true]]) {
+      const m = text.match(re);
+      if (!m) continue;
+      const inner = m[0].match(new RegExp(f.re, 'iu'));
+      const deadline = f.at(inner);
+      if (!deadline) continue;
+      const rest = text.replace(re, ' ').trim();
+      // Keep a one-word title whole ("Plan Saturday" is a task name, not a date).
+      if (rest.length < 2 || !/\s/.test(rest)) continue;
+      // Only capitalize when the start was cut, and never a word like "iPhone".
+      const title = atStart && /^[a-zñáéíóú][^A-Z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
+      return { title, deadline };
+    }
+  }
+  return { title: text, deadline: '' };
+}
+
+// A month and day on or after today (next year if it already passed).
+function dateIn(todayKey, monthIdx, dayNum) {
+  if (monthIdx < 0 || dayNum < 1 || dayNum > 31) return '';
+  const [y] = todayKey.split('-').map(Number);
+  let key = toDateKey(new Date(y, monthIdx, dayNum));
+  if (key < todayKey) key = toDateKey(new Date(y + 1, monthIdx, dayNum));
+  return key;
 }
 
 export function isStale(task, todayKey, settings = DEFAULT_SETTINGS) {
@@ -497,11 +593,19 @@ export function mergeData(base, local, remote) {
     if (out.set && (!same(out.taskIds, dl.taskIds || []) || !same(out.taskIds, dr.taskIds || []))) out.planStale = true;
     return out;
   };
+  // Tasks are compared without what the app computes (the level), so a device that only
+  // recomputed levels never looks like it edited a task.
+  const plain = (t) => (t && t.title !== undefined ? { ...t, priority: undefined, promotionBlocked: undefined, important: isImportant(t) } : t);
   const byId = (key) => {
     const map = (arr) => new Map((arr || []).map((v) => [v.id, v]));
     const [mb, ml, mr] = [map(b[key]), map(local[key]), map(remote[key])];
     const ids = [...new Set([...ml.keys(), ...mr.keys()])];
-    return ids.map((id) => pick(mb.get(id), ml.get(id), mr.get(id))).filter((v) => v !== undefined);
+    return ids.map((id) => {
+      const [x, l, r] = [mb.get(id), ml.get(id), mr.get(id)];
+      if (key !== 'tasks') return pick(x, l, r);
+      const v = pick(plain(x), plain(l), plain(r));
+      return v === undefined ? undefined : same(v, plain(l)) ? l : same(v, plain(r)) ? r : v;
+    }).filter((v) => v !== undefined);
   };
   const days = {};
   new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})]).forEach((k) => {

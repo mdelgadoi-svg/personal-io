@@ -495,3 +495,22 @@ dialog:not(.wide) .modal-side { display: none; }
   .card.group .item .item-main { flex: 1 1 100%; }
   .card.group .item .item-actions { flex: 1 1 100%; justify-content: flex-end; }
 }
+
+/* v2.0: one star decides what matters; the app proposes the day */
+.star-btn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font-size: 22px; line-height: 1; cursor: pointer; flex: 0 0 auto; }
+.star-btn[aria-pressed="true"] { background: var(--gold-soft); border-color: var(--gold); color: var(--ink); }
+.star-btn:hover { border-color: var(--primary); }
+.cap-star { white-space: nowrap; }
+.cap-star[aria-pressed="true"] { background: var(--gold-soft); border-color: var(--gold); }
+.chip-focus { color: var(--ink); background: var(--gold-soft); border: 1px solid var(--gold); }
+.proposal { display: flex; flex-direction: column; gap: 12px; border: 2px solid var(--primary); margin-bottom: 16px; }
+.proposal h2 { font-size: 18px; }
+.proposal ol, .proposal ul { margin: 4px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.proposal .prop-title { font-weight: 600; }
+.prop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.prop-note { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+@media (max-width: 760px) {
+  .cap-input-row { flex-wrap: wrap; }
+  .cap-input-row .input { flex: 1 1 0; min-width: 0; }
+  .cap-star { flex: 1 1 100%; }
+}

@@ -280,7 +280,8 @@ function eventBody(dateKey, it) {
     start: { dateTime: toIso(dateKey, it.start) },
     end: { dateTime: toIso(dateKey, it.start, it.minutes) },
     colorId: COLOR_ID[it.color] || COLOR_ID.green,
-    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] },
+    // A reminder 10 minutes before and one at the start, on the phone and the computer.
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 10 }, { method: 'popup', minutes: 0 }] },
     extendedProperties: { private: { personalIo: '1' } },
   };
 }

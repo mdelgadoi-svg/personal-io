@@ -43,7 +43,7 @@ with sync_playwright() as p:
     print('4 busy card:', pg.inner_text('.cal-suggest')[:160].replace('\n',' | '))
     pg.screenshot(path=OUT+'/v16_plan.png')
     # busy: mark Class A as important
-    pg.click('.busy-row:has-text("Class A") [data-priority="important"]'); pg.wait_for_timeout(200)
+    pg.click('.busy-row:has-text("Class A") [data-action="busy-prio"]'); pg.wait_for_timeout(200)
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')"))
     print('4 busy->task:', [(t['title'],t['priority']) for t in s['tasks'] if t.get('source')=='calendar'])
     # trash + undo
@@ -60,9 +60,7 @@ with sync_playwright() as p:
     print('5 auto steps:', [pg.input_value(f'#f-step{i}') for i in range(3)])
     pg.click('[data-group="computer"] [data-value="no"]'); print('5 away steps:', pg.input_value('#f-step0'))
     pg.click('[data-group="computer"] [data-value="yes"]')
-    pg.click('[data-group="priority"] [data-value="both"]'); pg.fill('#f-deadline', TODAY)
-    pg.click('button[type="submit"]'); print('10 cap error:', pg.inner_text('form .errors')[:120].replace('\n',' '))
-    pg.click('[data-group="priority"] [data-value="important"]')
+    pg.click('[data-group="important"] [data-value="yes"]')  # v2.0: no levels to pick and no "full" errors
     # drag on side calendar 10:00 to 11:30
     grid=pg.locator('#side-cal .grid'); bb=grid.bounding_box(); px=28
     y=lambda mins: bb['y']+(mins-7*60)/60*px

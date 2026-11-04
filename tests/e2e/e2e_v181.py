@@ -21,7 +21,9 @@ with sync_playwright() as p:
     pg.route('https://accounts.google.com/gsi/client', lambda r: r.fulfill(status=200, content_type='text/javascript', body=GIS))
     pg.route('https://www.googleapis.com/**', gcal)
     pg.goto('http://localhost:8765/#start'); pg.wait_for_selector('.col-backlog')
-    print('old ! chip:', pg.inner_text('.item:has-text("Pay rent") .chip-warn'))
+    # v2.0: an old ! task with a far deadline is now "later" (not important, not due soon), never blocked
+    pg.click('.group-toggle[data-group-name="nice"]'); pg.wait_for_timeout(100)
+    print('old ! task is later now:', pg.locator('.group-nice .item:has-text("Pay rent")').count())
     pg.click('.item:has-text("Pay rent") [data-action="edit-task"]'); pg.fill('#f-title','Pay rent Nov'); pg.click('form[data-form="task"] button[type=submit]'); pg.wait_for_timeout(150)
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')")); print('rename ok:', s['tasks'][0]['title'])
     pg.screenshot(path=OUT+'/v181_phone_chip.png')
