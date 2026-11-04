@@ -29,7 +29,7 @@ with sync_playwright() as p:
     pg.click('[data-action="welcome-start"]')
     pg.wait_for_selector('[data-form="talk-review"]'); print('REVIEW:\n', pg.inner_text('[data-form="talk-review"]'))
     pg.screenshot(path=OUT+'/review.png', full_page=True)
-    pg.select_option('.talk-row [data-talk="priority"]','important'); pg.select_option('.talk-row [data-talk="goal"]','vc')
+    pg.check('.talk-row [data-talk="important"]'); pg.select_option('.talk-row [data-talk="goal"]','vc')
     pg.click('[data-action="talk-add"]'); pg.wait_for_timeout(300)
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')"))
     print('hash', pg.evaluate('location.hash'), '| tasks', [(t['title'],t['priority'],t['deadline'],t['goalId'],t['status']) for t in s['tasks']])

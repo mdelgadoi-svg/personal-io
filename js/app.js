@@ -496,7 +496,7 @@ function captureHTML() {
           ${SpeechRec ? `<button type="button" class="btn mic mic-icon" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}<span class="visually-hidden">Start talking</span></button>` : ''}
           <button type="button" class="btn cap-star" data-action="cap-important" aria-pressed="${!!ui.capImportant}">${ui.capImportant ? '★ Important' : '☆ Important'}</button>
         </div>
-        <span class="hint" id="cap-hint">Say a day ("tomorrow", "Friday") and it becomes the deadline. · <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
+        <span class="hint" id="cap-hint">Say a day ("tomorrow", "Friday") and it becomes the deadline. <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
       </div>
       <div class="capture-actions">
         <button type="button" class="btn btn-dark" data-action="quick-add">Add task</button>
@@ -851,20 +851,29 @@ function calendarSuggestHTML(dayKey) {
 // Starred calendar items come at their own time. You accept with one tap or change it.
 
 function proposalFor(dayKey) {
-  return R.proposeDay({ tasks: state.tasks, goals: state.goals, dayKey, slots: getDay(dayKey).slots || S().daySlots, settings: S() });
+  // For tomorrow, leave out what is still ahead in today's plan (it may still get done today).
+  const today = state.days[todayKey()];
+  const exclude = dayKey !== todayKey() && today
+    ? today.taskIds.filter((id) => { const at = (today.times || {})[id]; return task(id)?.status === 'open' && at && R.toMinutes(at) > nowMinutes(); })
+    : [];
+  return R.proposeDay({ tasks: state.tasks, goals: state.goals, dayKey, slots: getDay(dayKey).slots || S().daySlots, settings: S(), exclude });
 }
 
 function whyText(w, dayKey) {
   if (!w) return '';
   const parts = [];
   if (w.important) parts.push('important');
-  if (w.days !== null) parts.push(w.days < 0 ? 'overdue' : w.days === 0 ? 'due today' : w.days === 1 ? 'due tomorrow' : `due ${fmtDay(R.addDays(dayKey, w.days), w.days < 7 ? { weekday: 'short' } : { month: 'short', day: 'numeric' })}`);
-  return parts.join(', ');
+  if (w.days !== null) {
+    const d = w.days + R.daysUntil(dayKey, todayKey()); // counted from today, also in tomorrow's proposal
+    parts.push(d < 0 ? 'overdue' : d === 0 ? 'due today' : d === 1 ? 'due tomorrow' : `due ${fmtDay(R.addDays(todayKey(), d), d < 7 ? { weekday: 'short' } : { month: 'short', day: 'numeric' })}`);
+  }
+  return parts.join(', ') || 'for later';
 }
 
+// Compares the new proposal with what the last one put in the day (tasks you added yourself do not count).
 function samePlan(p, day) {
   const proposed = new Set([...p.focus, ...p.also, ...p.calendar]);
-  const open = day.taskIds.filter((id) => task(id)?.status === 'open');
+  const open = (day.proposed || day.taskIds).filter((id) => day.taskIds.includes(id) && task(id)?.status === 'open');
   const focus = (day.focus || []).filter((id) => task(id)?.status === 'open');
   return open.length === proposed.size && open.every((id) => proposed.has(id))
     && focus.length === p.focus.length && focus.every((id, i) => id === p.focus[i]);
@@ -904,7 +913,9 @@ async function applyProposal(dayKey, { replace = false } = {}) {
   const ids = [...p.focus, ...p.also, ...p.calendar];
   day.times = day.times || {};
   if (replace) {
-    day.taskIds.filter((id) => task(id)?.status === 'open' && !ids.includes(id)).forEach((id) => {
+    // Only what the last proposal put there goes; tasks you added yourself stay.
+    const fromProposal = day.proposed || [];
+    day.taskIds.filter((id) => fromProposal.includes(id) && task(id)?.status === 'open' && !ids.includes(id)).forEach((id) => {
       day.taskIds = day.taskIds.filter((x) => x !== id);
       delete day.times[id];
     });
@@ -912,6 +923,7 @@ async function applyProposal(dayKey, { replace = false } = {}) {
   ids.forEach((id) => { if (!day.taskIds.includes(id)) day.taskIds.push(id); });
   day.slots = Math.min(S().daySlotsMax, Math.max(day.slots || S().daySlots, day.taskIds.length));
   day.focus = p.focus;
+  day.proposed = ids;
   day.prioChanged = false;
   // Focus first, so it gets the earliest free time.
   ids.forEach((id) => { const t = task(id); if (t && !day.times[id]) placeTask(t, dayKey); });
@@ -977,6 +989,12 @@ function renderToday() {
       <div class="card list">${extras.map((t) => todayTaskRowHTML(t, key)).join('')}</div>` : '';
 
   const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
+  const evening = new Date().getHours() >= 20;
+  if ((!day || !day.taskIds.length) && evening) {
+    return `${head}
+    <div class="card empty">Evening. Plan tomorrow instead.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-tomorrow">Plan tomorrow</button></div>
+    ${captureHTML()}`;
+  }
   if (!day || !day.taskIds.length || (onlyCalendar && proposalHTML(key))) {
     // The proposal comes first: it is the first thing to see in the morning.
     return `${head}
@@ -984,7 +1002,7 @@ function renderToday() {
     ${captureHTML()}
     <div class="cols">
       <section class="col" style="flex: 1.2 1 380px">
-        ${proposalHTML(key) ? '' : '<div class="card empty">Nothing to propose yet. Add tasks above, and tap ☆ on the ones that matter.</div>'}
+        ${proposalHTML(key) ? '' : '<div class="card empty">Nothing to propose yet. Add tasks above.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-today">Plan today</button></div>'}
         ${extraHTML}
       </section>
       ${calendar}
@@ -1014,6 +1032,7 @@ function renderToday() {
     <span><strong>${done}</strong> done</span>
     <span><strong>${R.formatMinutes(need.total)}</strong> planned</span>
     ${!day.set ? '<span class="chip chip-warn">Plan not set yet · <a href="#start">set it</a></span>' : ''}
+    ${day.set && day.planStale && G.isConfigured() ? `<button class="btn btn-small btn-dark" data-action="set-plan" data-day="${key}">Update Google Calendar</button>` : ''}
   </div>
   ${proposalHTML(key)}
   ${nowCardHTML(current, next)}
@@ -1383,7 +1402,8 @@ async function handleTalk(text, { about = null, source = 'talk', button = null, 
 
 function talkRowHTML(t, i, kind) {
   const goalSel = `<select class="input" data-talk="goal" aria-label="Goal">${state.goals.map((g) => `<option value="${g.id}" ${g.id === t.goalId ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select>`;
-  const prioSel = `<select class="input" data-talk="priority" aria-label="Priority">${['nice', 'important', 'urgent', 'both'].map((p) => `<option value="${p}" ${p === t.priority ? 'selected' : ''}>${R.PRIORITIES[p].mark || ''} ${R.PRIORITIES[p].label}</option>`).join('')}</select>`;
+  const on = R.isImportant(t);
+  const prioSel = `<label class="check-row"><input type="checkbox" data-talk="important" ${on ? 'checked' : ''}> ★ Important</label>`;
   return `<div class="talk-row" data-kind="${kind}" data-index="${i}">
     <label class="check-row"><input type="checkbox" data-talk="pick" ${t.pick ? 'checked' : ''} ${t.taken ? 'disabled' : ''}> <span class="item-title">${esc(t.title)}</span></label>
     ${t.from ? `<span class="hint">From the email: ${esc(t.from)}</span>` : ''}
@@ -1411,7 +1431,8 @@ function readTalkReview() {
   modal.querySelectorAll('.talk-row').forEach((row) => {
     const t = talkDraft[row.dataset.kind][Number(row.dataset.index)];
     t.pick = !!row.querySelector('[data-talk="pick"]')?.checked;
-    t.priority = row.querySelector('[data-talk="priority"]')?.value || t.priority;
+    const imp = row.querySelector('[data-talk="important"]');
+    if (imp) t.important = imp.checked;
     t.goalId = row.querySelector('[data-talk="goal"]')?.value || t.goalId;
   });
   return [...talkDraft.named, ...talkDraft.suggested].filter((t) => t.pick && !t.taken);
@@ -1425,12 +1446,14 @@ function addTalkTasks() {
   const fresh = [];
   const problems = [];
   picks.forEach((p) => {
+    const said = R.parseDeadline(p.title, todayKey());
     const t = {
       id: newId(), status: 'open', createdAt: nowIso, lastTouchedAt: nowIso, pushCount: 0,
-      title: p.title, goalId: p.goalId, priority: p.priority, deadline: R.defaultDeadline(p.priority, todayKey()),
+      title: said.title, goalId: p.goalId, important: R.isImportant(p), deadline: said.deadline,
       minutes: p.minutes || 30, firstSteps: R.templateSteps(p.title, 'everywhere'), firstStep: '', stepsBy: 'template', place: 'everywhere',
       destination: '', fixedDate: '', fixedTime: null, needs: [], source: p.source || 'talk', computer: true,
     };
+    Object.assign(t, R.levelFields(t, todayKey(), S()));
     R.validateTask(t, [...state.tasks, ...fresh], todayKey(), S()).forEach((msg) => problems.push(`${p.title}: ${msg}`));
     fresh.push(t);
   });
@@ -1648,14 +1671,15 @@ function reviewPasted() {
 // ----- goals -----
 
 function renderGoals() {
-  const cards = state.goals.map((g, i) => {
+  const shown = [...state.goals.filter((g) => g.id !== 'life'), ...state.goals.filter((g) => g.id === 'life')];
+  const cards = shown.map((g, i) => {
     const open = state.tasks.filter((t) => t.goalId === g.id && t.status === 'open');
     const done = state.tasks.filter((t) => t.goalId === g.id && t.status === 'done').length;
     return `
     <article class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
       <div style="display:flex; justify-content:space-between; gap:8px; align-items:center">
-        <h2 style="font-size:18px">${i + 1}. ${esc(g.title)}</h2>
-        <span style="display:flex; gap:6px">${i > 0 ? `<button class="btn btn-small" data-action="goal-up" data-id="${g.id}" aria-label="Move ${esc(g.title)} up">↑</button>` : ''}<button class="btn btn-small" data-action="edit-goal" data-id="${g.id}">Edit</button></span>
+        <h2 style="font-size:18px">${g.id === 'life' ? '' : `${i + 1}. `}${esc(g.title)}</h2>
+        <span style="display:flex; gap:6px">${i > 0 && g.id !== 'life' ? `<button class="btn btn-small" data-action="goal-up" data-id="${g.id}" aria-label="Move ${esc(g.title)} up">↑</button>` : ''}<button class="btn btn-small" data-action="edit-goal" data-id="${g.id}">Edit</button></span>
       </div>
       ${g.why ? `<div style="color: var(--ink-2)">Why: ${esc(g.why)}</div>` : ''}
       <div class="item-meta"><span>${open.length} open</span><span>${done} done</span></div>
@@ -1665,7 +1689,7 @@ function renderGoals() {
   }).join('');
   return `
   <section class="page-head">
-    <div><h1>Goals</h1><div class="sub">Most important first. Tasks follow this order.</div></div>
+    <div><h1>Goals</h1><div class="sub">Most important first. Tasks follow this order. "Keep life running" is always last.</div></div>
     ${state.goals.length < S().maxGoals ? '<button class="btn btn-dark" data-action="new-goal">+ New goal</button>' : ''}
   </section>
   <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">${cards}</div>`;
@@ -1722,7 +1746,7 @@ function openModal(html, wide = false) {
 function closeModal() { modal.close(); modal.innerHTML = ''; }
 
 function taskFormHTML(t, opts) {
-  const draft = t || { important: false, priority: 'nice', place: 'everywhere', goalId: opts.goalId || state.goals[0]?.id, minutes: 30, ...(opts.prefill || {}) };
+  const draft = t || { priority: 'nice', place: 'everywhere', goalId: opts.goalId || state.goals[0]?.id, minutes: 30, ...(opts.prefill || {}) };
   const pressed = (v, cur) => `aria-pressed="${v === cur}"`;
   const steps = stepsOf(draft);
   const mode = draft.stepsBy === 'me' ? 'me' : 'suggest';
@@ -2155,7 +2179,14 @@ async function addToDay(taskId, dayKey) {
 
 // Dropping a task on ★! or ★ marks it important; on ! or later, not important. The deadline does the rest.
 function changePriority(id, priority) {
-  setImportant(id, priority === 'both' || priority === 'important');
+  const t = task(id);
+  if (!t) return;
+  const want = priority === 'both' || priority === 'important';
+  if (R.isImportant(t) === want) {
+    toast(want ? `${t.title} is already ★. It becomes ★! when it is due today or tomorrow.` : `${t.title} is not important. The deadline decides if it is !.`);
+    return;
+  }
+  setImportant(id, want);
 }
 
 function setImportant(id, important) {
@@ -2166,7 +2197,7 @@ function setImportant(id, important) {
   Object.entries(state.days).forEach(([key, d]) => {
     if (key < todayKey() || !d.taskIds.length) return;
     if (d.taskIds.includes(id)) syncPlan(key);
-    d.prioChanged = true; // the proposal for that day may be different now
+    if (d.proposed) d.prioChanged = !samePlan(proposalFor(key), d); // only when the proposal is really different
   });
   ui.open[t.priority] = true;
   persist([`${important ? '★ Important' : 'Not important'}: ${t.title}`]);
@@ -2542,6 +2573,7 @@ const actions = {
   },
   'plan-day': (el) => { ui.planDay = el.dataset.day; render(); },
   'go-plan-today': () => { ui.planDay = 'today'; location.hash = '#start'; },
+  'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; if (location.hash === '#start') render(); else location.hash = '#start'; },
   'filter-goal': (el) => { ui.goalFilter = ui.goalFilter === el.dataset.id ? null : el.dataset.id; render(); },
   'clear-filter': () => { ui.goalFilter = null; render(); },
   'toggle-group': (el) => { const g = el.dataset.groupName; ui.open[g] = !ui.open[g]; render(); },
@@ -2771,9 +2803,12 @@ const actions = {
   'toggle-important': (el) => { const t = task(el.dataset.id); if (t) setImportant(t.id, !R.isImportant(t)); },
   'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.textContent = ui.capImportant ? '★ Important' : '☆ Important'; },
   'goal-up': (el) => {
+    // Swap with the goal above it, skipping "Keep life running" (always last).
     const i = state.goals.findIndex((g) => g.id === el.dataset.id);
-    if (i <= 0) return;
-    [state.goals[i - 1], state.goals[i]] = [state.goals[i], state.goals[i - 1]];
+    let j = i - 1;
+    while (j >= 0 && state.goals[j].id === 'life') j -= 1;
+    if (i <= 0 || j < 0) return;
+    [state.goals[j], state.goals[i]] = [state.goals[i], state.goals[j]];
     persist(['Goal moved up. Its tasks now come first.']);
   },
   'delete-task': () => {

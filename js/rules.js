@@ -153,8 +153,9 @@ export function rankTasks(tasks, goals = []) {
 // The day the app proposes: up to 2 Focus tasks (the important ones), then the rest of the
 // slots from what is due soon. Starred calendar items of that day always come, at their own time.
 // Returns ids, plus why each was picked: { important, days } (days until the deadline, or null).
-export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DEFAULT_SETTINGS }) {
-  const open = tasks.filter((t) => t.status === 'open'
+// exclude: ids already planned on another day (for example today's tasks still ahead).
+export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DEFAULT_SETTINGS, exclude = [] }) {
+  const open = tasks.filter((t) => t.status === 'open' && !exclude.includes(t.id)
     && !(t.eventRef && t.eventRef.date !== dayKey)
     && !(t.fixedDate && t.fixedDate !== dayKey));
   const ranked = rankTasks(open, goals);
@@ -163,8 +164,16 @@ export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DE
   const focus = rest.filter((t) => t.priority === 'both' || t.priority === 'important').slice(0, 2);
   // No important task: the most pressing ones become the focus.
   rest.filter((t) => !focus.includes(t)).slice(0, 2 - focus.length).forEach((t) => focus.push(t));
-  const room = Math.max(0, Math.min(slots, settings.daySlotsMax - calendar.length) - focus.length);
-  const also = rest.filter((t) => !focus.includes(t)).slice(0, room);
+  const left = rest.filter((t) => !focus.includes(t));
+  // Anything due that day or overdue always comes, even past the usual number of slots.
+  const dueNow = left.filter((t) => t.deadline && daysUntil(t.deadline, dayKey) <= 0);
+  const max = settings.daySlotsMax - calendar.length - focus.length;
+  const room = Math.max(0, Math.min(max, Math.max(slots - focus.length, dueNow.length)));
+  const also = [...dueNow, ...left.filter((t) => !dueNow.includes(t))].slice(0, room);
+  // Nothing important or due soon: offer the top tasks for later, so the day is never empty.
+  if (!focus.length && !also.length) {
+    ranked.filter((t) => !calendar.includes(t)).slice(0, Math.min(slots, Math.max(0, settings.daySlotsMax - calendar.length))).forEach((t) => also.push(t));
+  }
   const why = {};
   [...focus, ...also, ...calendar].forEach((t) => {
     why[t.id] = { important: isImportant(t), days: t.deadline ? daysUntil(t.deadline, dayKey) : null };
@@ -183,7 +192,7 @@ const MONTHS = [
   ['may', 'mayo'], ['jun', 'june', 'junio'], ['jul', 'july', 'julio'], ['aug', 'august', 'ago', 'agosto'],
   ['sep', 'sept', 'september', 'septiembre', 'setiembre'], ['oct', 'october', 'octubre'], ['nov', 'november', 'noviembre'], ['dec', 'december', 'dic', 'diciembre'],
 ];
-const LEAD = '(?:by|on|due|before|until|para(?:\\s+el)?|el|antes\\s+del?|hasta\\s+el)';
+const LEAD = '(?:by|on|due|before|until|for|para(?:\\s+el)?|el|antes\\s+del?|hasta\\s+el)';
 
 function monthIndex(word) {
   const w = word.toLowerCase().replace(/\.$/, '');
@@ -196,30 +205,38 @@ export function parseDeadline(title, todayKey) {
   const text = String(title || '').trim();
   const day = WEEKDAYS.flat().join('|');
   const month = MONTHS.flat().join('|');
+  const weekday = (m, plus = 0) => {
+    const want = WEEKDAYS.findIndex((names) => names.includes(m.toLowerCase()));
+    const now = parseDateKey(todayKey).getDay();
+    return addDays(todayKey, ((want - now + 7) % 7) + plus);
+  };
+  // lead: at the start, the form needs "on", "el", "by"... before it ("Sunday school prep" stays as it is).
   const forms = [
     { re: `(?:today|hoy)`, at: () => todayKey },
-    { re: `(?:tomorrow|ma[ñn]ana)`, at: () => addDays(todayKey, 1) },
+    // "mañana" after "la" or "de" means "morning" ("correr en la mañana").
+    { re: `(?<!\\b(?:la|de|esta|en)\\s)(?:tomorrow|ma[ñn]ana)`, at: () => addDays(todayKey, 1) },
     { re: `(?:next\\s+week|la\\s+pr[oó]xima\\s+semana|la\\s+semana\\s+que\\s+viene)`, at: () => addDays(todayKey, 7) },
-    { re: `(${day})`, at: (m) => {
-      const want = WEEKDAYS.findIndex((names) => names.includes(m[1].toLowerCase()));
-      const now = parseDateKey(todayKey).getDay();
-      return addDays(todayKey, (want - now + 7) % 7);
-    } },
+    { re: `next\\s+(${day})`, at: (m) => weekday(m[1], 7), lead: true },
+    { re: `this\\s+(${day})`, at: (m) => weekday(m[1]), lead: true },
+    { re: `(${day})`, at: (m) => weekday(m[1]), lead: true },
     { re: `(${month})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?`, at: (m) => dateIn(todayKey, monthIndex(m[1]), Number(m[2])) },
     { re: `(\\d{1,2})\\s+(?:de\\s+)?(${month})\\.?`, at: (m) => dateIn(todayKey, monthIndex(m[2]), Number(m[1])) },
   ];
   for (const f of forms) {
     const end = new RegExp(`(?:[\\s,]+${LEAD})?[\\s,]+${f.re}[.!]?$`, 'iu');
-    const start = new RegExp(`^(?:${LEAD}\\s+)?${f.re}[\\s,:]+`, 'iu');
-    for (const re of [end, start]) {
+    const start = new RegExp(`^${f.lead ? `${LEAD}\\s+` : `(?:${LEAD}\\s+)?`}${f.re}[\\s,:]+`, 'iu');
+    for (const [re, atStart] of [[end, false], [start, true]]) {
       const m = text.match(re);
       if (!m) continue;
       const inner = m[0].match(new RegExp(f.re, 'iu'));
       const deadline = f.at(inner);
       if (!deadline) continue;
       const rest = text.replace(re, ' ').trim();
-      if (rest.length < 2) continue;
-      return { title: rest.charAt(0).toUpperCase() + rest.slice(1), deadline };
+      // Keep a one-word title whole ("Plan Saturday" is a task name, not a date).
+      if (rest.length < 2 || !/\s/.test(rest)) continue;
+      // Only capitalize when the start was cut, and never a word like "iPhone".
+      const title = atStart && /^[a-zñáéíóú][^A-Z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
+      return { title, deadline };
     }
   }
   return { title: text, deadline: '' };
@@ -576,11 +593,19 @@ export function mergeData(base, local, remote) {
     if (out.set && (!same(out.taskIds, dl.taskIds || []) || !same(out.taskIds, dr.taskIds || []))) out.planStale = true;
     return out;
   };
+  // Tasks are compared without what the app computes (the level), so a device that only
+  // recomputed levels never looks like it edited a task.
+  const plain = (t) => (t && t.title !== undefined ? { ...t, priority: undefined, promotionBlocked: undefined, important: isImportant(t) } : t);
   const byId = (key) => {
     const map = (arr) => new Map((arr || []).map((v) => [v.id, v]));
     const [mb, ml, mr] = [map(b[key]), map(local[key]), map(remote[key])];
     const ids = [...new Set([...ml.keys(), ...mr.keys()])];
-    return ids.map((id) => pick(mb.get(id), ml.get(id), mr.get(id))).filter((v) => v !== undefined);
+    return ids.map((id) => {
+      const [x, l, r] = [mb.get(id), ml.get(id), mr.get(id)];
+      if (key !== 'tasks') return pick(x, l, r);
+      const v = pick(plain(x), plain(l), plain(r));
+      return v === undefined ? undefined : same(v, plain(l)) ? l : same(v, plain(r)) ? r : v;
+    }).filter((v) => v !== undefined);
   };
   const days = {};
   new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})]).forEach((k) => {

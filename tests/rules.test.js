@@ -342,3 +342,32 @@ test('a deadline said at the start or end of the title is read and removed', () 
   assert.deepEqual(parseDeadline('Fix the Monday report', T), { title: 'Fix the Monday report', deadline: '' });
   assert.deepEqual(parseDeadline('Buy milk', T), { title: 'Buy milk', deadline: '' });
 });
+
+test('merge: a device that only recomputed levels never undoes a task marked done elsewhere', () => {
+  const base = { savedAt: '1', tasks: [{ id: 'a', title: 'A', status: 'open', priority: 'important' }] };
+  const phone = { savedAt: '2', tasks: [{ id: 'a', title: 'A', status: 'done', priority: 'important' }] }; // older version, no "important"
+  const computer = { savedAt: '3', tasks: [{ id: 'a', title: 'A', status: 'open', priority: 'both', important: true, promotionBlocked: false }] };
+  assert.equal(mergeData(base, phone, computer).tasks[0].status, 'done');
+});
+
+test('the proposal takes everything due that day, never an empty day, and skips excluded ids', () => {
+  const D = '2026-10-26';
+  const t = (id, priority, extra = {}) => ({ id, title: id, status: 'open', priority, important: priority === 'both' || priority === 'important', ...extra });
+  const p = proposeDay({ dayKey: D, slots: 3, tasks: [t('i1', 'important'), t('i2', 'important'), t('bill', 'urgent', { deadline: D }), t('id', 'urgent', { deadline: D })] });
+  assert.deepEqual(p.focus, ['i1', 'i2']);
+  assert.deepEqual(p.also.sort(), ['bill', 'id']);
+  const later = proposeDay({ dayKey: D, tasks: [t('l1', 'nice'), t('l2', 'nice')] });
+  assert.deepEqual(later.also, ['l1', 'l2']);
+  assert.deepEqual(proposeDay({ dayKey: D, tasks: [t('i1', 'important'), t('i2', 'important')], exclude: ['i1'] }).focus, ['i2']);
+});
+
+test('words that only look like dates stay in the title', () => {
+  const T = '2026-11-04';
+  for (const title of ['Correr en la mañana', 'Desayuno de mañana', 'Sunday school prep', 'Martes de tacos', 'Plan Saturday', 'Fix the Monday report']) {
+    assert.deepEqual(parseDeadline(title, T), { title, deadline: '' }, title);
+  }
+  assert.deepEqual(parseDeadline('Send report by next Friday', T), { title: 'Send report', deadline: '2026-11-13' });
+  assert.deepEqual(parseDeadline('Call Ana this Friday', T), { title: 'Call Ana', deadline: '2026-11-06' });
+  assert.deepEqual(parseDeadline('iPhone repair tomorrow', T), { title: 'iPhone repair', deadline: '2026-11-05' });
+  assert.deepEqual(parseDeadline('El lunes llamar al banco', T), { title: 'Llamar al banco', deadline: '2026-11-09' });
+});
