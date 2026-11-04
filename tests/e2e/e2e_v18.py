@@ -19,7 +19,7 @@ with sync_playwright() as p:
     ctx.add_init_script(f"if(!sessionStorage.getItem('s')){{localStorage.setItem('personal-io:v1', {json.dumps(json.dumps(st))});localStorage.setItem('personal-io:google-client-id','1-a.apps.googleusercontent.com');sessionStorage.setItem('s','1')}}")
     pg=ctx.new_page(); pg.clock.install(time=datetime.datetime(2026,10,31,9,0)); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.route('https://accounts.google.com/gsi/client', lambda r: r.fulfill(status=200, content_type='text/javascript', body=HANG))
-    pg.goto('http://localhost:8765/#start'); pg.wait_for_selector('.col-backlog')
+    pg.goto('http://localhost:8765/#start'); pg.wait_for_selector('.col-todo')
     print('promotion blocked buttons:', pg.inner_text('.item:has-text("Pay rent") .chip-warn') if pg.locator('.item:has-text("Pay rent") .chip-warn').count() else 'none', '|', pg.locator('.item:has-text("Pay rent") [data-action="demote-task"]').count())
     pg.click('.group-toggle[data-group-name="important"]'); pg.click('.group-toggle[data-group-name="nice"]')
     print('promotion blocked buttons:', pg.locator('.item:has-text("Pay rent") [data-action="demote-task"]').count(), pg.locator('.item:has-text("Pay rent") [data-action="edit-task"]').count())

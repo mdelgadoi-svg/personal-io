@@ -514,3 +514,48 @@ dialog:not(.wide) .modal-side { display: none; }
   .cap-input-row .input { flex: 1 1 0; min-width: 0; }
   .cap-star { flex: 1 1 100%; }
 }
+
+/* v2.1: one main screen, To-do | Calendar | Today, denser on the computer */
+@media (min-width: 761px) {
+  body { font-size: 15px; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; }
+  .btn, .seg button, .sync-pill { min-height: 40px; padding-top: 6px; padding-bottom: 6px; }
+  .btn-small { min-height: 34px; }
+  .input, select.input { min-height: 40px; padding-top: 6px; padding-bottom: 6px; font-size: 15px; }
+  .star-btn { width: 36px; height: 36px; font-size: 19px; }
+  .group-toggle { min-height: 42px; padding: 8px 14px; font-size: 15px; }
+  .group > .item, .list > .item { padding: 8px 14px; gap: 10px; }
+  .item-title, .task-name, .slot-title { font-size: 15px; }
+  .card-pad { padding: 12px 14px; }
+  main { padding-top: 14px; }
+  .topbar-inner { padding: 8px 20px; }
+  .pane-switch { display: none; }
+}
+.main-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.main-head .date-line { font-weight: 700; font-size: 16px; }
+.seg-small { max-width: 240px; }
+.seg-small button { min-height: 36px; padding: 4px 12px; }
+.main-cols { display: grid; grid-template-columns: minmax(300px, 1.1fr) minmax(260px, 0.9fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.main-cols .col-cal { position: sticky; top: 64px; }
+.main-cols .capture { padding: 10px 12px; margin-bottom: 0; gap: 6px; box-shadow: none; }
+.cap-links { font-size: 13px; color: var(--ink-2); }
+.cap-links .btn-link { font-size: 13px; }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.now-note { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; }
+.also-done { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.first-run { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.onboard { display: flex; flex-direction: column; gap: 8px; border: 2px solid var(--primary); }
+@media (max-width: 1100px) and (min-width: 761px) {
+  .main-cols { grid-template-columns: 1fr 1fr; }
+  .main-cols .col-cal { grid-row: span 2; }
+}
+/* Phone: one column at a time, picked with the switch */
+@media (max-width: 760px) {
+  .main-cols { display: block; }
+  .main-cols > .col { display: none; }
+  .main-cols[data-pane="todo"] > .col-todo, .main-cols[data-pane="cal"] > .col-cal, .main-cols[data-pane="day"] > .col-day { display: flex; }
+  .main-cols .col-cal { position: static; }
+  .pane-switch { margin-bottom: 12px; }
+  .pane-switch button { min-height: 44px; }
+}

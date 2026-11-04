@@ -44,7 +44,7 @@ with sync_playwright() as p:
     # a copy (part 2) of an important task stays important
     pg.click('.list .item:has-text("Send CV") [data-action="start-task"]') if False else None
     pg.goto(BASE + '#start'); pg.wait_for_timeout(300); show(pg, 'both')
-    pg.click('.col-backlog .item:has-text("Send CV") [data-action="edit-task"]'); pg.wait_for_timeout(200)
+    pg.click('.col-todo .item:has-text("Send CV") [data-action="edit-task"]'); pg.wait_for_timeout(200)
     print('form shows important:', pg.get_attribute('[data-group="important"] [data-value="yes"]', 'aria-pressed'))
     pg.click('[data-action="close-modal"]') if pg.locator('form[data-form="task"] [data-action="close-modal"]').count() else None
     # goals: "Keep life running" shows last, without a number or ↑

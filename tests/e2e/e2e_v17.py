@@ -79,8 +79,8 @@ with sync_playwright() as p:
     print('after tap window:', rows())
     # phone Today
     pg.set_viewport_size({'width':390,'height':844}); pg.goto(BASE+'#today'); pg.wait_for_timeout(300)
-    r=pg.locator('.cols .card.list .item').first
-    print('phone Today title width:', round(r.locator('.item-main').bounding_box()['width']), '| buttons right edge:', round(r.locator('.item-actions').bounding_box()['x']+r.locator('.item-actions').bounding_box()['width']))
+    r=pg.locator('.col-day .plan-row').first  # v2.1: today's tasks are in the Plan part of the main screen
+    print('phone Today title width:', round(r.locator('.plan-body').bounding_box()['width']), '| buttons right edge:', round(r.bounding_box()['x']+r.bounding_box()['width']))
     pg.screenshot(path=OUT+'/v17_phone_today.png', full_page=False)
-    pg.goto(BASE+'#start'); pg.wait_for_timeout(300); print('phone plan calendar visible:', pg.locator('#cal-plan').is_visible())
+    pg.click('[data-action="pane"][data-pane="cal"]'); pg.wait_for_timeout(300); print('phone plan calendar visible:', pg.locator('#cal-plan').is_visible())
 print('PAGE ERRORS', errors)

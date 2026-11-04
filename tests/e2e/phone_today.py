@@ -15,8 +15,8 @@ with sync_playwright() as p:
     ctx.add_init_script(f"localStorage.setItem('personal-io:v1', {json.dumps(json.dumps(st))})")
     pg=ctx.new_page(); pg.clock.set_fixed_time(datetime.datetime(2026,11,4,15,0)); errs=[]; pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto('http://localhost:8765/#today'); pg.wait_for_timeout(400)
-    r=pg.locator('.cols .card.list .item').first; r.scroll_into_view_if_needed()
-    print('title width', round(r.locator('.item-main').bounding_box()['width']), '| actions right', round(r.locator('.item-actions').bounding_box()['x']+r.locator('.item-actions').bounding_box()['width']))
+    r=pg.locator('.col-day .plan-row').first; r.scroll_into_view_if_needed()  # v2.1: the Plan part of the main screen
+    print('title width', round(r.locator('.plan-body').bounding_box()['width']), '| row right edge', round(r.bounding_box()['x']+r.bounding_box()['width']))
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')"))
     print('migrated times', s['days'][D].get('times'), '| reviewed kept', s['days'][D].get('reviewed'))
     print('how-did-it-go buttons (should be 0, already reviewed):', pg.locator('[data-action="review"]').count())

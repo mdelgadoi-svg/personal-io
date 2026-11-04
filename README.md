@@ -6,13 +6,12 @@ A private daily planner: goals, a few tasks a day with hard limits on what count
 
 ## How it works
 
-1. **Add anything** in one box. Say a day ("tomorrow", "Friday") and it becomes the deadline.
-2. **Tap ☆ on what is important.** That is the only choice. The deadline decides what is urgent, and the app sorts: ★! important and due soon, ★ important, ! due soon, 🤔 later.
-3. **Goals in order:** the first goal matters most, and its tasks come first.
-4. **Each morning the app proposes your day:** 2 Focus tasks plus what is due soon. Tap **Use this plan**, or **Change**.
-5. **Calendar events are just time.** Tap ☆ on a meeting that matters.
-6. **Reminders:** planned tasks go to Google Calendar with a reminder 10 minutes before and at the start, on your phone and computer.
-7. **Start:** one step per minute on the start screen.
+One screen, three parts (on the phone, a switch at the top):
+- **To-do:** add anything in one box (say a day like "tomorrow" and it becomes the deadline). Tap ☆ on what is important; the app sorts the rest into ★! important and due soon, ★ important, ! due soon, 🤔 later.
+- **Calendar:** your Google Calendar for the day. Events are just time; tap ☆ on one that matters.
+- **Plan:** each morning the app proposes 2 Focus tasks plus what is due soon. **Use this plan** puts them in Google Calendar with reminders 10 minutes before and at the start. Then Start, Done, How did it go.
+
+Goals (in order, first matters most) and the Backlog have their own pages. The first time, the app asks to connect Google Calendar and Gmail and starts from what is already there.
 
 ## Your data
 

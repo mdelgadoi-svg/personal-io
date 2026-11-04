@@ -1,5 +1,6 @@
 // Personal IO bridge. Runs in your own Google account, as you.
-// It keeps your Personal IO data in your Google Drive and reads and writes your Google Calendar,
+// It keeps your Personal IO data in your Google Drive, reads and writes your Google Calendar,
+// and reads (never changes) your recent Gmail when you ask it to find tasks,
 // so the app never has to ask you to sign in. Only someone with your key can use it.
 // Setup: Personal IO > Settings > Google bridge. Needs the Google Calendar API service (Services +).
 
@@ -36,6 +37,7 @@ function handle(req) {
       });
       return { items: res.items || [], summary: res.summary || '' };
     }
+    case 'emails': return { emails: recentEmails() };
     case 'writeDay': {
       const cal = req.calendarId || CAL;
       // Only removes events Personal IO wrote itself.
@@ -50,6 +52,22 @@ function handle(req) {
     }
     default: throw new Error('unknown action');
   }
+}
+
+// Read only: the last 2 weeks of mail (no promotions or social), subject, sender, date and the first lines.
+// Nothing is changed in Gmail and no attachments are read.
+function recentEmails() {
+  const threads = GmailApp.search('newer_than:14d -category:promotions -category:social -category:forums', 0, 40);
+  return threads.map((th) => {
+    const m = th.getMessages().pop();
+    return {
+      subject: m.getSubject() || '(no subject)',
+      from: String(m.getFrom() || '').replace(/<.*>/, '').trim(),
+      date: Utilities.formatDate(m.getDate(), Session.getScriptTimeZone(), 'EEE, MMM d'),
+      snippet: String(m.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 220),
+      sent: false,
+    };
+  });
 }
 
 // Saves only if nobody saved since the app last looked (expect), so two devices never overwrite each other.

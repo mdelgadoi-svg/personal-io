@@ -60,7 +60,7 @@ with sync_playwright() as p:
             starred = {'Send CV to Ana tomorrow', 'Prepare pitch deck tomorrow', 'Email the professor'}
             for t in titles:
                 if t in starred: pg.click('[data-action="cap-important"]')
-                pg.fill('#cap-text', t); pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(120)
+                pg.click('[data-action="pane"][data-pane="todo"]') if pg.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pg.fill('#cap-text', t); pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(120)
             print('asked anything:', pg.locator('#modal[open]').count(), '| 13 tasks:', len(data(pg)['tasks']))
             print('"Send CV to Ana tomorrow":', level(pg, 'Send CV to Ana'), next(t['deadline'] for t in data(pg)['tasks'] if t['title'] == 'Send CV to Ana'))
             print('levels:', {t: level(pg, t) for t in ['Prepare pitch deck', 'Email the professor', 'Call Pancho', 'Pay rent', 'Buy milk']})
@@ -83,7 +83,7 @@ with sync_playwright() as p:
             print('starred Justin is ★!:', level(pg, 'Meeting with Justin'))
             pg.goto(BASE + '#today'); pg.wait_for_timeout(400)
             print('Justin in proposal at 3:00 PM:', 'Meeting with Justin' in pg.inner_text('.proposal') and '3:00 PM' in pg.inner_text('.proposal'))
-            pg.click('#cal-today .ev:has-text("Justin")'); pg.wait_for_timeout(200)
+            pg.click('#cal-plan .ev:has-text("Justin")'); pg.wait_for_timeout(200)
             pg.click('[data-action="cal-untrack"]'); pg.wait_for_timeout(300)
             print('unstarred Justin left the list:', not any('Justin' in t['title'] for t in data(pg)['tasks'] if t['status'] == 'open'))
             # goal order: move "Get a job" above "Do good in school"

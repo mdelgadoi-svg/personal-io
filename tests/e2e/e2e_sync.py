@@ -96,7 +96,7 @@ with sync_playwright() as p:
     print('phone tasks:', [t['title'] for t in data(pp)['tasks']], '| plan rows:', pp.locator('.col-day .plan-row').count())
     pp.screenshot(path='tests/e2e/out/sync_phone.png')
     # phone adds a task, it goes to Drive
-    pp.fill('#cap-text', 'Buy milk'); pp.click('[data-action="quick-add"]'); pp.wait_for_timeout(2500)
+    pp.click('[data-action="pane"][data-pane="todo"]') if pp.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pp.fill('#cap-text', 'Buy milk'); pp.click('[data-action="quick-add"]'); pp.wait_for_timeout(2500)
     print('drive has Buy milk:', 'Buy milk' in drive['f1']['text'])
 
     # computer reconnects: gets the phone's change
@@ -105,8 +105,8 @@ with sync_playwright() as p:
 
     # both change while the computer is offline -> joined, nothing lost
     pc.evaluate("localStorage.removeItem('personal-io:google-session')"); pc.reload(); pc.wait_for_selector('.col-day')
-    pc.fill('#cap-text', 'Computer only'); pc.click('[data-action="quick-add"]'); pc.wait_for_timeout(300)
-    pp.fill('#cap-text', 'Phone only'); pp.click('[data-action="quick-add"]'); pp.wait_for_timeout(2500)
+    pc.click('[data-action="pane"][data-pane="todo"]') if pc.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pc.fill('#cap-text', 'Computer only'); pc.click('[data-action="quick-add"]'); pc.wait_for_timeout(300)
+    pp.click('[data-action="pane"][data-pane="todo"]') if pp.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pp.fill('#cap-text', 'Phone only'); pp.click('[data-action="quick-add"]'); pp.wait_for_timeout(2500)
     pc.click('[data-action="sync-now"]'); pc.wait_for_timeout(2500)
     final = json.loads(drive['f1']['text'])
     print('drive after join:', sorted(t['title'] for t in final['tasks'] if t['status'] == 'open'), '| tomorrow plan kept:', final['days'].get(TOM, {}).get('taskIds'))
@@ -130,7 +130,7 @@ with sync_playwright() as p:
     t1 = page(comp); t1.goto(BASE + '#start'); t1.wait_for_selector('.col-day')
     t2 = page(comp); t2.goto(BASE + '#start'); t2.wait_for_selector('.col-day')
     t1.click('[data-action="sync-now"]'); t1.wait_for_timeout(800)
-    t1.fill('#cap-text', 'Added in tab one'); t1.click('[data-action="quick-add"]'); t1.wait_for_timeout(2500)
+    t1.click('[data-action="pane"][data-pane="todo"]') if t1.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; t1.fill('#cap-text', 'Added in tab one'); t1.click('[data-action="quick-add"]'); t1.wait_for_timeout(2500)
     t2.evaluate("document.dispatchEvent(new Event('visibilitychange'))"); t2.click('[data-action="sync-now"]'); t2.wait_for_timeout(2500)
     t2.click('.group-toggle[data-group-name="nice"]'); t2.wait_for_timeout(200)
     print('drive keeps tab one task:', 'Added in tab one' in drive['f1']['text'], '| tab two shows it:', t2.locator('.task-name:has-text("Added in tab one")').count() > 0)

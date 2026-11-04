@@ -20,7 +20,8 @@ with sync_playwright() as p:
     pg=ctx.new_page(); pg.clock.set_fixed_time(datetime.datetime(2026,10,31,9,0)); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.route('https://accounts.google.com/gsi/client', lambda r: r.fulfill(status=200, content_type='text/javascript', body=GIS))
     pg.route('https://www.googleapis.com/**', gcal)
-    pg.goto('http://localhost:8765/#start'); pg.wait_for_selector('.col-backlog')
+    pg.goto('http://localhost:8765/#start'); pg.wait_for_selector('.main-cols')
+    pg.click('[data-action="pane"][data-pane="todo"]'); pg.wait_for_timeout(100)  # v2.1: on the phone, To-do is one of three parts
     # v2.0: an old ! task with a far deadline is now "later" (not important, not due soon), never blocked
     pg.click('.group-toggle[data-group-name="nice"]'); pg.wait_for_timeout(100)
     print('old ! task is later now:', pg.locator('.group-nice .item:has-text("Pay rent")').count())
@@ -28,6 +29,7 @@ with sync_playwright() as p:
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')")); print('rename ok:', s['tasks'][0]['title'])
     pg.screenshot(path=OUT+'/v181_phone_chip.png')
     pg.click('[data-action="add-to-day"][data-id="u"]'); pg.wait_for_timeout(200)
+    pg.click('[data-action="pane"][data-pane="day"]'); pg.wait_for_timeout(100)
     pg.click('.col-day [data-action="set-plan"]'); pg.wait_for_timeout(500)
     pg.goto('http://localhost:8765/#start') if False else None
     print('during write (Today page has no footer); waiting...'); pg.wait_for_timeout(2500)

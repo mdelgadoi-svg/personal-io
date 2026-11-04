@@ -105,7 +105,7 @@ with sync_playwright() as p:
     if pp.locator('#modal[open]').count(): pp.keyboard.press('Escape'); pp.wait_for_timeout(200)
 
     # both save at the same moment: the second write is refused, then joined
-    pp.fill('#cap-text', 'From phone'); pc.fill('#cap-text', 'From computer')
+    pp.click('[data-action="pane"][data-pane="todo"]') if pp.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pp.fill('#cap-text', 'From phone'); pc.click('[data-action="pane"][data-pane="todo"]') if pc.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pc.fill('#cap-text', 'From computer')
     pp.click('[data-action="quick-add"]'); pc.click('[data-action="quick-add"]'); pc.wait_for_timeout(4000); pp.wait_for_timeout(500)
     pp.evaluate("document.dispatchEvent(new Event('visibilitychange'))"); pp.click('[data-action="sync-now"]'); pp.wait_for_timeout(2000)
     pc.click('[data-action="sync-now"]'); pc.wait_for_timeout(2000)
@@ -120,7 +120,7 @@ with sync_playwright() as p:
     pf.goto(BASE + '#' + urlencode({'bridge': 'https://script.google.com/a/macros/berkeley.edu/s/AKfyNEW/exec', 'k': fake['key']})); pf.wait_for_timeout(300); pf.reload(); pf.wait_for_timeout(1500)
     if pf.locator('#modal[open]').count(): pf.keyboard.press('Escape'); pf.wait_for_timeout(200)
     print('second script brings the data:', sorted(t['title'] for t in data(pf)['tasks']) == before)
-    pf.fill('#cap-text', 'Buy milk'); pf.click('[data-action="quick-add"]'); pf.wait_for_timeout(2500)
+    pf.click('[data-action="pane"][data-pane="todo"]') if pf.locator('[data-action="pane"][data-pane="todo"]').is_visible() else None; pf.fill('#cap-text', 'Buy milk'); pf.click('[data-action="quick-add"]'); pf.wait_for_timeout(2500)
     after = sorted(t['title'] for t in json.loads(fake['text'])['tasks'])
     print('nothing overwritten:', after == sorted(before + ['Buy milk']))
 print('errors', errors)

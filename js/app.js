@@ -219,11 +219,10 @@ function itemTitle(item) {
 
 // ---------- rendering ----------
 
+// Goals and Backlog have their own pages; everything else (old #today, #calendar links too) is the main screen.
 function currentTab() {
   const hash = location.hash.slice(1);
-  if (hash) return hash;
-  const day = state.days[todayKey()];
-  return day && day.set ? 'today' : 'start';
+  return hash === 'goals' || hash === 'backlog' ? hash : 'start';
 }
 
 function render() {
@@ -237,9 +236,7 @@ function render() {
   renderSyncPill();
   if (tab !== 'goals') loadGoogleAhead();
   afterRender = [];
-  if (tab === 'today') view.innerHTML = renderToday();
-  else if (tab === 'calendar') view.innerHTML = renderCalendar();
-  else if (tab === 'goals') view.innerHTML = renderGoals();
+  if (tab === 'goals') view.innerHTML = renderGoals();
   else if (tab === 'backlog') view.innerHTML = renderBacklog();
   else view.innerHTML = renderStart();
   afterRender.forEach((fn) => fn());
@@ -250,7 +247,7 @@ function renderNowPill() {
   const { current } = currentAndNext();
   if (!current) { pill.innerHTML = ''; return; }
   const end = t12m(current.start + current.minutes);
-  pill.innerHTML = `<a class="now-pill" href="#today"><span class="dot"></span><span><strong>Now</strong><span class="long">: ${esc(itemTitle(current))}</span> · until ${end}</span></a>`;
+  pill.innerHTML = `<a class="now-pill" href="#start" data-action="go-plan-today"><span class="dot"></span><span><strong>Now</strong><span class="long">: ${esc(itemTitle(current))}</span> · until ${end}</span></a>`;
 }
 
 // ----- calendar drawing (shared) -----
@@ -407,7 +404,7 @@ function calItemHTML(c) {
   const head = `
     <div class="modal-head"><div><div class="date-line">${esc(when)}</div><h2 id="modal-title">${esc(c.title)}</h2><div class="hint">${source}</div></div>
       <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>`;
-  const editOwn = c.src === 'own' ? '<button type="button" class="btn-link" data-action="cal-edit-own">Edit event</button>' : '';
+  const editOwn = '';
   const t = c.task;
   if (t) {
     return `
@@ -483,68 +480,90 @@ function taskFromCalendar(c, overrides) {
 // ----- "What's on your mind?" capture panel -----
 
 function captureHTML() {
-  const empty = state.tasks.length === 0;
   return `
-  <section class="capture" aria-labelledby="cap-h">
-    ${empty ? '<span class="start-here">Start here</span>' : ''}
-    <div class="capture-head"><h2 id="cap-h">What's on your mind?</h2><span class="hint">Add one thing. You can organize it later.</span></div>
-    <div class="capture-row">
-      <div class="field" style="flex: 1 1 280px">
-        <label for="cap-text">Task, or something you already did</label>
-        <div class="cap-input-row">
-          <input class="input" id="cap-text" type="text" placeholder="e.g., Send my application" autocomplete="off" aria-describedby="cap-hint">
-          ${SpeechRec ? `<button type="button" class="btn mic mic-icon" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}<span class="visually-hidden">Start talking</span></button>` : ''}
-          <button type="button" class="btn cap-star" data-action="cap-important" aria-pressed="${!!ui.capImportant}">${ui.capImportant ? '★ Important' : '☆ Important'}</button>
-        </div>
-        <span class="hint" id="cap-hint">Say a day ("tomorrow", "Friday") and it becomes the deadline. <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
-      </div>
-      <div class="capture-actions">
-        <button type="button" class="btn btn-dark" data-action="quick-add">Add task</button>
-        <button type="button" class="btn btn-success" data-action="quick-done">✓ I already did it</button>
-      </div>
+  <section class="capture" aria-label="Add a task">
+    <div class="cap-input-row">
+      <label class="visually-hidden" for="cap-text">Add a task</label>
+      <input class="input" id="cap-text" type="text" placeholder="Add a task, e.g. Send CV tomorrow" autocomplete="off">
+      ${SpeechRec ? `<button type="button" class="btn mic mic-icon" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}<span class="visually-hidden">Start talking</span></button>` : ''}
+      <button type="button" class="btn cap-star" data-action="cap-important" aria-pressed="${!!ui.capImportant}" aria-label="Important">${ui.capImportant ? '★' : '☆'}</button>
+      <button type="button" class="btn btn-dark" data-action="quick-add">Add</button>
     </div>
+    <div class="cap-links"><button type="button" class="btn-link" data-action="quick-done">I already did it</button> · <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></div>
   </section>`;
 }
 
 // ----- start page (plan) -----
 
+// ----- first run: connect Google, then start from what is already on the calendar -----
+
+function firstRun() { return !G.isConfigured() && !state.tasks.length && !S().onboarded; }
+
+function firstRunHTML() {
+  return `
+  <section class="first-run card card-pad">
+    <h1>Welcome to Personal IO</h1>
+    <p>It helps you decide what matters each day. First, connect your Google Calendar and Gmail, so it starts from what you already have.</p>
+    ${bridgeSetupHTML()}
+    <button type="button" class="btn-link" style="align-self:flex-start" data-action="skip-first-run">Skip for now, I'll add tasks myself</button>
+  </section>`;
+}
+
+// Right after connecting: this week's calendar items to star, and tasks from email.
+function onboardHTML() {
+  if (S().onboarded || !G.usingBridge()) return '';
+  const rows = [];
+  for (let i = 0; i < 7 && rows.length < 12; i += 1) {
+    const key = R.addDays(todayKey(), i);
+    calendarItems(key).filter((c) => !c.task && (i > 0 || R.toMinutes(c.start) + c.minutes > nowMinutes())).forEach((c) => {
+      if (rows.length < 12) rows.push(`<div class="busy-row"><span><span class="mono">${esc(fmtDay(key, { weekday: 'short' }))} ${t12(c.start)}</span> ${esc(c.title)}</span>
+        <button type="button" class="star-btn" data-action="busy-prio" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}" aria-pressed="false" aria-label="${esc(c.title)}: this matters">☆</button></div>`);
+    });
+  }
+  return `<div class="card card-pad onboard">
+    <strong>Here is what is coming up</strong>
+    <span class="hint">Tap ☆ on what matters. The rest stays just time.</span>
+    ${rows.join('') || '<span class="hint">Nothing on your calendar this week yet.</span>'}
+    <div class="prop-actions"><button type="button" class="btn btn-small" data-action="open-email">Find tasks in my email</button>
+      <button type="button" class="btn btn-small btn-dark" data-action="onboard-done">Done</button></div>
+  </div>`;
+}
+
+// The one main screen: To-do | Calendar | Today. On the phone, a switch shows one at a time.
 function renderStart() {
   const hour = new Date().getHours();
-  const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const tKey = todayKey();
   if (!ui.planDay) {
     const count = (key) => ((state.days[key] || {}).taskIds || []).length;
     ui.planDay = R.defaultPlanDay(hour, count(tKey), count(tomorrowKey()));
   }
   const dayKey = ui.planDay === 'today' ? tKey : tomorrowKey();
-
+  if (firstRun()) return firstRunHTML();
+  const pane = ui.pane || 'day';
+  const paneBtn = (id, label) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${pane === id}">${label}</button>`;
   return `
-  <section class="page-head">
-    <div>
-      <div class="date-line">${esc(longDay(tKey))}</div>
-      <h1>${greet}. What's the plan?</h1>
-    </div>
-    <div class="seg" role="group" aria-label="Which day to plan" style="max-width: 360px">
-      <button type="button" data-action="plan-day" data-day="today" aria-pressed="${ui.planDay === 'today'}">Plan today</button>
-      <button type="button" data-action="plan-day" data-day="tomorrow" aria-pressed="${ui.planDay === 'tomorrow'}">Plan tomorrow</button>
+  <section class="main-head">
+    <div class="date-line">${esc(longDay(tKey))}</div>
+    <div class="seg seg-small" role="group" aria-label="Which day">
+      <button type="button" data-action="plan-day" data-day="today" aria-pressed="${ui.planDay === 'today'}">Today</button>
+      <button type="button" data-action="plan-day" data-day="tomorrow" aria-pressed="${ui.planDay === 'tomorrow'}">Tomorrow</button>
     </div>
   </section>
-  ${captureHTML()}
-  ${goalsStripHTML()}
-  <div class="cols plan-cols">
-    <section class="col col-backlog" aria-label="Tasks and their priorities">
-      <div class="col-head"><h2>Tasks and their priorities</h2></div>
-      ${ui.goalFilter ? `<div class="hint">Goal: ${esc(goal(ui.goalFilter)?.title || '')} (plus urgent) · <button class="btn-link" data-action="clear-filter">Show all</button></div>` : ''}
-      ${backlogGroupsHTML({ addTo: dayKey, goalFilter: ui.goalFilter })}
+  <div class="seg pane-switch" role="group" aria-label="Show">${paneBtn('todo', 'To-do')}${paneBtn('cal', 'Calendar')}${paneBtn('day', 'Plan')}</div>
+  <div class="main-cols" data-pane="${pane}">
+    <section class="col col-todo" aria-label="To-do">
+      <div class="col-head"><h2>To-do</h2></div>
+      ${captureHTML()}
+      ${onboardHTML()}
+      ${backlogGroupsHTML({ addTo: dayKey })}
       ${calendarSuggestHTML(dayKey)}
-    </section>
-    <section class="col col-day" aria-label="Day plan">
-      ${dayColumnHTML(dayKey)}
     </section>
     <section class="col col-cal card card-pad" aria-label="Calendar">
       <div class="col-head"><h2>Calendar</h2><span class="meta">${esc(fmtDay(dayKey))}</span></div>
-      <span class="hint">Drag your tasks to move them. Click an event to turn it into a task.</span>
-      ${calendarBlockHTML('cal-plan', dayKey, { px: 28, startHour: 7, endHour: 22, nowLine: dayKey === tKey })}
+      ${calendarBlockHTML('cal-plan', dayKey, { px: 30, startHour: 7, endHour: 22, nowLine: dayKey === tKey })}
+    </section>
+    <section class="col col-day" aria-label="${dayKey === tKey ? 'Today' : 'Tomorrow'}">
+      ${dayColumnHTML(dayKey)}
     </section>
   </div>`;
 }
@@ -762,6 +781,19 @@ function planRowHTML(t, key, word) {
   const start = timeOn(t, key);
   const onCal = onItsCalendar(t, key);
   const done = t.status === 'done';
+  const today = key === todayKey();
+  let todayBtns = '';
+  if (today) {
+    const day = getDay(key);
+    const index = day.plan ? day.plan.blocks.findIndex((b) => b.taskIds.includes(t.id)) : -1;
+    const askHow = index >= 0 && !done && start && nowMinutes() >= R.toMinutes(start) && !(day.reviewed || {})[t.id];
+    const st = todayStatus(t, key);
+    todayBtns = `<div class="row-actions">
+      ${st.word !== 'To do' ? `<span class="chip ${st.cls}">${st.word}</span>` : ''}
+      ${askHow ? `<button class="btn btn-small" data-action="review" data-block="${index}">How did it go?</button>` : ''}
+      ${!done ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button><button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
+    </div>`;
+  }
   const editing = !onCal && (ui.editTime === t.id || !start);
   const clash = overlapWith(t, key);
   const lengths = LENGTHS.includes(t.minutes) ? LENGTHS : [...LENGTHS, t.minutes || 30].sort((x, y) => x - y);
@@ -771,6 +803,7 @@ function planRowHTML(t, key, word) {
     <div class="plan-body">
       <div class="slot-title-row">${markHTML(t.priority)}<span class="slot-title">${esc(t.title)}</span>${(getDay(key).focus || []).includes(t.id) ? '<span class="chip chip-focus">Focus</span>' : ''}</div>
       <div class="item-meta"><span>${R.formatMinutes(t.minutes || 0)}</span>${goalLabel(t)}${onCal ? `<span>${CAL_ICON} On your calendar</span>` : ''}${t.place === 'commute' ? `<span>+${S().commuteMinutes} min commute</span>` : ''}</div>
+      ${t.progress && !done ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
       ${clash ? `<div class="item-meta"><span class="due-soon">Overlaps ${esc(clash.title)}</span></div>` : ''}
       ${!start && !onCal ? '<div class="item-meta"><span class="due-soon">No free time left that fits. Pick a time.</span></div>' : ''}
       ${editing ? `<div class="time-edit">
@@ -778,6 +811,7 @@ function planRowHTML(t, key, word) {
         <div class="field"><label for="len-${t.id}">How long</label>
           <select class="input" id="len-${t.id}" data-change="plan-length" data-id="${t.id}">${lengths.map((m) => `<option value="${m}" ${m === t.minutes ? 'selected' : ''}>${R.formatMinutes(m)}</option>`).join('')}</select></div>
       </div>` : ''}
+      ${todayBtns}
     </div>
     <div class="plan-actions">
       ${onCal ? '' : `<button type="button" class="btn btn-small" data-action="edit-time" data-id="${t.id}" aria-expanded="${editing}">${editing ? 'Done' : 'Change time'}</button>`}
@@ -810,17 +844,35 @@ function dayColumnHTML(dayKey) {
       <span>Changed since you set it.</span><button class="btn btn-small btn-dark" data-action="set-plan" data-day="${dayKey}">${G.isConfigured() ? 'Update Google Calendar' : 'Set again'}</button></div>`;
   } else if (tasks.length) {
     footer = `<div class="note note-ok" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
-      <span><strong>Plan set</strong>${day.googleIds && day.googleIds.length ? ' · in Google Calendar' : ''}</span>
-      ${isToday ? '<a class="btn btn-small" href="#today">Go to Today</a>' : ''}</div>`;
+      <span><strong>Plan set</strong>${day.googleIds && day.googleIds.length ? ' · in Google Calendar' : ''}</span></div>`;
   }
   return `
-  <div class="col-head"><h2>${isToday ? 'Today' : 'Tomorrow'} · ${esc(fmtDay(dayKey, { weekday: 'long' }))}</h2>
+  <div class="col-head"><h2>${isToday ? 'Today' : 'Tomorrow'}</h2>
     <span class="meta">${tasks.length} of ${day.slots} · ${R.formatMinutes(need.total)}</span></div>
+  ${isToday && tasks.length && day.set ? nowLineHTML() : ''}
   ${proposalHTML(dayKey)}
   <div class="slots" data-day="${dayKey}">${tasks.map((t) => planRowHTML(t, dayKey, word)).join('')}</div>
-  ${free ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Add from your list, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
-  ${day.slots < S().daySlotsMax ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
-  ${footer}`;
+  ${free && !proposalHTML(dayKey).includes('class="card card-pad proposal"') ? `<div class="slot-empty"><span>${free} open slot${free === 1 ? '' : 's'}. Add from your list, or</span><button class="btn-link" data-action="new-task" data-day="${dayKey}">+ New task</button></div>` : ''}
+  ${day.slots < S().daySlotsMax && tasks.length ? `<button class="btn-link" data-action="open-slot" data-day="${dayKey}">+ Slot (${day.slots + 1} of ${S().daySlotsMax})</button>` : ''}
+  ${footer}
+  ${isToday ? alsoDoneHTML(dayKey) : ''}`;
+}
+
+// One short line about what is happening now (the full card was on the old Today page).
+function nowLineHTML() {
+  const { current, next } = currentAndNext();
+  if (current) {
+    const end = t12m(current.start + current.minutes);
+    const open = current.type === 'block' ? current.block.taskIds.map(task).find((x) => x && x.status === 'open') : null;
+    return `<div class="note note-info now-note"><span><strong>Now</strong> · ${esc(open ? open.title : itemTitle(current))} · until ${end}</span>${open ? `<button class="btn btn-small btn-dark" data-action="start-task" data-id="${open.id}">▶ Start</button>` : ''}</div>`;
+  }
+  return next ? `<div class="note note-info now-note"><span>Next at <strong>${t12m(next.start)}</strong>: ${esc(itemTitle(next))}</span></div>` : '';
+}
+
+function alsoDoneHTML(key) {
+  const extras = extraDoneToday(key, getDay(key).taskIds);
+  if (!extras.length) return '';
+  return `<div class="also-done"><span class="eyebrow">Also done today</span>${extras.map((t) => `<div class="hint">✓ ${esc(t.title)}</div>`).join('')}</div>`;
 }
 
 // The day's calendar events that are not in your list yet, at the end of the task list.
@@ -945,145 +997,6 @@ function extraDoneToday(key, planned) {
   return state.tasks.filter((t) => t.status === 'done' && t.doneAt && R.toDateKey(new Date(t.doneAt)) === key && !planned.includes(t.id));
 }
 
-function todayTaskRowHTML(t, key) {
-  const st = todayStatus(t, key);
-  const day = state.days[key];
-  const start = day ? timeOn(t, key) : null;
-  const index = day && day.plan ? day.plan.blocks.findIndex((b) => b.taskIds.includes(t.id)) : -1;
-  const askHow = index >= 0 && t.status === 'open' && nowMinutes() >= R.toMinutes(day.plan.blocks[index].start) && !(day.reviewed || {})[t.id];
-  return `<div class="item">
-    ${start ? `<div class="plan-time"><strong>${t12(start)}</strong></div>` : ''}
-    <div class="item-main">
-      <div style="display:flex; gap:8px; align-items:center">${markHTML(t.priority)} <span class="item-title" style="${t.status === 'done' ? 'text-decoration: line-through; color: var(--ink-2)' : ''}">${esc(t.title)}</span></div>
-      <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${st.reason ? `<span>· ${esc(st.reason)}</span>` : ''}</div>
-      ${t.progress && t.status !== 'done' ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
-    </div>
-    <div class="item-actions">
-      ${((day && day.focus) || []).includes(t.id) && t.status === 'open' ? '<span class="chip chip-focus">Focus</span>' : ''}
-      <span class="chip ${st.cls}">${st.word}</span>
-      ${askHow ? `<button class="btn btn-small" data-action="review" data-block="${index}">How did it go?</button>` : ''}
-      ${t.status !== 'done' ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button>
-      <button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
-    </div>
-  </div>`;
-}
-
-function renderToday() {
-  const key = todayKey();
-  if (state.days[key]) ensureTimes(key);
-  const day = state.days[key];
-  const planned = day ? day.taskIds : [];
-  const extras = extraDoneToday(key, planned);
-  const head = `
-  <section class="page-head">
-    <div><div class="date-line">${esc(longDay(key))}</div><h1>Today</h1>
-</div>
-  </section>`;
-  const calendar = `
-    <section class="col card card-pad" style="flex: 1 1 340px" aria-label="Calendar">
-      <div class="col-head"><h2>Calendar</h2><span class="hint">Click an event to turn it into a task</span></div>
-      ${calendarBlockHTML('cal-today', key, { nowLine: true, px: 40 })}
-    </section>`;
-  const extraHTML = extras.length ? `
-      <div class="col-head"><h2>Also done today</h2></div>
-      <div class="card list">${extras.map((t) => todayTaskRowHTML(t, key)).join('')}</div>` : '';
-
-  const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
-  const evening = new Date().getHours() >= 20;
-  if ((!day || !day.taskIds.length) && evening) {
-    return `${head}
-    <div class="card empty">Evening. Plan tomorrow instead.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-tomorrow">Plan tomorrow</button></div>
-    ${captureHTML()}`;
-  }
-  if (!day || !day.taskIds.length || (onlyCalendar && proposalHTML(key))) {
-    // The proposal comes first: it is the first thing to see in the morning.
-    return `${head}
-    ${proposalHTML(key) || ''}
-    ${captureHTML()}
-    <div class="cols">
-      <section class="col" style="flex: 1.2 1 380px">
-        ${proposalHTML(key) ? '' : '<div class="card empty">Nothing to propose yet. Add tasks above.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-today">Plan today</button></div>'}
-        ${extraHTML}
-      </section>
-      ${calendar}
-    </div>`;
-  }
-
-  const tasks = sortedDayTasks(key);
-  const done = tasks.filter((t) => t.status === 'done').length + extras.length;
-  const goalsToday = [...new Set(tasks.map((t) => t.goalId))].map(goal).filter(Boolean);
-  const need = R.dayTimeNeeded(tasks, S());
-  const { current, next } = currentAndNext();
-
-  const goalCards = goalsToday.map((g) => {
-    const mine = tasks.filter((t) => t.goalId === g.id);
-    const d = mine.filter((t) => t.status === 'done').length;
-    return `<div class="goal-today">
-      <div style="display:flex; justify-content:space-between; gap:8px"><strong>${esc(g.title)}</strong><span class="hint">${d} of ${mine.length} done</span></div>
-      ${g.why ? `<div class="why">${esc(g.why)}</div>` : ''}
-      <div class="bar"><div class="w" style="width:${mine.length ? Math.round((d / mine.length) * 100) : 0}%; background: var(--success)"></div></div>
-    </div>`;
-  }).join('');
-
-  return `${head}
-  <div class="summary-line">
-    <span><strong>${tasks.length}</strong> tasks</span>
-    <span><strong>${goalsToday.length}</strong> goal${goalsToday.length === 1 ? '' : 's'}</span>
-    <span><strong>${done}</strong> done</span>
-    <span><strong>${R.formatMinutes(need.total)}</strong> planned</span>
-    ${!day.set ? '<span class="chip chip-warn">Plan not set yet · <a href="#start">set it</a></span>' : ''}
-    ${day.set && day.planStale && G.isConfigured() ? `<button class="btn btn-small btn-dark" data-action="set-plan" data-day="${key}">Update Google Calendar</button>` : ''}
-  </div>
-  ${proposalHTML(key)}
-  ${nowCardHTML(current, next)}
-  ${captureHTML()}
-  <div class="cols">
-    <section class="col" style="flex: 1.2 1 380px">
-      <div class="col-head"><h2>Goals I'm moving today</h2></div>
-      <div class="card card-pad" style="display:flex; flex-direction:column; gap:14px">${goalCards || '<span class="hint">No tasks planned.</span>'}</div>
-      <div class="col-head"><h2>Tasks</h2><span class="meta">Did I do it?</span></div>
-      <div class="card list">${tasks.map((t) => todayTaskRowHTML(t, key)).join('') || '<div class="item"><span class="hint">No tasks planned.</span></div>'}</div>
-      ${extraHTML}
-    </section>
-    ${calendar}
-  </div>`;
-}
-
-function nowCardHTML(current, next) {
-  if (!current) {
-    if (!next) return '<div class="note note-info" style="margin-bottom:20px">Nothing else scheduled in your plan today.</div>';
-    return `<div class="note note-info" style="margin-bottom:20px">Next at <strong>${t12m(next.start)}</strong>: ${esc(itemTitle(next))}.</div>`;
-  }
-  const end = current.start + current.minutes;
-  const done = nowMinutes() - current.start;
-  const pct = Math.max(0, Math.min(100, Math.round((done / current.minutes) * 100)));
-  let title = itemTitle(current);
-  let goalLine = '';
-  let actions = '';
-  if (current.type === 'block') {
-    const openTask = current.block.taskIds.map(task).find((t) => t && t.status === 'open');
-    if (openTask) {
-      title = openTask.title;
-      const g = goal(openTask.goalId);
-      if (g) goalLine = `For your goal: ${g.title}`;
-    }
-    actions = `${openTask ? `<button class="btn btn-outline" data-action="start-task" data-id="${openTask.id}">▶ Start</button>` : ''}<button class="btn btn-outline" data-action="review" data-block="${current.index}">How did it go?</button>`;
-  }
-  return `
-  <section class="now-card" aria-label="Now">
-    <div class="left">
-      <div class="label"><span class="dot"></span>Now · until ${t12m(end)}</div>
-      <div class="title">${esc(title)}</div>
-      ${goalLine ? `<div class="goal-line">${esc(goalLine)}</div>` : ''}
-    </div>
-    <div class="right">
-      <div class="times"><span>${R.formatMinutes(Math.max(done, 0))} done</span><span>${R.formatMinutes(Math.max(end - nowMinutes(), 0))} left</span></div>
-      <div class="prog"><div style="width:${pct}%"></div></div>
-      <div style="display:flex; gap:8px; margin-top:6px">${actions}</div>
-    </div>
-  </section>`;
-}
-
 // ----- welcome back: a short fresh start after time away -----
 
 function welcomeInfo() {
@@ -1108,32 +1021,23 @@ function maybeWelcome() {
   const info = welcomeInfo();
   state.lastOpenDate = today;
   save(state, { quiet: true });
-  if (!info) return;
+  if (!info || !info.check.length) return; // nothing to ask: no window
   ui.welcome = info;
   openModal(welcomeHTML(info));
 }
 
-function welcomeHTML({ last, gap, sum, check, next }) {
+function welcomeHTML({ last, gap, check }) {
   const when = gap <= 1 ? 'yesterday' : esc(fmtDay(last, { weekday: 'long', month: 'long', day: 'numeric' }));
-  const c = R.countByPriority(state.tasks);
-  const stand = ['both', 'urgent', 'important', 'nice']
-    .map((p) => `<span class="stand-chip">${markHTML(p)} <strong>${c[p]}</strong> <span class="muted">${R.PRIORITIES[p].short || R.PRIORITIES[p].label}</span></span>`).join('');
   return `
   <div class="modal welcome" data-form="welcome">
     <div class="modal-head"><div><div class="date-line">${esc(longDay(todayKey()))}</div><div class="big" id="modal-title">${gap <= 1 ? 'Good morning' : 'Welcome back'}</div></div>
       <button type="button" class="btn btn-ghost icon-btn" data-action="welcome-close" aria-label="Close">✕</button></div>
-    <div style="font-size:16px">Last time you were here was ${when}.${gap > 1 ? ' It is okay to start again.' : ''}${sum.done.length ? ` You marked ${sum.done.length} thing${sum.done.length === 1 ? '' : 's'} done that day.` : ''}</div>
-    ${check.length ? `<fieldset class="welcome-box welcome-check"><legend>Did you already do any of these? Tick them and I'll mark them done.</legend>
+    <fieldset class="welcome-box welcome-check"><legend>Since ${when}: did you already do any of these?</legend>
       ${check.map((t) => `<label class="check-row"><input type="checkbox" name="wb-done" value="${t.id}"> ${markHTML(t.priority)} <span>${esc(t.title)}</span></label>`).join('')}
-    </fieldset>` : ''}
-    <div class="welcome-box welcome-open"><strong>Where things stand right now</strong><div class="stand">${stand}</div></div>
-    ${next ? `<div class="welcome-box welcome-next"><span class="eyebrow">One small place to start</span>
-      <strong>${markHTML(next.priority)} ${esc(next.title)}</strong>
-      ${stepsOf(next)[0] ? `<span>First minute: ${esc(stepsOf(next)[0])}</span>` : ''}</div>` : ''}
-    ${talkFieldHTML('wb', 'Anything on your mind? (optional)', 'Typing is fine too...', 90)}
+    </fieldset>
     <div class="modal-foot">
       <button type="button" class="btn-link" data-action="welcome-close">Close</button>
-      <button type="button" class="btn btn-dark" data-action="welcome-start">Start fresh</button>
+      <button type="button" class="btn btn-dark" data-action="welcome-start">Done</button>
     </div>
   </div>`;
 }
@@ -1171,102 +1075,10 @@ async function closeWelcome(goPlan) {
     closeModal();
     after();
     render();
-    toast(goPlan ? `${done}Fresh start: pick a few things for today.` : (done || 'See you around.').trim());
+    if (done) toast(done.trim());
     return;
   }
   await handleTalk(text, { about, source: 'welcome', button: btn, prefix: done, after });
-}
-
-// ----- calendar -----
-
-function weekStart(key) {
-  const dow = (R.parseDateKey(key).getDay() + 6) % 7; // Monday = 0
-  return R.addDays(key, -dow);
-}
-
-function renderCalendar() {
-  const phone = window.matchMedia('(max-width: 760px)').matches;
-  const anchor = ui.calDay || todayKey();
-  const days = phone ? [anchor] : Array.from({ length: 7 }, (_, i) => R.addDays(weekStart(anchor), i));
-  const opts = { startHour: 7, endHour: 23, px: phone ? 44 : 40 };
-  const tKey = todayKey();
-  const dayItemsFor = (key) => {
-    const cached = G.isConfigured() ? G.cachedDay(key) : null;
-    return [...ioItems(key), ...(cached ? googleItems(key, cached) : [])];
-  };
-  const cols = days.map((key) => `
-    <div class="cal-col">
-      <div class="cal-day ${key === tKey ? 'is-today' : ''}"><span>${esc(fmtDay(key, { weekday: 'short' }))}</span><strong>${R.parseDateKey(key).getDate()}</strong></div>
-      <div id="calcol-${key}">${gridHTML(dayItemsFor(key), { ...opts, nowLine: key === tKey })}</div>
-    </div>`).join('');
-  // Once Google is connected, its events are added to each day in their own colors.
-  if (G.isConnected()) {
-    afterRender.push(() => days.forEach(async (key) => {
-      try {
-        const list = await G.eventsForDay(key);
-        const el = document.getElementById(`calcol-${key}`);
-        if (el) el.innerHTML = gridHTML([...ioItems(key), ...googleItems(key, list)], { ...opts, nowLine: key === tKey });
-      } catch { /* sign-in expired; the button above reconnects */ }
-    }));
-  }
-  const googleBar = !G.isConfigured() ? ''
-    : G.isConnected() ? `<span class="chip chip-done">Connected${G.connectedName() ? ': ' + esc(G.connectedName()) : ''}</span>`
-    : '<button class="btn" data-action="connect-google">Connect Google</button>';
-  const range = phone ? longDay(anchor) : `${fmtDay(days[0], { month: 'short', day: 'numeric' })} to ${fmtDay(days[6], { month: 'short', day: 'numeric' })}`;
-  return `
-  <section class="page-head">
-    <div><div class="date-line">${esc(range)}</div><h1>Calendar</h1>
-      <div class="sub">Click any event to keep it in mind (★!, !, ★) or mark it done.</div></div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
-      ${googleBar}
-      <button class="btn" data-action="cal-move" data-step="${phone ? -1 : -7}" aria-label="Previous">‹</button>
-      <button class="btn" data-action="cal-today">Today</button>
-      <button class="btn" data-action="cal-move" data-step="${phone ? 1 : 7}" aria-label="Next">›</button>
-      <button class="btn btn-dark" data-action="new-event">+ Event</button>
-    </div>
-  </section>
-  <div class="card card-pad">
-    ${calendarLegendHTML()}
-    <div class="cal-week">
-      <div class="cal-hours"><div class="cal-day spacer"></div>${hoursHTML(opts)}</div>
-      ${cols}
-    </div>
-  </div>
-  ${state.events.length === 0 && !G.isConfigured() ? '<div class="note note-info" style="margin-top:14px">Add your classes and meetings with <strong>+ Event</strong>, or connect Google Calendar in Settings.</div>' : ''}`;
-}
-
-function eventFormHTML(e, dateKey) {
-  const draft = e || { date: dateKey || todayKey(), start: '09:00', minutes: 60, mode: 'in_person', commute: false, repeat: 'none' };
-  const end = R.toHHMM(R.toMinutes(draft.start) + draft.minutes);
-  const where = draft.mode === 'online' ? 'online' : draft.commute ? 'commute' : 'nearby';
-  const pressed = (v) => `aria-pressed="${v === where}"`;
-  return `
-  <form class="modal" data-form="event" data-id="${e ? e.id : ''}" novalidate>
-    <div class="modal-head"><h2 id="modal-title">${e ? 'Edit event' : 'New event'}</h2>
-      <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
-    <div class="errors" hidden></div>
-    <div class="field"><label for="e-title">What is it?</label>
-      <input class="input" id="e-title" name="title" value="${esc(draft.title || '')}" placeholder="Meeting with professor"></div>
-    <div class="row">
-      <div class="field"><label for="e-date">Day</label><input class="input" type="date" id="e-date" name="date" value="${esc(draft.date)}"></div>
-      <div class="field"><span class="field-label">Starts</span>${timePickerHTML('start', draft.start, { id: 'e-start' })}</div>
-      <div class="field"><span class="field-label">Ends</span>${timePickerHTML('end', end, { id: 'e-end' })}</div>
-    </div>
-    <div class="field"><span class="field-label">Where</span>
-      <div class="pills" data-group="where">
-        <button type="button" data-value="online" ${pressed('online')}>Online</button>
-        <button type="button" data-value="nearby" ${pressed('nearby')}>In person, nearby</button>
-        <button type="button" data-value="commute" ${pressed('commute')}>Requires commuting (+${S().commuteMinutes} min before)</button>
-      </div></div>
-    <label style="display:flex; gap:10px; align-items:center; font-size:14px; min-height:44px">
-      <input type="checkbox" name="repeat" ${draft.repeat === 'weekly' ? 'checked' : ''} style="width:20px; height:20px"> Repeats every week (for classes)
-    </label>
-    <div class="modal-foot">
-      ${e ? '<button type="button" class="btn" data-action="delete-event" style="margin-right:auto; color: var(--error)">Delete</button>' : ''}
-      <button type="button" class="btn" data-action="close-modal">Cancel</button>
-      <button type="submit" class="btn btn-dark">Save event</button>
-    </div>
-  </form>`;
 }
 
 // ----- talking: say anything, it is kept as a note -----
@@ -1600,7 +1412,7 @@ function maybeAutoStart() {
 // ----- tasks from your email (or a pasted list) -----
 
 function emailHTML() {
-  const ready = G.gmailReady() && AI.hasKey();
+  const ready = (G.usingBridge() || G.gmailReady()) && AI.hasKey();
   return `
   <div class="modal" data-form="email">
     <div class="modal-head"><h2 id="modal-title">Find tasks in my email</h2>
@@ -1608,10 +1420,10 @@ function emailHTML() {
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
       <strong>Read my last 2 weeks</strong>
       <span>Looks at the subject, sender and the short preview of up to 40 emails (skipping promotions and social). Claude, with your key, picks out what you promised or were asked to do. You tick what to add. Nothing else is saved.</span>
-      ${ready ? '' : `<div class="note note-warn">${!G.gmailReady() ? 'Reading email needs the Client ID (Settings > Google > Other way). ' : ''}${!AI.hasKey() ? 'Add your Claude key in Settings first.' : ''}</div>`}
+      ${ready ? '' : `<div class="note note-warn">${!G.usingBridge() && !G.gmailReady() ? 'Connect Google first (Settings > Google). ' : ''}${!AI.hasKey() ? 'Add your Claude key in Settings first (console.anthropic.com > API keys).' : ''}</div>`}
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
         <button type="button" class="btn btn-dark" data-action="email-scan" ${ready ? '' : 'disabled'}>Read my last 2 weeks</button>
-        <span class="hint email-status">Google asks you to pick the account and allow read-only access.</span>
+        <span class="hint email-status">${G.usingBridge() ? 'Read only, through your bridge.' : 'Google asks you to pick the account and allow read-only access.'}</span>
       </div>
     </div>
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
@@ -1629,9 +1441,15 @@ async function scanEmail(btn) {
   const status = modal.querySelector('.email-status');
   btn.disabled = true;
   try {
-    if (!G.gmailConnected()) { status.textContent = 'Waiting for Google...'; await G.connectGmail(); }
-    status.textContent = 'Reading subjects and previews...';
-    const emails = await G.recentEmails(14, 40);
+    let emails;
+    if (G.usingBridge()) {
+      status.textContent = 'Reading subjects and previews...';
+      emails = await G.bridgeEmails();
+    } else {
+      if (!G.gmailConnected()) { status.textContent = 'Waiting for Google...'; await G.connectGmail(); }
+      status.textContent = 'Reading subjects and previews...';
+      emails = await G.recentEmails(14, 40);
+    }
     if (!emails.length) { if (origin.isConnected) status.textContent = 'No emails found in the last 2 weeks.'; return; }
     status.textContent = `Claude is reading ${emails.length} emails...`;
     const open = R.openTasks(state.tasks);
@@ -1642,8 +1460,11 @@ async function scanEmail(btn) {
     talkDraft = { named: [], suggested: found, after: () => {}, prefix: '', heading: 'Tasks found in your email', suggestLabel: 'Tick the ones that are real tasks for you.' };
     showTalkReview(origin);
   } catch (err) {
-    if (!origin.isConnected) { toast(`Email check stopped: ${err.message === 'not-connected' ? 'Google sign-in expired.' : err.message}`); return; }
-    status.textContent = err.message === 'not-connected' ? 'Google sign-in expired. Try again.' : err.message;
+    const msg = err.message === 'old-script'
+      ? 'Your script needs the new code once: Settings > Google > Copy my code, paste it over the old code, then Deploy > Manage deployments > Edit > New version > Deploy.'
+      : err.message === 'not-connected' ? 'Google sign-in expired. Try again.' : err.message;
+    if (!origin.isConnected) { toast(`Email check stopped: ${msg}`); return; }
+    status.textContent = msg;
   } finally {
     if (btn.isConnected) btn.disabled = false;
   }
@@ -2020,16 +1841,16 @@ function bridgeSetupHTML() {
   const step = (n, html) => `<div class="step-box" style="align-items:flex-start"><span class="step-n">${n}</span><div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0">${html}</div></div>`;
   return `<div class="note note-info"><strong>Already set up?</strong> Open your link (your bookmark). Do not set it up again.</div>
     <span class="hint">First time only, on a computer (about 10 minutes). Then the calendar and your data never need a sign-in.</span>
-    ${step(1, '<span>Open <strong>script.google.com</strong> with your Berkeley account. Click <strong>New project</strong>.</span>')}
+    ${step(1, '<span>Open <strong>script.google.com</strong> with the Google account that has your calendar. Click <strong>New project</strong>.</span>')}
     ${step(2, `<span>Delete the code there and paste yours.</span>
       <button type="button" class="btn btn-small btn-dark" style="align-self:flex-start" data-action="copy-bridge-code">Copy my code</button>
       <textarea class="input mono" id="bridge-code" rows="4" readonly hidden aria-label="Your bridge code"></textarea>`)}
     ${step(3, '<span>On the left, <strong>Services +</strong>, pick <strong>Google Calendar API</strong>, click <strong>Add</strong>. Save (Ctrl+S, or Cmd+S on a Mac).</span>')}
-    ${step(4, '<span><strong>Deploy</strong> &gt; <strong>New deployment</strong> &gt; gear &gt; <strong>Web app</strong>. Execute as: <strong>Me</strong>. Who has access: <strong>Anyone</strong> (not "Anyone with Google account"). Deploy, allow access, copy the Web app URL.</span><span class="hint">Google says "not verified"? It is your own script: Advanced &gt; Go to project.</span>')}
+    ${step(4, '<span><strong>Deploy</strong> &gt; <strong>New deployment</strong> &gt; gear &gt; <strong>Web app</strong>. Execute as: <strong>Me</strong>. Who has access: <strong>Anyone</strong> (not "Anyone with Google account"). Deploy, allow access (Drive, Calendar, and Gmail read only), copy the Web app URL.</span><span class="hint">Google says "not verified"? It is your own script: Advanced &gt; Go to project.</span>')}
     ${step(5, `<label for="s-bridge">Paste the Web app URL</label>
       <input class="input mono" id="s-bridge" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
       <button type="button" class="btn btn-small btn-dark" style="align-self:flex-start" data-action="connect-bridge">Connect</button>`)}
-    <span class="hint">No "Anyone" option in step 4? Berkeley blocks it. Tell Claude.</span>`;
+    <span class="hint">No "Anyone" option in step 4? Your school or work account blocks it. Use a personal Google account instead.</span>`;
 }
 
 function bridgeOnHTML() {
@@ -2041,6 +1862,12 @@ function bridgeOnHTML() {
       <input class="input mono" readonly value="${esc(bridgeLink())}" aria-label="Your link">
       <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-bridge-link">Copy link</button>
     </div></div>
+    <details><summary class="hint" style="cursor:pointer">Update the script (for email, once)</summary>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:8px">
+        <span class="hint">Copy the code, paste it over the old code in script.google.com, then Deploy &gt; Manage deployments &gt; pencil &gt; Version: New version &gt; Deploy. Allow Gmail (read only). Your link stays the same.</span>
+        <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-bridge-code">Copy my code</button>
+        <textarea class="input mono" id="bridge-code" rows="4" readonly hidden aria-label="Your bridge code"></textarea>
+      </div></details>
     <button type="button" class="btn-link" style="align-self:flex-start" data-action="remove-bridge">Stop using the bridge on this device</button>`;
 }
 
@@ -2286,7 +2113,7 @@ async function setPlan(dayKey) {
     const lastReturn = (state.returns || []).slice(-1)[0];
     if (lastReturn && lastReturn.date === todayKey()) lastReturn.plannedAfter = true;
     save(state);
-    if (dayKey === todayKey()) { if (location.hash === '#today') render(); else location.hash = '#today'; } else render();
+    if (location.hash && location.hash !== '#start') location.hash = '#start'; else render();
     toast(dayKey === todayKey() ? 'Plan set. Here is your day.' : "Tomorrow's plan is set.");
   }
   if (!G.isConfigured()) {
@@ -2511,8 +2338,9 @@ const actions = {
   },
   'copy-bridge-code': async () => {
     const PENDING = 'personal-io:bridge-pending';
-    let key = '';
-    try { key = localStorage.getItem(PENDING) || ''; } catch { /* blocked */ }
+    // Connected already: the same key, so updating the script keeps everything working.
+    let key = G.getBridge()?.key || '';
+    try { key = key || localStorage.getItem(PENDING) || ''; } catch { /* blocked */ }
     if (!key) {
       key = Array.from(crypto.getRandomValues(new Uint8Array(24)), (n) => n.toString(16).padStart(2, '0')).join('');
       try { localStorage.setItem(PENDING, key); } catch { /* blocked */ }
@@ -2526,13 +2354,13 @@ const actions = {
     code = code.replace('__KEY__', key);
     try { await navigator.clipboard.writeText(code); toast('Copied. Paste it in the script.'); }
     catch {
-      const box = modal.querySelector('#bridge-code');
+      const box = document.querySelector('#bridge-code');
       if (box) { box.value = code; box.hidden = false; box.select(); }
       toast('Select the code below and copy it.');
     }
   },
   'connect-bridge': async (el) => {
-    const url = (modal.querySelector('#s-bridge')?.value || '').trim();
+    const url = (document.querySelector('#s-bridge')?.value || '').trim();
     let key = '';
     try { key = localStorage.getItem('personal-io:bridge-pending') || ''; } catch { /* blocked */ }
     if (!G.looksLikeBridge(url)) { toast('That is not a Web app URL. It ends in /exec.'); return; }
@@ -2551,7 +2379,7 @@ const actions = {
     }
     try { localStorage.removeItem('personal-io:bridge-pending'); } catch { /* fine */ }
     setSync({}); // a new place for your data: join with whatever is there
-    openModal(settingsHTML());
+    if (modal.querySelector('[data-form="settings"]')) openModal(settingsHTML());
     toast('Connected. Your calendar and data now go through your bridge.');
     await syncNow({ manual: true });
     render();
@@ -2572,8 +2400,11 @@ const actions = {
     catch { toast('Copy did not work. Select the link and copy it.'); }
   },
   'plan-day': (el) => { ui.planDay = el.dataset.day; render(); },
-  'go-plan-today': () => { ui.planDay = 'today'; location.hash = '#start'; },
-  'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; if (location.hash === '#start') render(); else location.hash = '#start'; },
+  'skip-first-run': () => { S().onboarded = true; persist(); },
+  'onboard-done': () => { S().onboarded = true; persist(["You're set. Add anything else in the box above."]); },
+  'pane': (el) => { ui.pane = el.dataset.pane; render(); window.scrollTo(0, 0); },
+  'go-plan-today': () => { ui.planDay = 'today'; ui.pane = 'day'; if (!location.hash || location.hash === '#start') render(); else location.hash = '#start'; },
+  'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; ui.pane = 'day'; if (location.hash === '#start') render(); else location.hash = '#start'; },
   'filter-goal': (el) => { ui.goalFilter = ui.goalFilter === el.dataset.id ? null : el.dataset.id; render(); },
   'clear-filter': () => { ui.goalFilter = null; render(); },
   'toggle-group': (el) => { const g = el.dataset.groupName; ui.open[g] = !ui.open[g]; render(); },
@@ -2648,11 +2479,7 @@ const actions = {
     const { root } = calFromModal();
     if (root) actions['event-to-task']({ dataset: { ...root.dataset } });
   },
-  'cal-edit-own': () => {
-    const { root } = calFromModal();
-    const e = root && state.events.find((x) => x.id === root.dataset.id);
-    if (e) openModal(eventFormHTML(e));
-  },
+
   'cal-untrack': (el) => {
     const id = el.dataset.id;
     state.tasks = state.tasks.filter((t) => t.id !== id);
@@ -2801,7 +2628,7 @@ const actions = {
   },
   'keep-plan': (el) => { getDay(el.dataset.day).prioChanged = false; persist(); },
   'toggle-important': (el) => { const t = task(el.dataset.id); if (t) setImportant(t.id, !R.isImportant(t)); },
-  'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.textContent = ui.capImportant ? '★ Important' : '☆ Important'; },
+  'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.textContent = ui.capImportant ? '★' : '☆'; },
   'goal-up': (el) => {
     // Swap with the goal above it, skipping "Keep life running" (always last).
     const i = state.goals.findIndex((g) => g.id === el.dataset.id);
@@ -2828,19 +2655,6 @@ const actions = {
     state.goals = state.goals.filter((g) => g.id !== id);
     closeModal();
     persist(['Goal deleted.']);
-  },
-  'cal-move': (el) => { ui.calDay = R.addDays(ui.calDay || todayKey(), Number(el.dataset.step)); render(); },
-  'cal-today': () => { ui.calDay = todayKey(); render(); },
-  'new-event': () => openModal(eventFormHTML(null, ui.calDay)),
-  'edit-event': (el) => { const e = state.events.find((x) => x.id === el.dataset.id); if (e) openModal(eventFormHTML(e)); },
-  'delete-event': () => {
-    const id = modal.querySelector('form').dataset.id;
-    const e = state.events.find((x) => x.id === id);
-    if (!confirm(e && e.repeat === 'weekly' ? 'Delete this event and all its weekly repeats?' : 'Delete this event?')) return;
-    state.events = state.events.filter((x) => x.id !== id);
-    markPlansStale(e);
-    closeModal();
-    persist(['Event deleted.']);
   },
   'open-dump': () => openModal(talkHTML(), false),
   'mic': (el) => toggleMic(el),
@@ -3055,33 +2869,6 @@ modal.addEventListener('submit', (e) => {
     const back = Object.values(outcomes).filter((o) => o.result !== 'done').length;
     closeModal();
     persist([back ? `Saved. ${back} task${back === 1 ? '' : 's'} back in your backlog.` : 'Saved. Everything done.']);
-  }
-
-  if (kind === 'event') {
-    const title = String(data.get('title') || '').trim();
-    const date = data.get('date');
-    const start = readTime(form, 'start');
-    const end = readTime(form, 'end');
-    const where = pressedValue(form, 'where') || 'nearby';
-    const problems = [];
-    if (!title) problems.push('Name the event.');
-    if (!date) problems.push('Pick the day.');
-    if (!start || !end) problems.push('Add when it starts and ends.');
-    const minutes = start && end ? R.toMinutes(end) - R.toMinutes(start) : 0;
-    if (start && end && minutes <= 0) problems.push('The end time must be after the start.');
-    if (problems.length) { showErrors(form, problems); return; }
-    const before = form.dataset.id ? { ...state.events.find((x) => x.id === form.dataset.id) } : null;
-    const draft = {
-      id: form.dataset.id || newId(), title, date, start, minutes,
-      mode: where === 'online' ? 'online' : 'in_person',
-      commute: where === 'commute',
-      repeat: data.get('repeat') ? 'weekly' : 'none',
-    };
-    if (before) Object.assign(state.events.find((x) => x.id === draft.id), draft); else state.events.push(draft);
-    markPlansStale(before);
-    markPlansStale(draft);
-    closeModal();
-    persist(['Event saved.']);
   }
 
   if (kind === 'settings') {

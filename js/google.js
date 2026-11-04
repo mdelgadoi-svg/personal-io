@@ -47,6 +47,16 @@ async function bridge(action, payload = {}) {
   return out;
 }
 
+// The last 2 weeks of email through the bridge (read only). An older script does not know this yet.
+export async function bridgeEmails() {
+  try {
+    return (await bridge('emails')).emails || [];
+  } catch (err) {
+    if (/unknown action/.test(err.message)) throw new Error('old-script');
+    throw err;
+  }
+}
+
 // Checks the bridge answers and learns which account it runs as.
 export async function pingBridge() {
   const out = await bridge('ping');
