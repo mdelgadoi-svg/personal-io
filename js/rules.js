@@ -155,8 +155,8 @@ export function rankTasks(tasks, goals = []) {
 // slots from what is due soon. Starred calendar items of that day always come, at their own time.
 // Returns ids, plus why each was picked: { important, days } (days until the deadline, or null).
 // exclude: ids already planned on another day (for example today's tasks still ahead).
-// gentle: the first day back after time away. One small thing (see gentlePick), plus that day's
-// starred calendar items. Overdue tasks are not pushed in; they wait for a normal day.
+// gentle: the first day back after time away. One small thing (see smallPick), plus anything due
+// that very day and its starred calendar items. Overdue tasks are not pushed in; they wait for a normal day.
 export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DEFAULT_SETTINGS, exclude = [], gentle = false }) {
   const open = tasks.filter((t) => t.status === 'open' && !exclude.includes(t.id)
     && !(t.eventRef && t.eventRef.date !== dayKey)
@@ -170,8 +170,8 @@ export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DE
   };
   if (gentle) {
     const others = ranked.filter((t) => !calendar.includes(t));
-    const one = smallestOfTop(others.filter((t) => t.priority !== 'nice')) || others[0];
-    const focus = one ? [one] : [];
+    const one = smallPick(others, dayKey);
+    const focus = [one, ...others.filter((t) => t.deadline === dayKey && t !== one)].filter(Boolean);
     return { focus: focus.map((t) => t.id), also: [], calendar: calendar.map((t) => t.id), why: why([...focus, ...calendar]) };
   }
   const rest = ranked.filter((t) => !calendar.includes(t) && t.priority !== 'nice');
@@ -196,6 +196,13 @@ function smallestOfTop(ranked) {
   const top = ranked.slice(0, 3);
   if (!top.length) return null;
   return top.reduce((best, t) => ((t.minutes || 30) < (best.minutes || 30) ? t : best), top[0]);
+}
+
+// The one small thing (ranked list in): something due that day comes first (the shortest of those);
+// otherwise the shortest of the 3 most pressing, not counting "later" tasks; otherwise the top task.
+function smallPick(ranked, dayKey) {
+  const due = ranked.filter((t) => t.deadline === dayKey);
+  return smallestOfTop(due) || smallestOfTop(ranked.filter((t) => t.priority !== 'nice')) || ranked[0] || null;
 }
 
 // ---------- a deadline said in the title ----------
@@ -510,19 +517,21 @@ export function lastActiveDay(todayKey, { lastOpen = null, days = {}, log = [] }
   return seen.sort().pop() || null;
 }
 
-// True when today is the first day back after gentleGapDays or more away (see returns in app.js).
-export function isGentleDay(returns = [], todayKey, settings = DEFAULT_SETTINGS) {
-  return (returns || []).some((r) => r.date === todayKey && r.gapDays >= settings.gentleGapDays);
+// True for the first day back after gentleGapDays or more away (see returns in app.js).
+// Coming back in the evening (8 PM on, when the app points to tomorrow) makes tomorrow small too.
+export function isGentleDay(returns = [], dayKey, settings = DEFAULT_SETTINGS) {
+  const eve = addDays(dayKey, -1);
+  return (returns || []).some((r) => r.gapDays >= settings.gentleGapDays
+    && (r.date === dayKey || (r.date === eve && r.hour >= 20)));
 }
 
-// The one small thing to offer when coming back: of the 3 most pressing open tasks for today
-// (not "later" ones, not calendar items of another day), the shortest. Falls back to any open task.
+// The one small thing to offer when coming back (see smallPick), from the open tasks for that day
+// (not calendar items of another day).
 export function gentlePick(tasks, goals = [], todayKey) {
   const open = (tasks || []).filter((t) => t.status === 'open'
     && !(t.eventRef && t.eventRef.date !== todayKey)
     && !(t.fixedDate && t.fixedDate !== todayKey));
-  const ranked = rankTasks(open, goals);
-  return smallestOfTop(ranked.filter((t) => t.priority !== 'nice')) || ranked[0] || null;
+  return smallPick(rankTasks(open, goals), todayKey);
 }
 
 // ---------- the Pause button: what the app says when you are stuck ----------
@@ -696,11 +705,10 @@ export function mergeData(base, local, remote) {
     const id = key === 'returns' ? (v) => `${v.date}|${v.lastActive}` : key === 'moments' ? (v) => v.id : (v) => JSON.stringify(v);
     const all = [...(local[key] || []), ...(remote[key] || [])];
     if (key === 'returns') all.sort((a, z) => Number(!!z.plannedAfter) - Number(!!a.plannedAfter));
-    // A moment (break, pause, start) is one per id. A finished break beats the same break still running,
-    // and with both finished (or both running) the one changed last wins (more minutes added).
+    // A moment (break, pause, start) is one per id. A finished break beats the same break still running;
+    // otherwise the copy changed last wins (upd, set by the app on every change).
     if (key === 'moments') {
-      const rankOf = (v) => [v.backAt ? 1 : 0, v.extended || 0];
-      all.sort((a, z) => { const [ra, rz] = [rankOf(a), rankOf(z)]; return rz[0] - ra[0] || rz[1] - ra[1]; });
+      all.sort((a, z) => Number(!!z.backAt) - Number(!!a.backAt) || (z.upd || z.at || '').localeCompare(a.upd || a.at || ''));
     }
     return all.filter((v) => {
       const k = id(v);

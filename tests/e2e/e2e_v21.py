@@ -13,7 +13,7 @@ base = {"version": 1, "settings": {}, "lastDailyCheck": D, "events": [], "log": 
         "tasks": [t('a', 'Write the long essay', True, '2026-11-05', 120), t('b', 'Email the professor', True, '2026-11-07', 10, firstSteps=['Open Gmail']),
                   t('c', 'Pay rent', False, '2026-11-08', 15), t('d', 'Fix the bike', False, '2026-11-04'), t('e', 'Read a book')]}
 away = {**base, "lastOpenDate": "2026-11-06", "days": {"2026-11-06": {"taskIds": ["a", "b"]}}}
-fake = {'text': None, 'calls': []}
+fake = {'text': None, 'calls': [], 'hold': False, 'held': []}
 def saved_at():
     try: return json.loads(fake['text']).get('savedAt') if fake['text'] else None
     except Exception: return None
@@ -26,6 +26,7 @@ def bridge(route):
     elif a == 'events': out = {'items': []}
     elif a == 'writeDay':
         fake['calls'].append(b); out = {'ids': [f'g{len(fake["calls"])}-{i}' for i in range(len(b.get('bodies', [])))]}
+        if fake['hold']: fake['held'].append((route, out)); return  # Google is slow: answered later
     else: out = {'error': 'unknown'}
     route.fulfill(status=200, content_type='application/json', body=json.dumps(out), headers=h)
 errors = []
@@ -94,11 +95,39 @@ with sync_playwright() as p:
     pg.click('[data-action="open-pause"]'); pg.click('[data-action="pause-feel"][data-feel="break"]'); pg.click('[data-action="break-start"]'); pg.wait_for_timeout(500)
     rid = [m for m in data(pg)['moments'] if m['kind'] == 'break'][-1]['googleId']
     at(pg, 9, 25); pg.click('[data-action="break-back"]'); pg.wait_for_selector('[data-form="back"]')
-    assert 'Welcome back' in pg.inner_text('[data-form="back"]') and pg.locator('[data-action="back-more"]').count() == 0
+    assert 'Back already?' in pg.inner_text('[data-form="back"]') and pg.locator('[data-action="back-more"]').count() == 0
     pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
     assert [m for m in data(pg)['moments'] if m['kind'] == 'break'][-1].get('backAt') is None, 'Esc before the end keeps the break'
     pg.click('[data-action="break-back"]'); pg.click('[data-action="back-not-now"]'); pg.wait_for_timeout(400)
     assert fake['calls'][-1]['deleteIds'] == [rid] and fake['calls'][-1]['bodies'] == [], fake['calls'][-1]
+    # 7. A second break replaces the first (its reminder goes); starting a task ends a break
+    pg.click('[data-action="open-pause"]'); pg.click('[data-action="pause-feel"][data-feel="break"]'); pg.click('[data-action="break-start"]'); pg.wait_for_timeout(500)
+    first = [m for m in data(pg)['moments'] if m['kind'] == 'break'][-1]
+    pg.click('[data-action="open-pause"]'); pg.click('[data-action="pause-feel"][data-feel="break"]')
+    pg.click('[data-group="break-min"] button[data-value="30"]'); pg.click('[data-action="break-start"]'); pg.wait_for_timeout(500)
+    old = next(m for m in data(pg)['moments'] if m['id'] == first['id'])
+    assert old['back'] == 'replaced' and any(c['deleteIds'] == [first['googleId']] for c in fake['calls']), old
+    pg.click('[data-action="open-pause"]'); pg.click('[data-action="pause-feel"][data-feel="tired"]'); pg.click('[data-action="pause-step"]'); pg.wait_for_selector('[data-form="starter"]')
+    brk = [m for m in data(pg)['moments'] if m['kind'] == 'break'][-1]; assert brk['back'] == 'start', brk
+    assert 'Break' not in pg.inner_text('#now-pill')
+    pg.click('[data-action="starter-close"]')
+    # 8. Back before Google answers: the late reminder is removed when it arrives
+    fake['hold'] = True
+    pg.click('[data-action="open-pause"]'); pg.click('[data-action="pause-feel"][data-feel="break"]'); pg.click('[data-action="break-start"]'); pg.wait_for_timeout(300)
+    pg.click('[data-action="break-back"]'); pg.click('[data-action="back-not-now"]'); pg.wait_for_timeout(200)
+    fake['hold'] = False; n = len(fake['calls'])
+    for route, out in fake['held']: route.fulfill(status=200, content_type='application/json', body=json.dumps(out), headers={'access-control-allow-origin': '*'})
+    pg.wait_for_timeout(500)
+    late = fake['calls'][n:]; assert late and late[-1]['bodies'] == [] and late[-1]['deleteIds'], late
+    # 9. Two tabs: "5 more minutes" in one closes the stale window in the other
+    pg.click('[data-action="open-pause"]'); pg.click('[data-action="pause-feel"][data-feel="break"]')
+    pg.click('[data-group="break-min"] button[data-value="10"]'); pg.click('[data-action="break-start"]'); pg.wait_for_timeout(500)
+    pg2 = pg.context.new_page(); pg2.on('pageerror', lambda e: errors.append(str(e))); pg2.route('https://script.google.com/**', bridge)
+    pg2.clock.set_fixed_time(datetime.datetime(2026, 11, 10, 9, 25)); pg2.goto(BASE + '#today'); pg2.wait_for_timeout(800)
+    at(pg, 9, 37); at(pg2, 9, 37); pg.wait_for_selector('[data-form="back"]'); pg2.wait_for_selector('[data-form="back"]')
+    pg.click('[data-action="back-more"]'); pg.wait_for_timeout(800)
+    assert pg2.locator('[data-form="back"]').count() == 0, 'stale window closed in the other tab'
+    pg2.close()
     pg.screenshot(path='tests/e2e/out/v21_desk.png')
     # 7. Phone, no Google: yesterday's open, calm words, an old break closes quietly
     old_break = {"id": "ob", "kind": "break", "at": "2026-11-09T20:00:00Z", "what": "Instagram", "minutes": 20, "endAt": "2026-11-09T20:20:00Z"}
@@ -116,6 +145,21 @@ with sync_playwright() as p:
     ph.click('[data-action="open-pause"]'); ph.click('[data-action="pause-feel"][data-feel="break"]')
     assert 'Keep the app open' in ph.inner_text('[data-form="pause"]')
     ph.screenshot(path='tests/e2e/out/v21_phone.png')
+    # 10. Esc on the welcome still makes the day small; so does a reload with the welcome open
+    for how in ['esc', 'reload']:
+        fake.update(text=None, calls=[], held=[])  # a fresh Drive copy for each run
+        q = page(b, away, {'width': 1400, 'height': 1000})
+        q.goto(BASE + '#start'); q.wait_for_selector('[data-form="welcome"]')
+        if how == 'esc':
+            q.click('details.welcome-more summary'); q.check('input[name="wb-done"][value="a"]'); q.keyboard.press('Escape'); q.wait_for_timeout(400)
+            assert q.evaluate('location.hash') == '#today', 'lands on the small day'
+            assert next(x for x in data(q)['tasks'] if x['id'] == 'a')['status'] == 'done', 'tick kept'
+        else:
+            q.reload(); q.wait_for_timeout(1000); q.goto(BASE + '#today'); q.wait_for_timeout(300)
+            assert q.locator('[data-form="welcome"]').count() == 0
+        r = data(q)['returns']; assert len(r) == 1 and r[0]['gapDays'] == 4, r
+        prop = q.inner_text('.proposal'); assert 'One small thing for today' in prop and 'overdue' not in prop, (how, prop)
+        q.context.close()
     print('all v2.1 checks passed')
 print('PAGE ERRORS', errors)
 assert not errors, errors

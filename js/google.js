@@ -284,11 +284,13 @@ function eventBody(dateKey, it) {
     // it.remind (minutes before) replaces them, for example [0] for the end of a break.
     reminders: { useDefault: false, overrides: (it.remind || [10, 0]).map((minutes) => ({ method: 'popup', minutes })) },
     extendedProperties: { private: { personalIo: '1' } },
+    // it.free: shows as free time, so a break reminder never blocks his calendar.
+    ...(it.free ? { transparency: 'transparent' } : {}),
   };
 }
 
 // Writes the day's plan to Google Calendar, replacing what the app wrote before.
-// items: [{ title, start, minutes, color, description, remind }]
+// items: [{ title, start, minutes, color, description, remind, free }]
 export async function writeDay(dateKey, items, previousIds = []) {
   if (usingBridge()) {
     const out = await bridge('writeDay', { calendarId: getCalendarId() || undefined, deleteIds: previousIds, bodies: items.map((it) => eventBody(dateKey, it)) });

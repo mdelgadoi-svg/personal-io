@@ -452,3 +452,25 @@ test('a break runs, then is over, then is old after 6 hours', () => {
   assert.equal(breakState(b, at('2026-10-26T17:00:00Z')), 'old');
   assert.equal(breakState({ ...b, backAt: 'x' }, at('2026-10-26T10:25:00Z')), null);
 });
+
+test('a task due that day still comes on a gentle day; an evening return makes tomorrow gentle too', () => {
+  const tasks = [
+    task({ id: 'visa', title: 'Submit visa form', priority: 'both', deadline: today, minutes: 60 }),
+    task({ id: 'ana', title: 'Reply to Ana', priority: 'both', deadline: '2026-10-20', minutes: 10 }),
+    task({ id: 'old', title: 'Old thing', priority: 'urgent', deadline: '2026-10-19', minutes: 5 }),
+  ];
+  assert.deepEqual(proposeDay({ tasks, dayKey: today, gentle: true }).focus, ['visa']);
+  assert.equal(gentlePick(tasks, [], today).id, 'visa');
+  const evening = [{ date: '2026-10-25', gapDays: 5, hour: 21 }];
+  assert.equal(isGentleDay(evening, today), true);
+  assert.equal(isGentleDay([{ date: '2026-10-25', gapDays: 5, hour: 15 }], today), false);
+  assert.equal(isGentleDay([{ date: '2026-10-25', gapDays: 5 }], today), false); // older records have no hour
+});
+
+test('sync keeps the copy of a moment changed last', () => {
+  const at = '2026-10-26T11:00:00Z';
+  const base = { savedAt: '1', tasks: [], days: {}, moments: [{ id: 'p1', kind: 'pause', at, chose: null }] };
+  const local = { ...base, savedAt: '3', moments: [{ id: 'p1', kind: 'pause', at, chose: null }] };
+  const remote = { ...base, savedAt: '2', moments: [{ id: 'p1', kind: 'pause', at, chose: 'step', upd: '2026-10-26T11:01:00Z' }] };
+  assert.equal(mergeData(base, local, remote).moments[0].chose, 'step');
+});

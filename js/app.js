@@ -250,7 +250,7 @@ function renderNowPill() {
   const b = R.activeBreak(state.moments);
   if (b) {
     const left = Math.ceil((Date.parse(b.endAt) - Date.now()) / 60000);
-    pill.innerHTML = `<button type="button" class="now-pill break-pill" data-action="break-back" aria-label="Break. I'm back"><span class="dot"></span><span><strong>Break</strong>${left > 0 ? ` · ${left} min` : ' · over'}<span class="long">${left > 0 ? ' left' : ''} · I'm back</span></span></button>`;
+    pill.innerHTML = `<button type="button" class="now-pill break-pill" data-action="break-back" aria-label="Break. I'm back"><span class="dot"></span><span><strong>Break</strong>${left > 0 ? ` · ${left} min` : ' · over'}<span class="long"> · I'm back</span></span></button>`;
     return;
   }
   const { current } = currentAndNext();
@@ -865,8 +865,8 @@ function proposalFor(dayKey) {
   return R.proposeDay({ tasks: state.tasks, goals: state.goals, dayKey, slots: getDay(dayKey).slots || S().daySlots, settings: S(), exclude, gentle: gentleOn(dayKey) });
 }
 
-// The first day back after time away is a small day (one thing). Only today.
-function gentleOn(dayKey) { return dayKey === todayKey() && R.isGentleDay(state.returns, dayKey, S()); }
+// The first day back after time away is a small day (one thing). Tomorrow too after an evening return.
+function gentleOn(dayKey) { return dayKey >= todayKey() && R.isGentleDay(state.returns, dayKey, S()); }
 
 function whyText(w, dayKey) {
   if (!w) return '';
@@ -900,13 +900,15 @@ function proposalHTML(dayKey) {
       <span style="display:flex; gap:8px"><button class="btn btn-small btn-dark" data-action="repropose" data-day="${dayKey}">Update the plan</button><button class="btn btn-small" data-action="keep-plan" data-day="${dayKey}">Keep it</button></span></div>`;
   }
   if (!p.focus.length && !p.also.length && !p.calendar.length) return '';
+  const gentle = gentleOn(dayKey);
   const row = (id) => {
     const t = task(id);
-    return `<li>${markHTML(t.priority)} <span class="prop-title">${esc(t.title)}</span> <span class="hint">${esc(whyText(p.why[id], dayKey))}${t.eventRef ? ` · ${t12(t.fixedTime)}` : ''}</span></li>`;
+    const why = gentle ? '' : whyText(p.why[id], dayKey); // a small day does not list what is late
+    return `<li>${markHTML(t.priority)} <span class="prop-title">${esc(t.title)}</span> <span class="hint">${esc(why)}${t.eventRef ? `${why ? ' · ' : ''}${t12(t.fixedTime)}` : ''}</span></li>`;
   };
   return `<section class="card card-pad proposal" aria-label="Proposal for ${word}">
-    <h2>${gentleOn(dayKey) ? 'One small thing for today' : `My proposal for ${word}`}</h2>
-    ${p.focus.length ? `<div class="prop-group">${gentleOn(dayKey) ? '' : '<span class="eyebrow">Focus</span>'}<ol>${p.focus.map(row).join('')}</ol></div>` : ''}
+    <h2>${!gentle ? `My proposal for ${word}` : p.focus.length + p.calendar.length > 1 ? `A small day ${word}` : `One small thing for ${word}`}</h2>
+    ${p.focus.length ? `<div class="prop-group">${gentle ? '' : '<span class="eyebrow">Focus</span>'}<ol>${p.focus.map(row).join('')}</ol></div>` : ''}
     ${p.also.length || p.calendar.length ? `<div class="prop-group"><span class="eyebrow">Also ${word}</span><ul>${[...p.calendar, ...p.also].map(row).join('')}</ul></div>` : ''}
     <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
   </section>`;
@@ -1114,13 +1116,17 @@ function welcomeInfo() {
 }
 
 // Shown once, on the first open of each day.
+// The return is kept as the window opens, not when it closes, so Esc, a reload or a sync never lose it.
+// After days away it is a real change (it makes the day small, on every device).
 function maybeWelcome() {
   const today = todayKey();
   if (state.lastOpenDate === today) return;
   const info = welcomeInfo();
   state.lastOpenDate = today;
-  save(state, { quiet: true });
-  if (!info) return;
+  if (!info) { save(state, { quiet: true }); return; }
+  state.returns = state.returns || [];
+  state.returns.push({ date: today, lastActive: info.last, gapDays: info.gap, hour: new Date().getHours(), noted: false, ticked: 0, plannedAfter: false });
+  save(state, { quiet: info.gap < S().gentleGapDays });
   ui.welcome = info;
   openModal(welcomeHTML(info));
 }
@@ -1149,7 +1155,7 @@ function welcomeHTML({ last, gap, sum, check, next }) {
     <div class="modal-foot">
       <button type="button" class="btn-link" data-action="welcome-close">Not now</button>
       ${next ? `<button type="button" class="btn btn-dark" data-action="welcome-start-task" data-id="${next.id}">Start 1 minute</button>`
-        : '<button type="button" class="btn btn-dark" data-action="welcome-start">Pick something</button>'}
+        : '<button type="button" class="btn btn-dark" data-action="welcome-close">Okay</button>'}
     </div>
   </div>`;
   }
@@ -1180,11 +1186,25 @@ function finishWelcome() {
   });
   if (info) {
     state.returns = state.returns || [];
-    state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, noted: !!text, ticked: ticked.length, plannedAfter: false });
+    const r = state.returns.find((x) => x.date === todayKey() && x.lastActive === info.last);
+    if (r) Object.assign(r, { noted: !!text, ticked: ticked.length });
+    else state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, hour: new Date().getHours(), noted: !!text, ticked: ticked.length, plannedAfter: false });
   }
   ui.welcome = null;
   save(state, { quiet: !text && !ticked.length }); // just closing it is not an edit
   return { text, ticked: ticked.length, about: info ? info.last : null };
+}
+
+// The welcome closed without a button: keep the ticks and the note, and land on the small day.
+function escWelcome() {
+  const { text, about } = finishWelcome();
+  if (text) {
+    state.journal = state.journal || [];
+    state.journal.push({ id: newId(), date: todayKey(), about, text, source: 'welcome', at: new Date().toISOString() });
+    save(state);
+  }
+  if (gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
+  else renderWhenFree();
 }
 
 async function closeWelcome(goPlan, startId = null) {
@@ -1192,6 +1212,7 @@ async function closeWelcome(goPlan, startId = null) {
   const { text, ticked, about } = finishWelcome();
   const done = ticked ? `${ticked} marked done. ` : '';
   const after = () => {
+    if (!goPlan && gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
     const t = startId && task(startId);
     if (t && t.status === 'open') { openStarter(t); return; }
     if (!goPlan) return;
@@ -1500,7 +1521,6 @@ function addTalkTasks() {
 }
 
 // ----- start screen: one step at a time, one minute each -----
-// A cat with big eyes waits for you. It looks sad until you start, and cheers up step by step.
 
 let starter = null; // { taskId, steps, i, left, timer }
 
@@ -1594,9 +1614,11 @@ function showStarterStep() {
 
 function openStarter(t, { auto = false } = {}) {
   if (!t) return;
+  if (R.activeBreak(state.moments)) finishBreak('start'); // starting means the break is over
   // Kept so you can see later how often you started something (see the 2-week test in CLAUDE.md).
+  // An automatic start is housekeeping (quiet); maybeAutoStart saves it.
   addMoment({ kind: 'start', taskId: t.id, auto });
-  save(state);
+  if (!auto) save(state);
   const steps = stepsOf(t).length ? stepsOf(t) : R.templateSteps(t.title, t.place, t.computer !== false);
   stopStarterTimer();
   starter = { taskId: t.id, steps, i: 0, left: 60, timer: null };
@@ -1606,6 +1628,8 @@ function openStarter(t, { auto = false } = {}) {
 // When a deep work block begins, the start screen opens by itself (once per block).
 function maybeAutoStart() {
   if (R.activeBreak(state.moments)) return; // on a break: the back window comes first
+  const lastBreak = [...(state.moments || [])].reverse().find((m) => m.kind === 'break');
+  if (lastBreak && lastBreak.back === 'not_now' && Date.now() - Date.parse(lastBreak.backAt) < 15 * 60000) return; // he said not now
   const { current } = currentAndNext();
   if (!current || current.type !== 'block' || nowMinutes() - current.start > 10) return;
   const day = getDay(todayKey());
@@ -1638,6 +1662,7 @@ function addMoment(m) {
   return x;
 }
 function momentById(id) { return (state.moments || []).find((m) => m.id === id) || null; }
+function touch(m) { m.upd = new Date().toISOString(); return m; }
 
 // What to do next: the first open task in today's plan, else the one small thing. Never a meeting.
 function nextTask() {
@@ -1662,7 +1687,7 @@ function stepOfferHTML() {
 function pauseHTML() {
   const close = '<button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button>';
   if (pause.view === 'break') {
-    const ring = G.isConfigured() ? 'Your phone will ring at the end (Google Calendar).' : 'Keep the app open and it will call you back.';
+    const ring = G.isConfigured() && G.isConnected() ? 'Your phone will ring at the end (Google Calendar).' : 'Keep the app open and it will call you back.';
     return `
   <div class="modal pause" data-form="pause">
     <div class="modal-head"><h2 id="modal-title">A break with an end</h2>${close}</div>
@@ -1709,10 +1734,11 @@ function showPause() { openModal(pauseHTML()); }
 // What you chose after a Pause answer, for the 2-week test.
 function pauseChose(chose) {
   const m = pause && momentById(pause.momentId);
-  if (m && !m.chose) { m.chose = chose; save(state); }
+  if (m && !m.chose) { m.chose = chose; touch(m); save(state); }
 }
 
 async function startBreak(what, minutes) {
+  if (R.activeBreak(state.moments)) finishBreak('replaced'); // changed your mind: the old one and its reminder go
   const t = nextTask();
   const end = new Date(Date.now() + minutes * 60000);
   const b = addMoment({ kind: 'break', what: what || null, minutes, endAt: end.toISOString(), taskId: t ? t.id : null });
@@ -1732,17 +1758,20 @@ async function writeBreakReminder(id, oldId = null) {
   const b = momentById(id);
   if (!b || !G.isConfigured()) return;
   if (!G.isConnected()) { toast('Google is not connected now, so keep the app open for the reminder.'); return; }
-  const end = new Date(b.endAt);
+  const endAt = b.endAt;
+  const end = new Date(endAt);
   const key = R.toDateKey(end);
   const t = b.taskId && task(b.taskId);
   try {
     const ids = await G.writeDay(key, [{
       title: t ? `Break over. Back to: ${t.title}` : 'Break over',
-      start: R.toHHMM(end.getHours() * 60 + end.getMinutes()), minutes: 5, color: 'yellow', remind: [0],
+      start: R.toHHMM(end.getHours() * 60 + end.getMinutes()), minutes: 5, color: 'yellow', remind: [0], free: true,
       description: 'From Personal IO. Open the app for your first minute.',
     }], oldId ? [oldId] : []);
+    // Google answered after you came back, or after "5 more minutes" asked for a new one: not needed.
     const live = momentById(id);
-    if (live) { live.googleId = ids[0] || null; live.googleDay = key; save(state); }
+    if (!live || live.backAt || live.endAt !== endAt) { if (ids.length) G.writeDay(key, [], ids).catch(() => {}); return; }
+    live.googleId = ids[0] || null; live.googleDay = key; touch(live); save(state);
   } catch {
     toast("Couldn't add the Google reminder. Keep the app open.");
   }
@@ -1761,7 +1790,10 @@ function checkBreak() {
   renderNowPill();
   const b = R.activeBreak(state.moments);
   const st = R.breakState(b, Date.now());
-  if (!st) return;
+  // A back window for a break already answered or extended (in another tab or on the other device) goes away.
+  const win = modal.querySelector('[data-form="back"]');
+  if (win && (!b || win.dataset.id !== b.id || (st === 'running' && win.dataset.early !== '1'))) closeModal();
+  if (!st) { clearTimeout(breakTimer); return; }
   if (st === 'running') { scheduleBreakEnd(); return; }
   if (st === 'old') { finishBreak('closed'); return; } // hours ago: no greeting about it now
   if (modal.querySelector('[data-form="back"]')) return;
@@ -1776,47 +1808,68 @@ function checkBreak() {
 function backHTML(b) {
   const t = nextTask();
   const early = Date.now() < Date.parse(b.endAt);
+  const next = t ? `<div class="starter-task">Next: <strong>${esc(t.title)}</strong></div><div class="starter-task">First minute: ${esc(firstMinute(t))}</div>`
+    : '<div class="starter-task">Nothing waiting. Enjoy the free time.</div>';
+  const start = t ? `<button type="button" class="btn btn-dark btn-big" data-action="back-start" data-id="${t.id}">Start 1 minute</button>` : '';
+  if (early) {
+    // Opened from the pill before the end: maybe just checking the time. Keeping the break is the easy choice.
+    return `
+  <div class="modal starter" data-form="back" data-id="${b.id}" data-early="1">
+    <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <div class="starter-text" id="modal-title">Back already?</div>
+    ${next}
+    <div class="modal-foot" style="justify-content:center; flex-wrap:wrap">
+      <button type="button" class="btn" data-action="close-modal">Keep my break</button>
+      <button type="button" class="btn" data-action="back-not-now">End break</button>
+      ${start}
+    </div>
+  </div>`;
+  }
   return `
   <div class="modal starter" data-form="back" data-id="${b.id}">
-    <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="${early ? 'close-modal' : 'back-not-now'}" aria-label="Close">✕</button></div>
+    <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="back-not-now" aria-label="Close">✕</button></div>
     ${starterPicture('happy')}
-    <div class="starter-text" id="modal-title">${early ? 'Welcome back.' : "Break's over. Nice to see you back."}</div>
-    ${t ? `<div class="starter-task">Next: <strong>${esc(t.title)}</strong></div><div class="starter-task">First minute: ${esc(firstMinute(t))}</div>`
-      : '<div class="starter-task">Nothing waiting. Enjoy the free time.</div>'}
+    <div class="starter-text" id="modal-title">Break's over. Nice to see you back.</div>
+    ${next}
     <div class="modal-foot" style="justify-content:center; flex-wrap:wrap">
-      ${early ? '' : '<button type="button" class="btn" data-action="back-more">5 more minutes</button>'}
+      <button type="button" class="btn" data-action="back-more">5 more minutes</button>
       <button type="button" class="btn" data-action="back-not-now">Not now</button>
-      ${t ? `<button type="button" class="btn btn-dark btn-big" data-action="back-start" data-id="${t.id}">Start 1 minute</button>` : ''}
+      ${start}
     </div>
   </div>`;
 }
 
-// how: 'start' (went to the first minute), 'not_now', or 'closed' (the app closed an old one).
-function finishBreak(how) {
+// how: 'start' (went to the first minute), 'not_now', 'replaced' (a new break), or 'closed' (an old one).
+// id: only finish that break (a window may belong to a break already answered elsewhere).
+function finishBreak(how, id = null) {
   const b = R.activeBreak(state.moments);
-  if (!b) return;
-  const now = new Date();
-  b.backAt = now.toISOString();
+  if (!b || (id && b.id !== id)) return false;
+  b.backAt = new Date().toISOString();
   b.back = how;
+  touch(b);
   clearTimeout(breakTimer);
   save(state);
   renderNowPill();
-  // Back before the end: the Google reminder is not needed any more.
-  if (now < new Date(b.endAt) && b.googleId) G.writeDay(b.googleDay || todayKey(), [], [b.googleId]).catch(() => {});
+  // The reminder is not needed any more (or already rang): take it off the calendar.
+  if (b.googleId) G.writeDay(b.googleDay || todayKey(), [], [b.googleId]).catch(() => {});
+  return true;
 }
 
-function extendBreak(minutes) {
+function extendBreak(minutes, id = null) {
   const b = R.activeBreak(state.moments);
-  if (!b) return;
+  if (!b || (id && b.id !== id)) return false;
   const oldId = b.googleId || null;
   b.endAt = new Date(Math.max(Date.now(), Date.parse(b.endAt)) + minutes * 60000).toISOString();
   b.extended = (b.extended || 0) + minutes;
   b.googleId = null;
+  touch(b);
   save(state);
   renderNowPill();
   scheduleBreakEnd();
   writeBreakReminder(b.id, oldId);
+  return true;
 }
+const backWindowId = () => modal.querySelector('[data-form="back"]')?.dataset.id || null;
 
 // ----- tasks from your email (or a pasted list) -----
 
@@ -2350,7 +2403,7 @@ function settingsHTML() {
       <strong>Start screen picture</strong>
       <span class="hint">Pick any image from your computer or phone to show when you start a task. It stays only in this browser.</span>
       <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-        ${startPic() ? `<img src="${startPic()}" alt="Your start picture" class="pic-preview">` : catSVG('sad').replace('width="170" height="153"', 'width="80" height="72"')}
+        ${startPic() ? `<img src="${startPic()}" alt="Your start picture" class="pic-preview">` : catSVG('ok').replace('width="170" height="153"', 'width="80" height="72"')}
         <label class="btn btn-small" for="s-pic" style="cursor:pointer">Choose a picture</label>
         <input type="file" id="s-pic" accept="image/*" class="visually-hidden" data-change="start-pic">
         ${startPic() ? '<button type="button" class="btn-link" data-action="clear-pic">Use the drawn cat</button>' : ''}
@@ -2673,6 +2726,7 @@ function useDriveCopy(data, remote, message, driveData = data) {
   if (firstTime) ui.planDay = null;
   const msgs = dailyCheck();
   renderWhenFree();
+  checkBreak(); // a break may have started, ended or changed on the other device
   [message, ...msgs].filter(Boolean).forEach((m) => toast(m));
 }
 
@@ -2985,9 +3039,9 @@ const actions = {
   },
   'break-start': () => startBreak(pressedValue(modal, 'break-what'), Number(pressedValue(modal, 'break-min')) || 20),
   'break-back': () => { const b = R.activeBreak(state.moments); if (b) openModal(backHTML(b)); },
-  'back-start': (el) => { finishBreak('start'); const t = task(el.dataset.id); closeModal(); openStarter(t); },
-  'back-not-now': () => { finishBreak('not_now'); closeModal(); },
-  'back-more': () => { extendBreak(5); closeModal(); toast('5 more minutes.'); },
+  'back-start': (el) => { finishBreak('start', backWindowId()); const t = task(el.dataset.id); closeModal(); openStarter(t); },
+  'back-not-now': () => { finishBreak('not_now', backWindowId()); closeModal(); },
+  'back-more': () => { const ok = extendBreak(5, backWindowId()); closeModal(); if (ok) toast('5 more minutes.'); },
   'welcome-close': () => closeWelcome(false),
   'event-to-task': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
@@ -3362,6 +3416,7 @@ modal.addEventListener('close', () => {
   // Closed with Esc after the break ended: same as "Not now". Before the end, the break goes on.
   if (modal.querySelector('[data-form="back"]') && R.breakState(R.activeBreak(state.moments), Date.now()) === 'over') finishBreak('not_now');
   if (modal.querySelector('[data-form="pause"]')) pause = null;
+  if (modal.querySelector('[data-form="welcome"]') && ui.welcome) escWelcome(); // closed with Esc or the back gesture
   stopMic(); stopStarterTimer(); modal.innerHTML = ''; modal.classList.remove('wide');
   if (ui.backWaiting) { ui.backWaiting = false; setTimeout(checkBreak, 300); }
 });
@@ -3554,10 +3609,13 @@ window.addEventListener('storage', (e) => {
   if (e.key !== 'personal-io:v1' || !e.newValue) return;
   state = load();
   renderWhenFree();
+  checkBreak();
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') checkBreak();
-  if (document.visibilityState === 'visible' && G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow();
+  if (document.visibilityState === 'visible') {
+    if (G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow().then(checkBreak, checkBreak);
+    else checkBreak();
+  }
   if (document.visibilityState === 'hidden' && G.isConnected() && localChanged()) { clearTimeout(sync.timer); syncNow(); }
 });
 
@@ -3567,11 +3625,15 @@ startupMessages.forEach(toast);
 if (ui.bridgeToast) { toast('Connected to your Google bridge. Bringing your data.'); G.pingBridge().catch(() => {}); }
 else if (ui.setupToast) toast('Google is set up on this device. Tap Sync and sign in to bring your data.');
 else if (!G.usingBridge() && G.isConfigured() && !G.isConnected() && !G.calendarOnly() && getSync().fileId) toast('This device may be behind your other one.', { label: 'Sync now', data: { action: 'sync-now' } });
-maybeWelcome();
-maybeAutoStart();
-checkBreak();
-syncNow();
-setInterval(() => { if (R.activeBreak(state.moments)) checkBreak(); }, 15000);
+// The welcome, the start screen and the break check wait for the Drive copy (a few seconds at most),
+// so they see the newest data. If a window is already open, the welcome comes at the next minute.
+(() => {
+  let done = false;
+  const go = () => { if (done) return; done = true; if (!modal.open) maybeWelcome(); maybeAutoStart(); checkBreak(); };
+  setTimeout(go, 8000);
+  syncNow().then(() => sync.busy).catch(() => {}).finally(go);
+})();
+setInterval(() => { if (R.activeBreak(state.moments) || backWindowId()) checkBreak(); }, 15000);
 
 // Keep the "now" line and current block fresh, without disturbing typing.
 setInterval(() => {
