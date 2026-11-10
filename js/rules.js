@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS = {
   maxGoals: 10,
   urgentWindowDays: 2,         // "urgent" = deadline in less than 2 days
   staleDays: 21,               // ask "still important?" after this long untouched
+  gentleGapDays: 2,            // back after this many days away: a small day with one thing
 };
 
 // ---------- dates ----------
@@ -154,12 +155,25 @@ export function rankTasks(tasks, goals = []) {
 // slots from what is due soon. Starred calendar items of that day always come, at their own time.
 // Returns ids, plus why each was picked: { important, days } (days until the deadline, or null).
 // exclude: ids already planned on another day (for example today's tasks still ahead).
-export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DEFAULT_SETTINGS, exclude = [] }) {
+// gentle: the first day back after time away. One small thing (see gentlePick), plus that day's
+// starred calendar items. Overdue tasks are not pushed in; they wait for a normal day.
+export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DEFAULT_SETTINGS, exclude = [], gentle = false }) {
   const open = tasks.filter((t) => t.status === 'open' && !exclude.includes(t.id)
     && !(t.eventRef && t.eventRef.date !== dayKey)
     && !(t.fixedDate && t.fixedDate !== dayKey));
   const ranked = rankTasks(open, goals);
   const calendar = ranked.filter((t) => t.eventRef && t.eventRef.date === dayKey);
+  const why = (list) => {
+    const out = {};
+    list.forEach((t) => { out[t.id] = { important: isImportant(t), days: t.deadline ? daysUntil(t.deadline, dayKey) : null }; });
+    return out;
+  };
+  if (gentle) {
+    const others = ranked.filter((t) => !calendar.includes(t));
+    const one = smallestOfTop(others.filter((t) => t.priority !== 'nice')) || others[0];
+    const focus = one ? [one] : [];
+    return { focus: focus.map((t) => t.id), also: [], calendar: calendar.map((t) => t.id), why: why([...focus, ...calendar]) };
+  }
   const rest = ranked.filter((t) => !calendar.includes(t) && t.priority !== 'nice');
   const focus = rest.filter((t) => t.priority === 'both' || t.priority === 'important').slice(0, 2);
   // No important task: the most pressing ones become the focus.
@@ -174,11 +188,14 @@ export function proposeDay({ tasks, goals = [], dayKey, slots = 3, settings = DE
   if (!focus.length && !also.length) {
     ranked.filter((t) => !calendar.includes(t)).slice(0, Math.min(slots, Math.max(0, settings.daySlotsMax - calendar.length))).forEach((t) => also.push(t));
   }
-  const why = {};
-  [...focus, ...also, ...calendar].forEach((t) => {
-    why[t.id] = { important: isImportant(t), days: t.deadline ? daysUntil(t.deadline, dayKey) : null };
-  });
-  return { focus: focus.map((t) => t.id), also: also.map((t) => t.id), calendar: calendar.map((t) => t.id), why };
+  return { focus: focus.map((t) => t.id), also: also.map((t) => t.id), calendar: calendar.map((t) => t.id), why: why([...focus, ...also, ...calendar]) };
+}
+
+// Of the 3 most pressing tasks (already ranked), the shortest one. Easier to start after time away.
+function smallestOfTop(ranked) {
+  const top = ranked.slice(0, 3);
+  if (!top.length) return null;
+  return top.reduce((best, t) => ((t.minutes || 30) < (best.minutes || 30) ? t : best), top[0]);
 }
 
 // ---------- a deadline said in the title ----------
@@ -493,6 +510,67 @@ export function lastActiveDay(todayKey, { lastOpen = null, days = {}, log = [] }
   return seen.sort().pop() || null;
 }
 
+// True when today is the first day back after gentleGapDays or more away (see returns in app.js).
+export function isGentleDay(returns = [], todayKey, settings = DEFAULT_SETTINGS) {
+  return (returns || []).some((r) => r.date === todayKey && r.gapDays >= settings.gentleGapDays);
+}
+
+// The one small thing to offer when coming back: of the 3 most pressing open tasks for today
+// (not "later" ones, not calendar items of another day), the shortest. Falls back to any open task.
+export function gentlePick(tasks, goals = [], todayKey) {
+  const open = (tasks || []).filter((t) => t.status === 'open'
+    && !(t.eventRef && t.eventRef.date !== todayKey)
+    && !(t.fixedDate && t.fixedDate !== todayKey));
+  const ranked = rankTasks(open, goals);
+  return smallestOfTop(ranked.filter((t) => t.priority !== 'nice')) || ranked[0] || null;
+}
+
+// ---------- the Pause button: what the app says when you are stuck ----------
+// Plain words, no shame, and every answer ends in one small action.
+// offers: 'step' (start one minute), 'break' (a planned break), 'worry' (write it down, never a task).
+export const PAUSE = {
+  break: { label: 'I want a break', text: 'Good call. Pick how long, and I will call you back.', offers: ['break'] },
+  avoiding: {
+    label: "I'm avoiding something",
+    text: "Avoiding is normal. Your brain is dodging a bad feeling, not being lazy. You don't have to finish it. Just touch it for one minute.",
+    offers: ['step', 'break'],
+  },
+  anxious: {
+    label: "I'm anxious",
+    text: 'Anxiety makes a task look bigger than it is. Take three slow breaths, then put the worry on paper so it leaves your head.',
+    note: 'If this feeling stays for weeks, tell your doctor or therapist.',
+    offers: ['worry', 'step'],
+  },
+  tired: {
+    label: "I'm tired",
+    text: 'Low energy is real, not a failure. Do the easiest thing for one minute, or take a real break and come back.',
+    offers: ['step', 'break'],
+  },
+  overwhelmed: {
+    label: 'Too much at once',
+    text: "You don't need the whole list, only the next step. Here it is.",
+    offers: ['step'],
+  },
+};
+
+export const BREAK_KINDS = ['Chess', 'Instagram', 'Walk', 'Rest', 'Other'];
+export const BREAK_MINUTES = [10, 20, 30];
+
+// The break running now: the last one you have not come back from. null if none.
+export function activeBreak(moments = []) {
+  const last = [...(moments || [])].reverse().find((m) => m.kind === 'break');
+  return last && !last.backAt ? last : null;
+}
+
+// 'running' until endAt, then 'over' (time to come back). After 6 hours with no answer it is 'old':
+// the app closes it quietly instead of greeting you about a break from hours ago.
+export function breakState(b, nowMs) {
+  if (!b || b.backAt) return null;
+  const end = Date.parse(b.endAt);
+  if (nowMs < end) return 'running';
+  return nowMs - end > 6 * 3600000 ? 'old' : 'over';
+}
+
 // What happened on one day: what got done (wins first) and how much is still open.
 export function daySummary(dateKey, { days = {}, log = [], tasks = [] } = {}) {
   const planned = ((days[dateKey] && days[dateKey].taskIds) || []).map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
@@ -615,9 +693,15 @@ export function mergeData(base, local, remote) {
   // Records that only grow: keep everything from both. (A return is one per day.)
   const union = (key) => {
     const seen = new Set();
-    const id = key === 'returns' ? (v) => `${v.date}|${v.lastActive}` : (v) => JSON.stringify(v);
+    const id = key === 'returns' ? (v) => `${v.date}|${v.lastActive}` : key === 'moments' ? (v) => v.id : (v) => JSON.stringify(v);
     const all = [...(local[key] || []), ...(remote[key] || [])];
     if (key === 'returns') all.sort((a, z) => Number(!!z.plannedAfter) - Number(!!a.plannedAfter));
+    // A moment (break, pause, start) is one per id. A finished break beats the same break still running,
+    // and with both finished (or both running) the one changed last wins (more minutes added).
+    if (key === 'moments') {
+      const rankOf = (v) => [v.backAt ? 1 : 0, v.extended || 0];
+      all.sort((a, z) => { const [ra, rz] = [rankOf(a), rankOf(z)]; return rz[0] - ra[0] || rz[1] - ra[1]; });
+    }
     return all.filter((v) => {
       const k = id(v);
       if (seen.has(k)) return false;
@@ -631,6 +715,7 @@ export function mergeData(base, local, remote) {
     settings: pick(b.settings, local.settings, remote.settings),
     goals: byId('goals'), tasks: byId('tasks'), events: byId('events'), days,
     log: union('log'), journal: union('journal'), returns: union('returns'),
+    moments: union('moments').sort((a, z) => (a.at || '').localeCompare(z.at || '')),
     lastOpenDate: later(local.lastOpenDate, remote.lastOpenDate),
     lastDailyCheck: later(local.lastDailyCheck, remote.lastDailyCheck),
   };

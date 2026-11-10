@@ -380,10 +380,18 @@ body.dragging-task .col-day { outline: 3px dashed var(--primary); outline-offset
 .welcome-check legend { font-weight: 700; padding: 0 4px; }
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; font-size: 15px; }
 .check-row input { width: 20px; height: 20px; accent-color: var(--primary); flex: none; }
-.stand { display: flex; flex-wrap: wrap; gap: 8px; }
-.stand-chip { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 14px; }
 .welcome-next { background: var(--gold-soft); box-shadow: inset 6px 0 0 var(--gold); }
-.welcome-open { background: var(--ground); color: var(--ink); }
+.welcome-more summary { cursor: pointer; font-weight: 600; color: var(--ink-2); padding: 4px 0; }
+.welcome-more[open] summary { margin-bottom: 8px; }
+
+/* Pause: when stuck, or a break with an end */
+.pause { gap: 14px; }
+.pause-list { display: flex; flex-direction: column; gap: 8px; }
+.pause-pick { justify-content: flex-start; text-align: left; min-height: 52px; font-size: 16px; }
+.pause-text { font-size: 18px; line-height: 1.45; color: var(--ink); margin: 0; }
+.break-pill { border: 0; font: inherit; cursor: pointer; background: var(--gold-soft); color: var(--ink); }
+.break-pill:hover { color: var(--ink); }
+
 
 /* ---------- record ---------- */
 .record td, .record th { text-align: left; padding: 8px 12px; border-top: 1px solid var(--line-2); font-size: 14px; vertical-align: top; }

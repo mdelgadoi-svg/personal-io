@@ -33,6 +33,11 @@ Core method (enforced in `js/rules.js`):
 - No two open tasks with the same name.
 - Planned tasks written to Google Calendar get reminders 10 minutes before and at the start (Google Calendar app on Android, calendar.google.com on the computer).
 - Day plan: 3 slots (up to 7). Each task gets its own start time (`day.times[taskId]`) in the first free time that fits its length, around calendar events. The list follows the times.
+- **v2.1 (Nov 9, 2026): a calmer assistant.** Built during the freeze because he asked. His pattern: he drifts away, coming back brings anxiety and shame, and he escapes to Instagram or chess for hours. Goal: easy to come back to, easy to leave toward work (never "sticky").
+  - **Calm return.** After `gentleGapDays` (2) or more days away, the welcome shows no counts, no dates, no list: "No catching up needed", one small thing (`R.gentlePick`: the shortest of the 3 most pressing) and "Start 1 minute". The "did you already do these" list is folded in `<details>`. That day is a **gentle day** (`R.isGentleDay` from `returns`): the proposal is that one thing plus starred calendar items, and overdue tasks are not pushed in.
+  - **Pause button** (header): "What's going on?" with I want a break, I'm avoiding something, I'm anxious, I'm tired, Too much at once. Scripted answers in `R.PAUSE` (no Claude). Each ends in one action: start 1 minute (`nextTask()`), a planned break, or write the worry (a journal note with `source: 'pause'`, never a task).
+  - **Breaks with an end.** What (optional) and 10/20/30 min. The end goes to Google Calendar as a 5-minute event with one reminder at that minute (`remind: [0]`, no bridge change), so the phone rings with the app closed. The header pill shows the break. At the end a kind window shows the next task: Start 1 minute, 5 more minutes (moves the reminder), Not now. Back early removes the reminder. A break unanswered for 6 hours closes quietly (`R.breakState`).
+  - **Voice rules**: warm, short, no shame, every message ends in one small action. No streaks, points or red "not done" (it says "Not yet"). The start cat is never sad.
 - Talking or typing a note never creates tasks by itself. Only the word "task" (or "tarea") names one; Claude may suggest at most 3, unticked.
 
 ## Files
@@ -70,9 +75,10 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 - If Google refuses the sign-in, a toast offers "Calendar only" (`personal-io:calendar-only`): calendar without Drive. Tapping the "Sync off" pill tries Drive again.
 - The header pill shows the state: Sync / Sync now (connect), Saving, Synced, Sync off, Sync problem.
 
-- `personal-io:v1`: main JSON `{ settings, goals, tasks, events, days, log, journal, returns, lastOpenDate, lastDailyCheck }`
+- `personal-io:v1`: main JSON `{ settings, goals, tasks, events, days, log, journal, returns, moments, lastOpenDate, lastDailyCheck }`
 - Task: `id, status (open|done|trashed), title, goalId, important, priority (computed), deadline, minutes, firstSteps[], computer, place (everywhere|silent|commute), fixedDate, fixedTime, eventRef, progress, needs[]`
 - Day (key `YYYY-MM-DD`): `taskIds, times, slots, plan (rebuilt by syncPlan), set, planStale, googlePending, googleIds, reviewed (by task id), focus (ids from the proposal), prioChanged`
+- `moments` (v2.1, synced, joined by id; a finished break wins): `{ id, at, kind: 'break', what, minutes, endAt, taskId, googleId, googleDay, backAt, back: start|not_now|closed, extended }`, `{ kind: 'pause', feeling, chose: step|break|worry }`, `{ kind: 'start', taskId, auto }`. For the 2-week test (from Nov 10): breaks ending near `endAt`, days with a start, which feelings come up.
 - Other keys: `personal-io:claude-key`, `google-client-id`, `google-calendar-id`, `google-session` (token for its hour, plus whether Drive was allowed), `google-events` (last Google events per day, shown after the hour), `sync`, `sync-base`, `other-copy`, `calendar-only`, `v1-unreadable` (data that failed to load, kept instead of overwritten), `voice-lang`, `start-pic`
 - Also `personal-io:bridge`, `bridge-pending` (key made by "Copy my code", until Connect).
 - Not synced (per device): Claude key, start picture, voice language. The phone gets the Client ID from the "Use it on your phone" link in Settings (`#connect=<client id>`).
@@ -112,4 +118,4 @@ He sent `PERSONAL_IO_V2_BRIEF.md`: one-box capture with zero required fields (R1
 
 ## Open ideas (not approved, do not build without asking)
 
-A "This week" usage card; a weekly review; splitting `app.js` into screen files; removing the in-app events on the Calendar tab; merging "Talk it out" into the capture box; a shorter task form with "More details".
+An evening stopping point (write what is on your mind, see tomorrow's one thing, close; from his ADHD, anxiety and sleep research brief); Claude-powered empathy for Pause (needs a key; must still end in one action, no reassurance loops); small built-in games with a natural end (a chess puzzle); "Let's procrastinate together" with other people (needs a server: a separate product); a "This week" usage card; a weekly review; splitting `app.js` into screen files; removing the in-app events on the Calendar tab; merging "Talk it out" into the capture box; a shorter task form with "More details".
