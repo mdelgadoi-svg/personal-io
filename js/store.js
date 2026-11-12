@@ -26,6 +26,7 @@ function emptyState() {
     log: [],   // record of what was done or not, and why
     journal: [], // notes you said or typed (welcome back and Talk it out)
     returns: [], // each time you came back after a day or more away
+    moments: [], // breaks, Pause answers and starts: { id, kind: 'break'|'pause'|'start', at, ... }
     lastOpenDate: null,
     savedAt: null, // when you last changed something (not housekeeping)
   };

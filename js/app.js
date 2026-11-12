@@ -247,6 +247,12 @@ function render() {
 
 function renderNowPill() {
   const pill = document.getElementById('now-pill');
+  const b = R.activeBreak(state.moments);
+  if (b) {
+    const left = Math.ceil((Date.parse(b.endAt) - Date.now()) / 60000);
+    pill.innerHTML = `<button type="button" class="now-pill break-pill" data-action="break-back" aria-label="Break. I'm back"><span class="dot"></span><span><strong>Break</strong>${left > 0 ? ` · ${left} min` : ' · over'}<span class="long"> · I'm back</span></span></button>`;
+    return;
+  }
   const { current } = currentAndNext();
   if (!current) { pill.innerHTML = ''; return; }
   const end = t12m(current.start + current.minutes);
@@ -856,8 +862,11 @@ function proposalFor(dayKey) {
   const exclude = dayKey !== todayKey() && today
     ? today.taskIds.filter((id) => { const at = (today.times || {})[id]; return task(id)?.status === 'open' && at && R.toMinutes(at) > nowMinutes(); })
     : [];
-  return R.proposeDay({ tasks: state.tasks, goals: state.goals, dayKey, slots: getDay(dayKey).slots || S().daySlots, settings: S(), exclude });
+  return R.proposeDay({ tasks: state.tasks, goals: state.goals, dayKey, slots: getDay(dayKey).slots || S().daySlots, settings: S(), exclude, gentle: gentleOn(dayKey) });
 }
+
+// The first day back after time away is a small day (one thing). Tomorrow too after an evening return.
+function gentleOn(dayKey) { return dayKey >= todayKey() && R.isGentleDay(state.returns, dayKey, S()); }
 
 function whyText(w, dayKey) {
   if (!w) return '';
@@ -891,13 +900,15 @@ function proposalHTML(dayKey) {
       <span style="display:flex; gap:8px"><button class="btn btn-small btn-dark" data-action="repropose" data-day="${dayKey}">Update the plan</button><button class="btn btn-small" data-action="keep-plan" data-day="${dayKey}">Keep it</button></span></div>`;
   }
   if (!p.focus.length && !p.also.length && !p.calendar.length) return '';
+  const gentle = gentleOn(dayKey);
   const row = (id) => {
     const t = task(id);
-    return `<li>${markHTML(t.priority)} <span class="prop-title">${esc(t.title)}</span> <span class="hint">${esc(whyText(p.why[id], dayKey))}${t.eventRef ? ` · ${t12(t.fixedTime)}` : ''}</span></li>`;
+    const why = gentle ? '' : whyText(p.why[id], dayKey); // a small day does not list what is late
+    return `<li>${markHTML(t.priority)} <span class="prop-title">${esc(t.title)}</span> <span class="hint">${esc(why)}${t.eventRef ? `${why ? ' · ' : ''}${t12(t.fixedTime)}` : ''}</span></li>`;
   };
   return `<section class="card card-pad proposal" aria-label="Proposal for ${word}">
-    <h2>My proposal for ${word}</h2>
-    ${p.focus.length ? `<div class="prop-group"><span class="eyebrow">Focus</span><ol>${p.focus.map(row).join('')}</ol></div>` : ''}
+    <h2>${!gentle ? `My proposal for ${word}` : p.focus.length + p.calendar.length > 1 ? `A small day ${word}` : `One small thing for ${word}`}</h2>
+    ${p.focus.length ? `<div class="prop-group">${gentle ? '' : '<span class="eyebrow">Focus</span>'}<ol>${p.focus.map(row).join('')}</ol></div>` : ''}
     ${p.also.length || p.calendar.length ? `<div class="prop-group"><span class="eyebrow">Also ${word}</span><ul>${[...p.calendar, ...p.also].map(row).join('')}</ul></div>` : ''}
     <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
   </section>`;
@@ -935,7 +946,7 @@ async function applyProposal(dayKey, { replace = false } = {}) {
 function todayStatus(t, key) {
   if (t.status === 'done') return { word: 'Done', cls: 'chip-done' };
   const last = [...state.log].reverse().find((l) => l.taskId === t.id && l.date === key);
-  if (last && last.result === 'not_started') return { word: 'Not done', cls: 'chip-miss', reason: last.reason };
+  if (last && last.result === 'not_started') return { word: 'Not yet', cls: 'chip-todo', reason: last.reason };
   if (last && last.result === 'working') return { word: 'Still working', cls: 'chip-goal', reason: last.reason };
   return { word: 'To do', cls: 'chip-todo' };
 }
@@ -1041,7 +1052,7 @@ function renderToday() {
     <section class="col" style="flex: 1.2 1 380px">
       <div class="col-head"><h2>Goals I'm moving today</h2></div>
       <div class="card card-pad" style="display:flex; flex-direction:column; gap:14px">${goalCards || '<span class="hint">No tasks planned.</span>'}</div>
-      <div class="col-head"><h2>Tasks</h2><span class="meta">Did I do it?</span></div>
+      <div class="col-head"><h2>Tasks</h2></div>
       <div class="card list">${tasks.map((t) => todayTaskRowHTML(t, key)).join('') || '<div class="item"><span class="hint">No tasks planned.</span></div>'}</div>
       ${extraHTML}
     </section>
@@ -1098,38 +1109,62 @@ function welcomeInfo() {
   // Skip calendar events that already happened.
   const next = R.sortForPlanning(open.filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today) && !check.includes(t)))[0]
     || R.sortForPlanning(open.filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today)))[0] || null;
-  return { last, gap: R.daysUntil(today, last), sum: R.daySummary(last, state), check, next };
+  const gap = R.daysUntil(today, last);
+  // After time away: one small thing, the shortest of the most pressing (no calendar items).
+  const small = gap >= S().gentleGapDays ? R.gentlePick(open.filter((t) => !t.eventRef), state.goals, today) : null;
+  return { last, gap, sum: R.daySummary(last, state), check, next: small || next };
 }
 
 // Shown once, on the first open of each day.
+// The return is kept as the window opens, not when it closes, so Esc, a reload or a sync never lose it.
+// After days away it is a real change (it makes the day small, on every device).
 function maybeWelcome() {
   const today = todayKey();
   if (state.lastOpenDate === today) return;
   const info = welcomeInfo();
   state.lastOpenDate = today;
-  save(state, { quiet: true });
-  if (!info) return;
+  if (!info) { save(state, { quiet: true }); return; }
+  state.returns = state.returns || [];
+  state.returns.push({ date: today, lastActive: info.last, gapDays: info.gap, hour: new Date().getHours(), noted: false, ticked: 0, plannedAfter: false });
+  save(state, { quiet: info.gap < S().gentleGapDays });
   ui.welcome = info;
   openModal(welcomeHTML(info));
 }
 
 function welcomeHTML({ last, gap, sum, check, next }) {
+  const gentle = gap >= S().gentleGapDays;
   const when = gap <= 1 ? 'yesterday' : esc(fmtDay(last, { weekday: 'long', month: 'long', day: 'numeric' }));
-  const c = R.countByPriority(state.tasks);
-  const stand = ['both', 'urgent', 'important', 'nice']
-    .map((p) => `<span class="stand-chip">${markHTML(p)} <strong>${c[p]}</strong> <span class="muted">${R.PRIORITIES[p].short || R.PRIORITIES[p].label}</span></span>`).join('');
+  const first = next ? stepsOf(next)[0] || R.templateSteps(next.title, next.place, next.computer !== false)[0] : '';
+  const checkBox = check.length ? `<fieldset class="welcome-box welcome-check"><legend>Did you already do any of these? Tick them and I'll mark them done.</legend>
+      ${check.map((t) => `<label class="check-row"><input type="checkbox" name="wb-done" value="${t.id}"> ${markHTML(t.priority)} <span>${esc(t.title)}</span></label>`).join('')}
+    </fieldset>` : '';
+  const one = next ? `<div class="welcome-box welcome-next"><span class="eyebrow">${gentle ? 'One small thing' : 'One small place to start'}</span>
+      <strong>${markHTML(next.priority)} ${esc(next.title)}</strong>
+      ${first ? `<span>First minute: ${esc(first)}</span>` : ''}</div>` : '';
+  const head = (title) => `<div class="modal-head"><div><div class="date-line">${esc(longDay(todayKey()))}</div><div class="big" id="modal-title">${title}</div></div>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="welcome-close" aria-label="Close">✕</button></div>`;
+  if (gentle) {
+    // Back after days away: no list, no counts, no dates. One small thing and a way to start it.
+    return `
+  <div class="modal welcome" data-form="welcome">
+    ${head('Welcome back')}
+    <div style="font-size:16px">No catching up needed. Let's start with one small thing.</div>
+    ${one}
+    ${checkBox ? `<details class="welcome-more"><summary>Already did some?</summary>${checkBox}</details>` : ''}
+    ${talkFieldHTML('wb', 'Anything on your mind? (optional)', 'Typing is fine too...', 90)}
+    <div class="modal-foot">
+      <button type="button" class="btn-link" data-action="welcome-close">Not now</button>
+      ${next ? `<button type="button" class="btn btn-dark" data-action="welcome-start-task" data-id="${next.id}">Start 1 minute</button>`
+        : '<button type="button" class="btn btn-dark" data-action="welcome-close">Okay</button>'}
+    </div>
+  </div>`;
+  }
   return `
   <div class="modal welcome" data-form="welcome">
-    <div class="modal-head"><div><div class="date-line">${esc(longDay(todayKey()))}</div><div class="big" id="modal-title">${gap <= 1 ? 'Good morning' : 'Welcome back'}</div></div>
-      <button type="button" class="btn btn-ghost icon-btn" data-action="welcome-close" aria-label="Close">✕</button></div>
-    <div style="font-size:16px">Last time you were here was ${when}.${gap > 1 ? ' It is okay to start again.' : ''}${sum.done.length ? ` You marked ${sum.done.length} thing${sum.done.length === 1 ? '' : 's'} done that day.` : ''}</div>
-    ${check.length ? `<fieldset class="welcome-box welcome-check"><legend>Did you already do any of these? Tick them and I'll mark them done.</legend>
-      ${check.map((t) => `<label class="check-row"><input type="checkbox" name="wb-done" value="${t.id}"> ${markHTML(t.priority)} <span>${esc(t.title)}</span></label>`).join('')}
-    </fieldset>` : ''}
-    <div class="welcome-box welcome-open"><strong>Where things stand right now</strong><div class="stand">${stand}</div></div>
-    ${next ? `<div class="welcome-box welcome-next"><span class="eyebrow">One small place to start</span>
-      <strong>${markHTML(next.priority)} ${esc(next.title)}</strong>
-      ${stepsOf(next)[0] ? `<span>First minute: ${esc(stepsOf(next)[0])}</span>` : ''}</div>` : ''}
+    ${head('Good morning')}
+    <div style="font-size:16px">Last time you were here was ${when}.${sum.done.length ? ` You marked ${sum.done.length} thing${sum.done.length === 1 ? '' : 's'} done that day.` : ''}</div>
+    ${checkBox}
+    ${one}
     ${talkFieldHTML('wb', 'Anything on your mind? (optional)', 'Typing is fine too...', 90)}
     <div class="modal-foot">
       <button type="button" class="btn-link" data-action="welcome-close">Close</button>
@@ -1151,18 +1186,35 @@ function finishWelcome() {
   });
   if (info) {
     state.returns = state.returns || [];
-    state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, noted: !!text, ticked: ticked.length, plannedAfter: false });
+    const r = state.returns.find((x) => x.date === todayKey() && x.lastActive === info.last);
+    if (r) Object.assign(r, { noted: !!text, ticked: ticked.length });
+    else state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, hour: new Date().getHours(), noted: !!text, ticked: ticked.length, plannedAfter: false });
   }
   ui.welcome = null;
   save(state, { quiet: !text && !ticked.length }); // just closing it is not an edit
   return { text, ticked: ticked.length, about: info ? info.last : null };
 }
 
-async function closeWelcome(goPlan) {
-  const btn = modal.querySelector('[data-action="welcome-start"]');
+// The welcome closed without a button: keep the ticks and the note, and land on the small day.
+function escWelcome() {
+  const { text, about } = finishWelcome();
+  if (text) {
+    state.journal = state.journal || [];
+    state.journal.push({ id: newId(), date: todayKey(), about, text, source: 'welcome', at: new Date().toISOString() });
+    save(state);
+  }
+  if (gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
+  else renderWhenFree();
+}
+
+async function closeWelcome(goPlan, startId = null) {
+  const btn = modal.querySelector('[data-action="welcome-start"], [data-action="welcome-start-task"]');
   const { text, ticked, about } = finishWelcome();
   const done = ticked ? `${ticked} marked done. ` : '';
   const after = () => {
+    if (!goPlan && gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
+    const t = startId && task(startId);
+    if (t && t.status === 'open') { openStarter(t); return; }
     if (!goPlan) return;
     ui.planDay = 'today';
     if (location.hash === '#start') render(); else location.hash = '#start';
@@ -1171,7 +1223,8 @@ async function closeWelcome(goPlan) {
     closeModal();
     after();
     render();
-    toast(goPlan ? `${done}Fresh start: pick a few things for today.` : (done || 'See you around.').trim());
+    if (goPlan) toast(`${done}Fresh start: pick a few things for today.`);
+    else if (done) toast(done.trim());
     return;
   }
   await handleTalk(text, { about, source: 'welcome', button: btn, prefix: done, after });
@@ -1468,7 +1521,6 @@ function addTalkTasks() {
 }
 
 // ----- start screen: one step at a time, one minute each -----
-// A cat with big eyes waits for you. It looks sad until you start, and cheers up step by step.
 
 let starter = null; // { taskId, steps, i, left, timer }
 
@@ -1481,26 +1533,18 @@ function starterPicture(mood) {
   return pic ? `<img class="cat cat-photo" src="${pic}" alt="Your start picture">` : catSVG(mood);
 }
 
+// The cat is calm while you start and happy once you have. It is never sad: starting is not a test.
 function catSVG(mood) {
-  const mouth = {
-    sad: 'M86 140 q14 -12 28 0',
-    meh: 'M88 136 h24',
-    ok: 'M86 132 q14 10 28 0',
-    happy: 'M84 130 q8 12 16 0 q8 12 16 0',
-  }[mood];
-  const brows = mood === 'sad'
-    ? '<path d="M54 64 l26 -8 M146 64 l-26 -8" stroke="#18243B" stroke-width="4" stroke-linecap="round"/>'
-    : mood === 'meh' ? '<path d="M56 60 h24 M120 60 h24" stroke="#18243B" stroke-width="4" stroke-linecap="round"/>' : '';
-  const tear = mood === 'sad' ? '<path d="M58 124 q-6 10 0 15 q6 -5 0 -15z" fill="#7FB3FF"/>' : '';
-  const blush = mood === 'happy' || mood === 'ok' ? '<ellipse cx="52" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/><ellipse cx="148" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/>' : '';
+  const mouth = mood === 'happy' ? 'M84 130 q8 12 16 0 q8 12 16 0' : 'M86 132 q14 10 28 0';
+  const blush = '<ellipse cx="52" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/><ellipse cx="148" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/>';
   const eye = (cx) => `<ellipse cx="${cx}" cy="96" rx="21" ry="25" fill="#18243B"/><circle cx="${cx + 7}" cy="85" r="8" fill="#fff"/><circle cx="${cx - 7}" cy="106" r="4" fill="#fff"/>`;
-  const label = { sad: 'A sad cat with big eyes, waiting for you to start', meh: 'The cat looks a little less sad', ok: 'The cat is starting to smile', happy: 'The cat is happy' }[mood];
+  const label = mood === 'happy' ? 'The cat is happy' : 'A calm cat, here with you';
   return `<svg class="cat" viewBox="0 0 200 180" width="170" height="153" role="img" aria-label="${label}">
     <path d="M42 74 L50 16 L86 50 Z" fill="#C3CCDD" stroke="#18243B" stroke-width="4" stroke-linejoin="round"/>
     <path d="M158 74 L150 16 L114 50 Z" fill="#C3CCDD" stroke="#18243B" stroke-width="4" stroke-linejoin="round"/>
     <path d="M52 56 L54 30 L72 48 Z M148 56 L146 30 L128 48 Z" fill="#F4A9B8"/>
     <ellipse cx="100" cy="104" rx="72" ry="62" fill="#C3CCDD" stroke="#18243B" stroke-width="4"/>
-    ${brows}${eye(70)}${eye(130)}${tear}${blush}
+    ${eye(70)}${eye(130)}${blush}
     <path d="M94 120 l6 6 l6 -6 z" fill="#E58FA0" stroke="#18243B" stroke-width="2" stroke-linejoin="round"/>
     <path d="${mouth}" fill="none" stroke="#18243B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M30 118 l30 4 M28 132 l32 -2 M170 118 l-30 4 M172 132 l-32 -2" stroke="#18243B" stroke-width="2.5" stroke-linecap="round"/>
@@ -1534,7 +1578,7 @@ function starterHTML() {
       <div class="modal-foot" style="justify-content:center"><button type="button" class="btn btn-dark" data-action="starter-close">Keep going</button></div>
     </div>`;
   }
-  const mood = ['sad', 'meh', 'ok'][Math.min(starter.i, 2)];
+  const mood = 'ok';
   const pct = Math.round(((60 - starter.left) / 60) * 100);
   return `
   <div class="modal starter" data-form="starter">
@@ -1568,8 +1612,13 @@ function showStarterStep() {
   }, 1000);
 }
 
-function openStarter(t) {
+function openStarter(t, { auto = false } = {}) {
   if (!t) return;
+  if (R.activeBreak(state.moments)) finishBreak('start'); // starting means the break is over
+  // Kept so you can see later how often you started something (see the 2-week test in CLAUDE.md).
+  // An automatic start is housekeeping (quiet); maybeAutoStart saves it.
+  addMoment({ kind: 'start', taskId: t.id, auto });
+  if (!auto) save(state);
   const steps = stepsOf(t).length ? stepsOf(t) : R.templateSteps(t.title, t.place, t.computer !== false);
   stopStarterTimer();
   starter = { taskId: t.id, steps, i: 0, left: 60, timer: null };
@@ -1578,6 +1627,9 @@ function openStarter(t) {
 
 // When a deep work block begins, the start screen opens by itself (once per block).
 function maybeAutoStart() {
+  if (R.activeBreak(state.moments)) return; // on a break: the back window comes first
+  const lastBreak = [...(state.moments || [])].reverse().find((m) => m.kind === 'break');
+  if (lastBreak && lastBreak.back === 'not_now' && Date.now() - Date.parse(lastBreak.backAt) < 15 * 60000) return; // he said not now
   const { current } = currentAndNext();
   if (!current || current.type !== 'block' || nowMinutes() - current.start > 10) return;
   const day = getDay(todayKey());
@@ -1591,11 +1643,233 @@ function maybeAutoStart() {
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
     try { new Notification('First step (1 min)', { body: `${first}\nFor: ${t.title}`, tag: 'personal-io-start' }); shown = true; } catch { /* not allowed here */ }
   }
-  if (!modal.open) { openStarter(t); shown = true; }
+  if (!modal.open) { openStarter(t, { auto: true }); shown = true; }
   if (!shown) return; // something else is open; try again next minute
   day.startShown[blockKey] = true;
   save(state, { quiet: true });
 }
+
+// ----- Pause: when you are stuck, or want a break that ends on time -----
+// Scripted words from R.PAUSE (no Claude needed). Every answer ends in one small action.
+
+let pause = null; // { feeling, momentId, view: 'pick' | 'answer' | 'break', worrySaved }
+let breakTimer = null;
+
+function addMoment(m) {
+  state.moments = state.moments || [];
+  const x = { id: newId(), at: new Date().toISOString(), ...m };
+  state.moments.push(x);
+  return x;
+}
+function momentById(id) { return (state.moments || []).find((m) => m.id === id) || null; }
+function touch(m) { m.upd = new Date().toISOString(); return m; }
+
+// What to do next: the first open task in today's plan, else the one small thing. Never a meeting.
+function nextTask() {
+  const key = todayKey();
+  if (state.days[key]) {
+    const planned = sortedDayTasks(key).find((t) => t.status === 'open' && !t.eventRef);
+    if (planned) return planned;
+  }
+  return R.gentlePick(state.tasks.filter((t) => !t.eventRef), state.goals, key);
+}
+
+function firstMinute(t) { return stepsOf(t)[0] || R.templateSteps(t.title, t.place, t.computer !== false)[0]; }
+
+function stepOfferHTML() {
+  const t = nextTask();
+  if (!t) return '<div class="welcome-box"><span>Nothing waiting. Enjoy the free time.</span></div>';
+  return `<div class="welcome-box welcome-next"><span class="eyebrow">One minute on</span>
+    <strong>${esc(t.title)}</strong><span>First minute: ${esc(firstMinute(t))}</span>
+    <div><button type="button" class="btn btn-dark" data-action="pause-step" data-id="${t.id}">Start 1 minute</button></div></div>`;
+}
+
+function pauseHTML() {
+  const close = '<button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button>';
+  if (pause.view === 'break') {
+    const ring = G.isConfigured() && G.isConnected() ? 'Your phone will ring at the end (Google Calendar).' : 'Keep the app open and it will call you back.';
+    return `
+  <div class="modal pause" data-form="pause">
+    <div class="modal-head"><h2 id="modal-title">A break with an end</h2>${close}</div>
+    <div class="field"><span class="field-label">What for? (optional)</span>
+      <div class="pills" data-group="break-what">${R.BREAK_KINDS.map((k) => `<button type="button" data-value="${esc(k)}" aria-pressed="false">${esc(k)}</button>`).join('')}</div></div>
+    <div class="field"><span class="field-label">How long?</span>
+      <div class="pills" data-group="break-min">${R.BREAK_MINUTES.map((m) => `<button type="button" data-value="${m}" aria-pressed="${m === 20}">${m} min</button>`).join('')}</div></div>
+    <span class="hint">${ring}</span>
+    <div class="modal-foot">
+      <button type="button" class="btn-link" data-action="pause-home">Back</button>
+      <button type="button" class="btn btn-dark" data-action="break-start">Start break</button>
+    </div>
+  </div>`;
+  }
+  if (pause.view === 'answer') {
+    const p = R.PAUSE[pause.feeling];
+    const offers = p.offers.map((o) => {
+      if (o === 'step') return stepOfferHTML();
+      if (o === 'break') return '<div><button type="button" class="btn" data-action="pause-break">Take a planned break</button></div>';
+      if (pause.worrySaved) return '<div class="welcome-box"><span>Written down. It is out of your head now.</span></div>';
+      return `<div class="field"><label class="field-label" for="pause-worry">What is the worry?</label>
+        <textarea class="input" id="pause-worry" style="min-height:90px" placeholder="Just write it as it comes..."></textarea>
+        <span class="hint">Just for you. It won't become a task.</span>
+        <div><button type="button" class="btn" data-action="pause-worry-save">Save it</button></div></div>`;
+    }).join('');
+    return `
+  <div class="modal pause" data-form="pause">
+    <div class="modal-head"><h2 id="modal-title">${esc(p.label)}</h2>${close}</div>
+    <p class="pause-text">${esc(p.text)}</p>
+    ${offers}
+    ${p.note ? `<span class="hint">${esc(p.note)}</span>` : ''}
+    <div class="modal-foot"><button type="button" class="btn-link" data-action="pause-home">Back</button></div>
+  </div>`;
+  }
+  return `
+  <div class="modal pause" data-form="pause">
+    <div class="modal-head"><h2 id="modal-title">What's going on?</h2>${close}</div>
+    <div class="pause-list">${Object.entries(R.PAUSE).map(([k, v]) => `<button type="button" class="btn pause-pick" data-action="pause-feel" data-feel="${k}">${esc(v.label)}</button>`).join('')}</div>
+  </div>`;
+}
+
+function showPause() { openModal(pauseHTML()); }
+
+// What you chose after a Pause answer, for the 2-week test.
+function pauseChose(chose) {
+  const m = pause && momentById(pause.momentId);
+  if (m && !m.chose) { m.chose = chose; touch(m); save(state); }
+}
+
+async function startBreak(what, minutes) {
+  if (R.activeBreak(state.moments)) finishBreak('replaced'); // changed your mind: the old one and its reminder go
+  const t = nextTask();
+  const end = new Date(Date.now() + minutes * 60000);
+  const b = addMoment({ kind: 'break', what: what || null, minutes, endAt: end.toISOString(), taskId: t ? t.id : null });
+  pauseChose('break');
+  pause = null;
+  save(state);
+  closeModal();
+  renderNowPill();
+  scheduleBreakEnd();
+  toast(`Enjoy it. I'll call you back at ${t12m(end.getHours() * 60 + end.getMinutes())}.`);
+  await writeBreakReminder(b.id);
+}
+
+// The end of the break goes to Google Calendar with a reminder at that minute, so the phone
+// rings even with the app closed. oldId: the reminder to replace (after "5 more minutes").
+async function writeBreakReminder(id, oldId = null) {
+  const b = momentById(id);
+  if (!b || !G.isConfigured()) return;
+  if (!G.isConnected()) { toast('Google is not connected now, so keep the app open for the reminder.'); return; }
+  const endAt = b.endAt;
+  const end = new Date(endAt);
+  const key = R.toDateKey(end);
+  const t = b.taskId && task(b.taskId);
+  try {
+    const ids = await G.writeDay(key, [{
+      title: t ? `Break over. Back to: ${t.title}` : 'Break over',
+      start: R.toHHMM(end.getHours() * 60 + end.getMinutes()), minutes: 5, color: 'yellow', remind: [0], free: true,
+      description: 'From Personal IO. Open the app for your first minute.',
+    }], oldId ? [oldId] : []);
+    // Google answered after you came back, or after "5 more minutes" asked for a new one: not needed.
+    const live = momentById(id);
+    if (!live || live.backAt || live.endAt !== endAt) { if (ids.length) G.writeDay(key, [], ids).catch(() => {}); return; }
+    live.googleId = ids[0] || null; live.googleDay = key; touch(live); save(state);
+  } catch {
+    toast("Couldn't add the Google reminder. Keep the app open.");
+  }
+}
+
+function scheduleBreakEnd() {
+  clearTimeout(breakTimer);
+  const b = R.activeBreak(state.moments);
+  if (!b) return;
+  const ms = Date.parse(b.endAt) - Date.now();
+  breakTimer = setTimeout(checkBreak, Math.min(Math.max(ms, 0), 2147000000) + 500);
+}
+
+// Runs at the end of a break, on a timer, and when the app comes back to the screen.
+function checkBreak() {
+  renderNowPill();
+  const b = R.activeBreak(state.moments);
+  const st = R.breakState(b, Date.now());
+  // A back window for a break already answered or extended (in another tab or on the other device) goes away.
+  const win = modal.querySelector('[data-form="back"]');
+  if (win && (!b || win.dataset.id !== b.id || (st === 'running' && win.dataset.early !== '1'))) closeModal();
+  if (!st) { clearTimeout(breakTimer); return; }
+  if (st === 'running') { scheduleBreakEnd(); return; }
+  if (st === 'old') { finishBreak('closed'); return; } // hours ago: no greeting about it now
+  if (modal.querySelector('[data-form="back"]')) return;
+  if (document.hidden && 'Notification' in window && Notification.permission === 'granted' && ui.notifiedBreak !== b.id) {
+    const t = b.taskId && task(b.taskId);
+    try { new Notification("Break's over", { body: t ? `Back to: ${t.title}` : 'Come back when you are ready.', tag: 'personal-io-break' }); ui.notifiedBreak = b.id; } catch { /* not allowed here */ }
+  }
+  if (modal.open) { ui.backWaiting = true; return; } // shown when this window closes
+  openModal(backHTML(b));
+}
+
+function backHTML(b) {
+  const t = nextTask();
+  const early = Date.now() < Date.parse(b.endAt);
+  const next = t ? `<div class="starter-task">Next: <strong>${esc(t.title)}</strong></div><div class="starter-task">First minute: ${esc(firstMinute(t))}</div>`
+    : '<div class="starter-task">Nothing waiting. Enjoy the free time.</div>';
+  const start = t ? `<button type="button" class="btn btn-dark btn-big" data-action="back-start" data-id="${t.id}">Start 1 minute</button>` : '';
+  if (early) {
+    // Opened from the pill before the end: maybe just checking the time. Keeping the break is the easy choice.
+    return `
+  <div class="modal starter" data-form="back" data-id="${b.id}" data-early="1">
+    <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <div class="starter-text" id="modal-title">Back already?</div>
+    ${next}
+    <div class="modal-foot" style="justify-content:center; flex-wrap:wrap">
+      <button type="button" class="btn" data-action="close-modal">Keep my break</button>
+      <button type="button" class="btn" data-action="back-not-now">End break</button>
+      ${start}
+    </div>
+  </div>`;
+  }
+  return `
+  <div class="modal starter" data-form="back" data-id="${b.id}">
+    <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="back-not-now" aria-label="Close">✕</button></div>
+    ${starterPicture('happy')}
+    <div class="starter-text" id="modal-title">Break's over. Nice to see you back.</div>
+    ${next}
+    <div class="modal-foot" style="justify-content:center; flex-wrap:wrap">
+      <button type="button" class="btn" data-action="back-more">5 more minutes</button>
+      <button type="button" class="btn" data-action="back-not-now">Not now</button>
+      ${start}
+    </div>
+  </div>`;
+}
+
+// how: 'start' (went to the first minute), 'not_now', 'replaced' (a new break), or 'closed' (an old one).
+// id: only finish that break (a window may belong to a break already answered elsewhere).
+function finishBreak(how, id = null) {
+  const b = R.activeBreak(state.moments);
+  if (!b || (id && b.id !== id)) return false;
+  b.backAt = new Date().toISOString();
+  b.back = how;
+  touch(b);
+  clearTimeout(breakTimer);
+  save(state);
+  renderNowPill();
+  // The reminder is not needed any more (or already rang): take it off the calendar.
+  if (b.googleId) G.writeDay(b.googleDay || todayKey(), [], [b.googleId]).catch(() => {});
+  return true;
+}
+
+function extendBreak(minutes, id = null) {
+  const b = R.activeBreak(state.moments);
+  if (!b || (id && b.id !== id)) return false;
+  const oldId = b.googleId || null;
+  b.endAt = new Date(Math.max(Date.now(), Date.parse(b.endAt)) + minutes * 60000).toISOString();
+  b.extended = (b.extended || 0) + minutes;
+  b.googleId = null;
+  touch(b);
+  save(state);
+  renderNowPill();
+  scheduleBreakEnd();
+  writeBreakReminder(b.id, oldId);
+  return true;
+}
+const backWindowId = () => modal.querySelector('[data-form="back"]')?.dataset.id || null;
 
 // ----- tasks from your email (or a pasted list) -----
 
@@ -1704,7 +1978,7 @@ function renderBacklog() {
   const resultWord = { done: 'Done', working: 'Still working', not_started: 'Not started' };
   return `
   <section class="page-head">
-    <div><h1>Backlog</h1><div class="sub">Everything you haven't finished yet, grouped by priority.</div></div>
+    <div><h1>Backlog</h1><div class="sub">Everything waiting for its turn.</div></div>
   </section>
   <div class="cols">
     <section class="col" style="flex: 1.4 1 420px">
@@ -1712,7 +1986,7 @@ function renderBacklog() {
       ${backlogGroupsHTML({ full: true })}
     </section>
     <section class="col" style="flex: 1 1 320px">
-      <div class="col-head"><h2>Record</h2><span class="meta">What you did and didn't, and why</span></div>
+      <div class="col-head"><h2>Record</h2><span class="meta">How your blocks went</span></div>
       <div class="card table-scroll">
         ${log.length ? `<table class="record"><thead><tr><th>When</th><th>Task</th><th>Result</th></tr></thead><tbody>
           ${log.map((l) => `<tr><td class="mono">${esc(l.date ? fmtDay(l.date) : l.at.slice(0, 10))}</td><td>${esc(l.title)}</td><td>${resultWord[l.result]}${l.reason ? `<div class="hint">${esc(l.reason)}</div>` : ''}${l.leftOff ? `<div class="hint">Left off: ${esc(l.leftOff)}</div>` : ''}</td></tr>`).join('')}
@@ -2129,7 +2403,7 @@ function settingsHTML() {
       <strong>Start screen picture</strong>
       <span class="hint">Pick any image from your computer or phone to show when you start a task. It stays only in this browser.</span>
       <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-        ${startPic() ? `<img src="${startPic()}" alt="Your start picture" class="pic-preview">` : catSVG('sad').replace('width="170" height="153"', 'width="80" height="72"')}
+        ${startPic() ? `<img src="${startPic()}" alt="Your start picture" class="pic-preview">` : catSVG('ok').replace('width="170" height="153"', 'width="80" height="72"')}
         <label class="btn btn-small" for="s-pic" style="cursor:pointer">Choose a picture</label>
         <input type="file" id="s-pic" accept="image/*" class="visually-hidden" data-change="start-pic">
         ${startPic() ? '<button type="button" class="btn-link" data-action="clear-pic">Use the drawn cat</button>' : ''}
@@ -2452,6 +2726,7 @@ function useDriveCopy(data, remote, message, driveData = data) {
   if (firstTime) ui.planDay = null;
   const msgs = dailyCheck();
   renderWhenFree();
+  checkBreak(); // a break may have started, ended or changed on the other device
   [message, ...msgs].filter(Boolean).forEach((m) => toast(m));
 }
 
@@ -2740,6 +3015,33 @@ const actions = {
   'quick-add': () => quickCapture(false),
   'quick-done': () => quickCapture(true),
   'welcome-start': () => closeWelcome(true),
+  'welcome-start-task': (el) => closeWelcome(false, el.dataset.id),
+  'open-pause': () => { pause = { view: 'pick' }; showPause(); },
+  'pause-home': () => { pause = { view: 'pick' }; showPause(); },
+  'pause-feel': (el) => {
+    const feeling = el.dataset.feel;
+    const m = addMoment({ kind: 'pause', feeling, chose: null });
+    save(state);
+    pause = { feeling, momentId: m.id, view: feeling === 'break' ? 'break' : 'answer' };
+    showPause();
+  },
+  'pause-break': () => { pause.view = 'break'; showPause(); },
+  'pause-step': (el) => { pauseChose('step'); pause = null; const t = task(el.dataset.id); closeModal(); openStarter(t); },
+  'pause-worry-save': () => {
+    const text = (modal.querySelector('#pause-worry')?.value || '').trim();
+    if (!text) { modal.querySelector('#pause-worry').focus(); return; }
+    state.journal = state.journal || [];
+    state.journal.push({ id: newId(), date: todayKey(), about: null, text, source: 'pause', at: new Date().toISOString() });
+    pauseChose('worry');
+    save(state);
+    pause.worrySaved = true;
+    showPause();
+  },
+  'break-start': () => startBreak(pressedValue(modal, 'break-what'), Number(pressedValue(modal, 'break-min')) || 20),
+  'break-back': () => { const b = R.activeBreak(state.moments); if (b) openModal(backHTML(b)); },
+  'back-start': (el) => { finishBreak('start', backWindowId()); const t = task(el.dataset.id); closeModal(); openStarter(t); },
+  'back-not-now': () => { finishBreak('not_now', backWindowId()); closeModal(); },
+  'back-more': () => { const ok = extendBreak(5, backWindowId()); closeModal(); if (ok) toast('5 more minutes.'); },
   'welcome-close': () => closeWelcome(false),
   'event-to-task': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
@@ -3111,7 +3413,12 @@ modal.addEventListener('submit', (e) => {
 // The close event arrives a moment later; if a new window already opened (like the copy), leave it alone.
 modal.addEventListener('close', () => {
   if (modal.open) return;
+  // Closed with Esc after the break ended: same as "Not now". Before the end, the break goes on.
+  if (modal.querySelector('[data-form="back"]') && R.breakState(R.activeBreak(state.moments), Date.now()) === 'over') finishBreak('not_now');
+  if (modal.querySelector('[data-form="pause"]')) pause = null;
+  if (modal.querySelector('[data-form="welcome"]') && ui.welcome) escWelcome(); // closed with Esc or the back gesture
   stopMic(); stopStarterTimer(); modal.innerHTML = ''; modal.classList.remove('wide');
+  if (ui.backWaiting) { ui.backWaiting = false; setTimeout(checkBreak, 300); }
 });
 
 // ---------- move a planned task by dragging it on the calendar ----------
@@ -3302,9 +3609,13 @@ window.addEventListener('storage', (e) => {
   if (e.key !== 'personal-io:v1' || !e.newValue) return;
   state = load();
   renderWhenFree();
+  checkBreak();
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow();
+  if (document.visibilityState === 'visible') {
+    if (G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow().then(checkBreak, checkBreak);
+    else checkBreak();
+  }
   if (document.visibilityState === 'hidden' && G.isConnected() && localChanged()) { clearTimeout(sync.timer); syncNow(); }
 });
 
@@ -3314,9 +3625,15 @@ startupMessages.forEach(toast);
 if (ui.bridgeToast) { toast('Connected to your Google bridge. Bringing your data.'); G.pingBridge().catch(() => {}); }
 else if (ui.setupToast) toast('Google is set up on this device. Tap Sync and sign in to bring your data.');
 else if (!G.usingBridge() && G.isConfigured() && !G.isConnected() && !G.calendarOnly() && getSync().fileId) toast('This device may be behind your other one.', { label: 'Sync now', data: { action: 'sync-now' } });
-maybeWelcome();
-maybeAutoStart();
-syncNow();
+// The welcome, the start screen and the break check wait for the Drive copy (a few seconds at most),
+// so they see the newest data. If a window is already open, the welcome comes at the next minute.
+(() => {
+  let done = false;
+  const go = () => { if (done) return; done = true; if (!modal.open) maybeWelcome(); maybeAutoStart(); checkBreak(); };
+  setTimeout(go, 8000);
+  syncNow().then(() => sync.busy).catch(() => {}).finally(go);
+})();
+setInterval(() => { if (R.activeBreak(state.moments) || backWindowId()) checkBreak(); }, 15000);
 
 // Keep the "now" line and current block fresh, without disturbing typing.
 setInterval(() => {

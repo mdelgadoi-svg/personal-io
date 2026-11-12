@@ -371,3 +371,106 @@ test('words that only look like dates stay in the title', () => {
   assert.deepEqual(parseDeadline('iPhone repair tomorrow', T), { title: 'iPhone repair', deadline: '2026-11-05' });
   assert.deepEqual(parseDeadline('El lunes llamar al banco', T), { title: 'Llamar al banco', deadline: '2026-11-09' });
 });
+
+// ---------- v2.1: calm return, Pause, breaks ----------
+
+import { isGentleDay, gentlePick, PAUSE, activeBreak, breakState } from '../js/rules.js';
+
+test('the first day back after 2 or more days away is a gentle day', () => {
+  assert.equal(isGentleDay([{ date: today, lastActive: '2026-10-22', gapDays: 4 }], today), true);
+  assert.equal(isGentleDay([{ date: today, lastActive: '2026-10-25', gapDays: 1 }], today), false);
+  assert.equal(isGentleDay([{ date: '2026-10-20', gapDays: 9 }], today), false);
+  assert.equal(isGentleDay(undefined, today), false);
+});
+
+test('coming back offers the shortest of the 3 most pressing tasks', () => {
+  const tasks = [
+    task({ id: 'a', title: 'Big essay', priority: 'both', deadline: '2026-10-20', minutes: 120 }),
+    task({ id: 'b', title: 'Email', priority: 'both', deadline: '2026-10-22', minutes: 10 }),
+    task({ id: 'c', title: 'Report', priority: 'urgent', deadline: '2026-10-21', minutes: 60 }),
+    task({ id: 'd', title: 'Tiny but 4th', priority: 'important', deadline: '2026-11-30', minutes: 5 }),
+    task({ id: 'e', title: 'Later thing', priority: 'nice', minutes: 1 }),
+    task({ id: 'f', title: 'Old meeting', priority: 'both', deadline: '2026-10-20', minutes: 1, eventRef: { date: '2026-10-20' } }),
+  ];
+  assert.equal(gentlePick(tasks, [], today).id, 'b');
+  // Only "later" tasks left: still offers one.
+  assert.equal(gentlePick([task({ id: 'x', priority: 'nice' })], [], today).id, 'x');
+  assert.equal(gentlePick([], [], today), null);
+});
+
+test('a gentle day proposes one thing and does not push overdue tasks in', () => {
+  const tasks = [
+    task({ id: 'o1', priority: 'urgent', deadline: '2026-10-20', minutes: 45 }),
+    task({ id: 'o2', priority: 'urgent', deadline: '2026-10-21', minutes: 20 }),
+    task({ id: 'o3', priority: 'urgent', deadline: '2026-10-22', minutes: 30 }),
+    task({ id: 'o4', priority: 'urgent', deadline: '2026-10-23', minutes: 30 }),
+    task({ id: 'cal', priority: 'both', deadline: today, minutes: 60, eventRef: { date: today }, fixedDate: today, fixedTime: '15:00' }),
+  ];
+  const normal = proposeDay({ tasks, dayKey: today });
+  assert.ok(normal.focus.length + normal.also.length >= 4); // overdue all come on a normal day
+  const p = proposeDay({ tasks, dayKey: today, gentle: true });
+  assert.deepEqual(p.focus, ['o2']);
+  assert.deepEqual(p.also, []);
+  assert.deepEqual(p.calendar, ['cal']);
+  assert.ok(p.why.o2 && p.why.cal);
+});
+
+test('every Pause answer is short, has no em dash, and ends in an action', () => {
+  Object.entries(PAUSE).forEach(([key, p]) => {
+    assert.ok(p.label && p.text, key);
+    assert.ok(!/—/.test(p.label + p.text + (p.note || '')), `${key} has an em dash`);
+    assert.ok(p.offers.length >= 1, `${key} offers nothing`);
+    p.offers.forEach((o) => assert.ok(['step', 'break', 'worry'].includes(o), `${key}: ${o}`));
+    assert.ok(p.text.length <= 160, `${key} is too long`);
+  });
+});
+
+test('the running break is the last one not come back from', () => {
+  assert.equal(activeBreak([]), null);
+  const m = [{ id: '1', kind: 'break', backAt: 'x' }, { id: '2', kind: 'pause' }, { id: '3', kind: 'break' }, { id: '4', kind: 'start' }];
+  assert.equal(activeBreak(m).id, '3');
+  assert.equal(activeBreak([{ id: '1', kind: 'break' }, { id: '2', kind: 'break', backAt: 'x' }]), null);
+});
+
+test('sync keeps moments from both devices, one per id, the finished break wins', () => {
+  const base = { savedAt: '1', tasks: [], days: {}, moments: [{ id: 'b1', kind: 'break', at: '2026-10-26T10:00:00Z' }] };
+  const phone = { ...base, savedAt: '2', moments: [{ id: 'b1', kind: 'break', at: '2026-10-26T10:00:00Z', backAt: '2026-10-26T10:21:00Z' }] };
+  const computer = { ...base, savedAt: '3', moments: [...base.moments, { id: 'p1', kind: 'pause', at: '2026-10-26T11:00:00Z', feeling: 'tired' }] };
+  const m = mergeData(base, phone, computer);
+  assert.equal(m.moments.length, 2);
+  assert.equal(m.moments.find((x) => x.id === 'b1').backAt, '2026-10-26T10:21:00Z');
+  assert.deepEqual(m.moments.map((x) => x.id), ['b1', 'p1']);
+  // Old data without moments still joins.
+  assert.deepEqual(mergeData(null, { savedAt: '1' }, { savedAt: '2' }).moments, []);
+});
+
+test('a break runs, then is over, then is old after 6 hours', () => {
+  const b = { endAt: '2026-10-26T10:20:00Z' };
+  const at = (iso) => Date.parse(iso);
+  assert.equal(breakState(b, at('2026-10-26T10:10:00Z')), 'running');
+  assert.equal(breakState(b, at('2026-10-26T10:25:00Z')), 'over');
+  assert.equal(breakState(b, at('2026-10-26T17:00:00Z')), 'old');
+  assert.equal(breakState({ ...b, backAt: 'x' }, at('2026-10-26T10:25:00Z')), null);
+});
+
+test('a task due that day still comes on a gentle day; an evening return makes tomorrow gentle too', () => {
+  const tasks = [
+    task({ id: 'visa', title: 'Submit visa form', priority: 'both', deadline: today, minutes: 60 }),
+    task({ id: 'ana', title: 'Reply to Ana', priority: 'both', deadline: '2026-10-20', minutes: 10 }),
+    task({ id: 'old', title: 'Old thing', priority: 'urgent', deadline: '2026-10-19', minutes: 5 }),
+  ];
+  assert.deepEqual(proposeDay({ tasks, dayKey: today, gentle: true }).focus, ['visa']);
+  assert.equal(gentlePick(tasks, [], today).id, 'visa');
+  const evening = [{ date: '2026-10-25', gapDays: 5, hour: 21 }];
+  assert.equal(isGentleDay(evening, today), true);
+  assert.equal(isGentleDay([{ date: '2026-10-25', gapDays: 5, hour: 15 }], today), false);
+  assert.equal(isGentleDay([{ date: '2026-10-25', gapDays: 5 }], today), false); // older records have no hour
+});
+
+test('sync keeps the copy of a moment changed last', () => {
+  const at = '2026-10-26T11:00:00Z';
+  const base = { savedAt: '1', tasks: [], days: {}, moments: [{ id: 'p1', kind: 'pause', at, chose: null }] };
+  const local = { ...base, savedAt: '3', moments: [{ id: 'p1', kind: 'pause', at, chose: null }] };
+  const remote = { ...base, savedAt: '2', moments: [{ id: 'p1', kind: 'pause', at, chose: 'step', upd: '2026-10-26T11:01:00Z' }] };
+  assert.equal(mergeData(base, local, remote).moments[0].chose, 'step');
+});
