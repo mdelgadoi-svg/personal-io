@@ -474,3 +474,44 @@ test('sync keeps the copy of a moment changed last', () => {
   const remote = { ...base, savedAt: '2', moments: [{ id: 'p1', kind: 'pause', at, chose: 'step', upd: '2026-10-26T11:01:00Z' }] };
   assert.equal(mergeData(base, local, remote).moments[0].chose, 'step');
 });
+
+// ---------- v2.2: the self-test numbers and Today as one list ----------
+
+test('start delay is the minutes after the planned time, early is negative, no time is null', async () => {
+  const { startDelay } = await import('../js/rules.js');
+  assert.equal(startDelay('09:30', new Date(2026, 10, 16, 9, 42)), 12);
+  assert.equal(startDelay('09:30', new Date(2026, 10, 16, 9, 20)), -10);
+  assert.equal(startDelay(null, new Date(2026, 10, 16, 9, 20)), null);
+  assert.equal(startDelay('09:30', 'not a date'), null);
+});
+
+test('start numbers: first start of a task per day, old starts use the plan time, automatic ones need a tap', async () => {
+  const { startStats } = await import('../js/rules.js');
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).toISOString();
+  const days = { '2026-11-12': { times: { a: '09:00' } }, '2026-11-16': { times: { a: '10:00', b: '14:00' } } };
+  const moments = [
+    { kind: 'start', taskId: 'a', at: at(12, 9, 30) },                              // old: 30 late, from the plan
+    { kind: 'start', v: 2, taskId: 'a', at: at(16, 10, 3), began: at(16, 10, 4), delay: 4, sinceOpen: 20 },
+    { kind: 'start', v: 2, taskId: 'a', at: at(16, 11, 0), began: at(16, 11, 0), delay: 60, sinceOpen: 5 }, // second start that day: not counted
+    { kind: 'start', v: 2, taskId: 'd', at: at(16, 12, 0), sinceOpen: 3 },          // opened by a stray tap, never began
+    { kind: 'start', taskId: 'b', at: at(16, 14, 0), auto: true },                  // opened by itself, never tapped
+    { kind: 'start', v: 2, taskId: 'c', at: at(16, 15, 0), began: at(16, 15, 1), sinceOpen: 40 }, // not in the plan: no delay
+    { kind: 'pause', at: at(16, 15, 5) },
+  ];
+  assert.deepEqual(startStats(moments, days), { starts: 3, days: 2, timed: 2, medianDelay: 17, medianSinceOpen: 30 });
+  assert.deepEqual(startStats(moments, days, '2026-11-16'), { starts: 2, days: 1, timed: 1, medianDelay: 4, medianSinceOpen: 30 });
+  const tapped = [{ kind: 'start', taskId: 'b', at: at(16, 14, 0), auto: true, began: at(16, 14, 6), delay: 6 }];
+  assert.equal(startStats(tapped, days).medianDelay, 6);
+  assert.deepEqual(startStats([], {}), { starts: 0, days: 0, timed: 0, medianDelay: null, medianSinceOpen: null });
+});
+
+test('Today is one list in time order, tasks and events together, with one next task', async () => {
+  const { dayLine } = await import('../js/rules.js');
+  const tasks = [{ id: 'a', start: '09:30', status: 'done' }, { id: 'b', start: '14:00', status: 'open' }, { id: 'c', start: null, status: 'open' }, { id: 'd', start: '11:00', status: 'open' }];
+  const events = [{ id: 'e1', start: '12:00' }];
+  const line = dayLine(tasks, events);
+  assert.deepEqual(line.map((r) => r.id), ['a', 'd', 'e1', 'b', 'c']);
+  assert.deepEqual(line.filter((r) => r.next).map((r) => r.id), ['d']);
+  assert.equal(line[2].kind, 'event');
+  assert.equal(dayLine([{ id: 'a', start: '09:00', status: 'done' }], []).some((r) => r.next), false);
+});

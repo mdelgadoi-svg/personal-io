@@ -1,0 +1,209 @@
+{
+ "schemaVersion": 2,
+ "generatedAt": "2026-11-16T15:00:00Z",
+ "title": "Design System: Personal IO",
+ "extensions": {
+  "colorMeta": {
+   "primary": {
+    "role": "primary",
+    "displayName": "Working Blue",
+    "tonalRamp": [
+     "#101B45",
+     "#1B2F78",
+     "#24409E",
+     "#3558C8",
+     "#6582DC",
+     "#9DB1EA",
+     "#CBD7F6",
+     "#EAF0FF"
+    ]
+   },
+   "gold": {
+    "role": "secondary",
+    "displayName": "Start Gold",
+    "tonalRamp": [
+     "#3D2E05",
+     "#6B520F",
+     "#A07C1C",
+     "#D4A83A",
+     "#F4C95D",
+     "#FFDA7A",
+     "#FFE9AE",
+     "#FFF6D9"
+    ]
+   },
+   "success": {
+    "role": "tertiary",
+    "displayName": "Done Green",
+    "tonalRamp": [
+     "#0B2A1F",
+     "#134333",
+     "#185640",
+     "#216E52",
+     "#4A9478",
+     "#8DC0A9",
+     "#C4E2D3",
+     "#EAF6EF"
+    ]
+   },
+   "ink": {
+    "role": "neutral",
+    "displayName": "Navy Ink",
+    "tonalRamp": [
+     "#0E1626",
+     "#18243B",
+     "#34425C",
+     "#526079",
+     "#687DA8",
+     "#8A9AB8",
+     "#DCE3EF",
+     "#F3F6FD"
+    ]
+   },
+   "ground": {
+    "role": "neutral",
+    "displayName": "Cool Ground"
+   }
+  },
+  "typographyMeta": {
+   "card-title": {
+    "displayName": "Card title",
+    "purpose": "The task on the navy card."
+   },
+   "lead": {
+    "displayName": "Lead",
+    "purpose": "The Start button and short quiet-state lines."
+   },
+   "meta": {
+    "displayName": "Meta",
+    "purpose": "Lengths and status words under a task name."
+   }
+  },
+  "shadows": [
+   {
+    "name": "window",
+    "value": "0 20px 48px rgb(24 36 59 / 25%)",
+    "purpose": "The dialog over the page."
+   },
+   {
+    "name": "toast",
+    "value": "0 8px 24px rgb(0 0 0 / 20%)",
+    "purpose": "Messages above the bottom bar."
+   }
+  ],
+  "motion": [
+   {
+    "name": "state",
+    "value": "150ms",
+    "purpose": "Color changes on the check and the send button. Off with reduced motion."
+   }
+  ],
+  "breakpoints": [
+   {
+    "name": "phone",
+    "value": "760px"
+   },
+   {
+    "name": "wide-today",
+    "value": "980px"
+   }
+  ]
+ },
+ "components": [
+  {
+   "name": "Next card",
+   "kind": "card",
+   "refersTo": "next-card",
+   "description": "The one thing to do next, with the single gold button.",
+   "html": "<section class=\"ds-next\"><h2>Send application to Elemental</h2><p>Open the draft</p><button>Start 1 minute</button><div><span>9:30 AM · 1h</span><a>Done</a></div></section>",
+   "css": ".ds-next{background:#18243B;color:#fff;border-radius:20px;padding:22px 20px 14px;display:flex;flex-direction:column;gap:8px;font-family:Figtree,system-ui,sans-serif;max-width:360px}.ds-next h2{margin:0;font-size:24px;line-height:1.2}.ds-next p{margin:0;color:#D5DDEC}.ds-next button{margin-top:10px;min-height:56px;border:0;border-radius:12px;background:#F4C95D;color:#18243B;font:700 18px Figtree,system-ui,sans-serif;cursor:pointer}.ds-next button:hover{background:#FFDA7A}.ds-next button:focus-visible{outline:3px solid #fff;outline-offset:3px}.ds-next div{display:flex;justify-content:space-between;align-items:center;min-height:44px;font-size:15px;color:#D5DDEC}.ds-next a{color:#fff;font-weight:600;text-decoration:underline;text-decoration-color:#8A9AB8;text-underline-offset:4px}"
+  },
+  {
+   "name": "Primary button",
+   "kind": "button",
+   "refersTo": "button-primary",
+   "description": "The one solid blue action on a screen.",
+   "html": "<button class=\"ds-btn-primary\">Use this plan</button>",
+   "css": ".ds-btn-primary{background:#3558C8;color:#fff;border:1px solid #3558C8;border-radius:12px;min-height:48px;padding:10px 16px;font:600 15px Figtree,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:hover{background:#24409E;border-color:#24409E}.ds-btn-primary:focus-visible{outline:3px solid #3558C8;outline-offset:3px}"
+  },
+  {
+   "name": "Plain button",
+   "kind": "button",
+   "refersTo": "button",
+   "description": "Any second action.",
+   "html": "<button class=\"ds-btn\">Pause</button>",
+   "css": ".ds-btn{background:#fff;color:#18243B;border:1px solid #687DA8;border-radius:12px;min-height:48px;padding:10px 16px;font:600 15px Figtree,system-ui,sans-serif;cursor:pointer}.ds-btn:hover{border-color:#3558C8}.ds-btn:focus-visible{outline:3px solid #3558C8;outline-offset:3px}"
+  },
+  {
+   "name": "Add line",
+   "kind": "input",
+   "refersTo": "add-line",
+   "description": "One field to add anything, by typing or talking.",
+   "html": "<div class=\"ds-add\"><input placeholder=\"Add a task\" aria-label=\"Add a task\"><button aria-label=\"Add task\">↑</button></div>",
+   "css": ".ds-add{display:flex;align-items:center;gap:4px;background:#fff;border:1px solid #687DA8;border-radius:16px;padding:4px 4px 4px 16px;max-width:360px}.ds-add:focus-within{border-color:#3558C8;outline:2px solid #3558C8;outline-offset:1px}.ds-add input{flex:1;min-width:0;border:0;outline:0;min-height:48px;font:16px Figtree,system-ui,sans-serif;color:#18243B}.ds-add input::placeholder{color:#526079}.ds-add button{width:48px;height:48px;border:0;border-radius:12px;background:#E9EEF7;color:#526079;font-size:18px;cursor:pointer}.ds-add input:not(:placeholder-shown)+button{background:#3558C8;color:#fff}"
+  },
+  {
+   "name": "Day row",
+   "kind": "custom",
+   "refersTo": "card",
+   "description": "One task in the day list: check, time, name, length.",
+   "html": "<div class=\"ds-row\"><span class=\"ds-check\"></span><span class=\"ds-time\">11:00 AM</span><span><strong>Pay rent</strong><small>10 min</small></span></div>",
+   "css": ".ds-row{display:grid;grid-template-columns:44px 76px 1fr;align-items:center;min-height:56px;border-top:1px solid #DCE3EF;font-family:Figtree,system-ui,sans-serif;color:#18243B;max-width:360px}.ds-check{width:24px;height:24px;border-radius:50%;border:1.5px solid #687DA8;background:#fff;justify-self:center}.ds-time{font-size:15px;color:#526079;font-variant-numeric:tabular-nums}.ds-row strong{display:block;font-size:16px;font-weight:600}.ds-row small{font-size:13px;color:#526079}"
+  }
+ ],
+ "narrative": {
+  "northStar": "The day is already laid out",
+  "overview": "**Creative North Star: \"The day is already laid out\"**\n\nPersonal IO should feel like a desk someone tidied for you before you sat down. The day is there, in order, and one thing is on top. The person using it arrives anxious and short on attention, so the screen has to be read in one look and has to offer one obvious thing to do. Nothing on it counts what was missed.\n\nThe look is cool and plain: a pale blue-grey ground, white surfaces, navy ink, one blue that means \"you can tap this\", and one gold that marks the single place to start. Shapes are soft and controls are large, because the phone is the main device and a thumb is the pointer.",
+  "keyCharacteristics": [
+   "One primary action per screen. On Today it is the gold \"Start 1 minute\" on the navy card; elsewhere it is solid blue. Everything else is quieter.",
+   "Words are few and plain. Labels beat explanations.",
+   "Large touch targets (48px buttons, 52px inputs).",
+   "Flat surfaces. Depth is saved for windows that open over the page.",
+   "No symbol code on Today: one drawn gold star for what matters, plain words for the rest.",
+   "Times are always 12-hour with AM/PM."
+  ],
+  "rules": [
+   {
+    "name": "The One Blue Rule",
+    "body": "One solid blue button per screen. A second action is an outline or a text link.",
+    "section": "colors"
+   },
+   {
+    "name": "The One Navy Card Rule",
+    "body": "Only the next thing to do sits on navy, with the gold button. Nothing else on a screen is dark.",
+    "section": "colors"
+   },
+   {
+    "name": "The No Red Guilt Rule",
+    "body": "Red marks errors and time, never a task that was not done. The words are \"Not yet\".",
+    "section": "colors"
+   },
+   {
+    "name": "The Six Sizes Rule",
+    "body": "New work uses 13, 15, 16, 18, 20, 24 and 28px only. Older screens still use more; fix them as they are redone.",
+    "section": "typography"
+   },
+   {
+    "name": "The No Shouting Rule",
+    "body": "No uppercase labels with letter spacing above a heading. The heading speaks for itself.",
+    "section": "typography"
+   }
+  ],
+  "dos": [
+   "**Do** keep one solid blue button per screen, and one gold button on the navy card.",
+   "**Do** draw icons as SVG in one stroke weight.",
+   "**Do** keep touch targets at 44px or more, 48px for main buttons.",
+   "**Do** write times as 12-hour with AM/PM.",
+   "**Do** say \"Not yet\" for unfinished work.",
+   "**Do** check every screen at 390px wide first."
+  ],
+  "donts": [
+   "**Don't** use red, counts or lists to show what was missed.",
+   "**Don't** add streaks, points or scores.",
+   "**Don't** put a card inside a card.",
+   "**Don't** add uppercase labels above headings, colored side stripes, pill chips or text symbols to new work.",
+   "**Don't** use em dashes in any text.",
+   "**Don't** add a framework or a build step; the app is plain HTML, CSS and JavaScript."
+  ]
+ }
+}

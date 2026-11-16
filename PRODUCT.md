@@ -25,7 +25,7 @@ Success: more of the time spent in the app turns into real work, with less stres
 
 ## Positioning
 
-Most focus apps block, warn or count streaks. Personal IO accepts that the user will procrastinate, makes that time guilt free, and then moves the reward from play to work little by little until the person is working. Easy to come back to, easy to leave toward work, never sticky.
+Most focus apps block, warn or count streaks. Personal IO accepts that the user will procrastinate, gives that time a place inside the app, and then walks the person from play to work with kind, plain words and one small step. It shows the day instead of texting about it. Easy to come back to, easy to leave toward work.
 
 ## Operating Context
 
@@ -40,7 +40,8 @@ Most focus apps block, warn or count streaks. Personal IO accepts that the user 
 - Data in the browser plus one copy in his Google Drive. Old data must keep working after every change.
 - Only the connections listed in CLAUDE.md. Everything works without a Claude key.
 - Times are always 12-hour with AM/PM.
-- Open decision: how the "adaptive dopamine" engine rewards people. The current voice rules ban streaks, points and red "not done". Any reward design must either respect that or change the rule with his approval.
+- Decided Nov 16, 2026: there is no reward engine, no points and no streaks. Play is built in (chess, then Sudoku). The app counts play time and, when it is a lot, says so kindly, names the task that matters and offers to plan when to play. Nothing blocks.
+- Email is read by paste for now: the person runs a given prompt in their own AI that is connected to their mail and uploads the small file it writes.
 
 ## Brand Commitments
 
@@ -50,7 +51,7 @@ Most focus apps block, warn or count streaks. Personal IO accepts that the user 
 
 ## Evidence on Hand
 
-- Usage data from the 2-week test that started Nov 10, 2026 (`moments` in the data: breaks, pauses, starts).
+- Usage data from the test that started Nov 10, 2026 (`moments` in the data: breaks, pauses, starts), and from Nov 16 the start delay (minutes between a task's planned time and the real start).
 - No testimonials, users or study results yet. Do not invent any.
 
 ## Product Principles

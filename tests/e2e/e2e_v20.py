@@ -59,8 +59,9 @@ with sync_playwright() as p:
                       'Book flight', 'Email the professor', 'Fix the bike', 'Prepare pitch deck tomorrow', 'Clean the room']
             starred = {'Send CV to Ana tomorrow', 'Prepare pitch deck tomorrow', 'Email the professor'}
             for t in titles:
+                pg.fill('#cap-text', t)  # the star shows once he is typing
                 if t in starred: pg.click('[data-action="cap-important"]')
-                pg.fill('#cap-text', t); pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(120)
+                pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(120)
             print('asked anything:', pg.locator('#modal[open]').count(), '| 13 tasks:', len(data(pg)['tasks']))
             print('"Send CV to Ana tomorrow":', level(pg, 'Send CV to Ana'), next(t['deadline'] for t in data(pg)['tasks'] if t['title'] == 'Send CV to Ana'))
             print('levels:', {t: level(pg, t) for t in ['Prepare pitch deck', 'Email the professor', 'Call Pancho', 'Pay rent', 'Buy milk']})

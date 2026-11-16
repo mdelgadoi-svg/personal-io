@@ -63,9 +63,9 @@ with sync_playwright() as p:
     pg.click('[data-action="set-plan"]'); pg.wait_for_timeout(500)
     pg.click('[data-action="set-plan"]', no_wait_after=True) if pg.locator('[data-action="set-plan"]').count() else None
     print('hash after set:', pg.evaluate('location.hash'))
-    items=[pg.inner_text(f'.cols .card.list .item >> nth={i}').split('\n')[:3] for i in range(pg.locator('.cols .card.list .item').count())]
+    items=[pg.inner_text(f'.dayline .dl-row >> nth={i}').split('\n')[:3] for i in range(pg.locator('.dayline .dl-row').count())]
     print('Today:', items)
-    print('now card:', pg.inner_text('.note, .now-card')[:100] if pg.locator('.now-card, .note').count() else None)
+    print('next card:', pg.inner_text('.next')[:100] if pg.locator('.next').count() else None)
     pg.screenshot(path=OUT+'/v17_today.png')
     # moving after set -> update button
     pg.goto(BASE+'#start'); pg.wait_for_timeout(300)
@@ -79,8 +79,8 @@ with sync_playwright() as p:
     print('after tap window:', rows())
     # phone Today
     pg.set_viewport_size({'width':390,'height':844}); pg.goto(BASE+'#today'); pg.wait_for_timeout(300)
-    r=pg.locator('.cols .card.list .item').first
-    print('phone Today title width:', round(r.locator('.item-main').bounding_box()['width']), '| buttons right edge:', round(r.locator('.item-actions').bounding_box()['x']+r.locator('.item-actions').bounding_box()['width']))
+    r=pg.locator('.next').first
+    print('phone Today card width:', round(r.bounding_box()['width']), '| start button right edge:', round(r.locator('.next-go').bounding_box()['x']+r.locator('.next-go').bounding_box()['width']))
     pg.screenshot(path=OUT+'/v17_phone_today.png', full_page=False)
     pg.goto(BASE+'#start'); pg.wait_for_timeout(300); print('phone plan calendar visible:', pg.locator('#cal-plan').is_visible())
 print('PAGE ERRORS', errors)

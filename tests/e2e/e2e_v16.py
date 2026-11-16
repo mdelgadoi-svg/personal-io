@@ -80,12 +80,12 @@ with sync_playwright() as p:
     pg.fill('#s-key','sk-ant-api03-abcdefghijklmnopqrstuvwxyz'); pg.click('[data-action="test-key"]'); pg.wait_for_timeout(300)
     print('11 test key:', pg.inner_text('.key-status')); pg.click('form[data-form="settings"] button[type=submit]'); pg.wait_for_timeout(100)
     # email scan
-    pg.click('[data-action="open-email"]'); pg.click('[data-action="email-scan"]'); pg.wait_for_selector('[data-form="talk-review"]', timeout=5000)
+    pg.click('[data-action="open-settings"]'); pg.click('[data-action="open-email"]'); pg.click('[data-action="email-scan"]'); pg.wait_for_selector('[data-form="talk-review"]', timeout=5000)
     print('13 email review:', pg.inner_text('[data-form="talk-review"]').replace('\n',' | ')[:220])
     pg.click('.talk-row [data-talk="pick"]'); pg.click('[data-action="talk-add"]'); pg.wait_for_timeout(100)
     s=json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')")); print('13 email task added:', [t['title'] for t in s['tasks'] if t.get('source')=='email'])
     # paste
-    pg.click('[data-action="open-email"]'); pg.fill('#paste-text','- Reply to Andre\n2. Book flights\nPay rent'); pg.click('[data-action="email-paste"]')
+    pg.click('[data-action="open-settings"]'); pg.click('[data-action="open-email"]'); pg.fill('#paste-text','- Reply to Andre\n2. Book flights\nPay rent'); pg.click('[data-action="email-paste"]')
     print('13 paste review:', pg.inner_text('[data-form="talk-review"]').replace('\n',' | ')[:200]); pg.click('[data-action="talk-skip"]')
     # starter from Today
     pg.goto(BASE+'#today'); pg.wait_for_timeout(300)

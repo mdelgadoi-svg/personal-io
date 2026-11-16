@@ -580,6 +580,70 @@ export function breakState(b, nowMs) {
   return nowMs - end > 6 * 3600000 ? 'old' : 'over';
 }
 
+// ---------- the self-test: how fast work really starts ----------
+
+// Minutes between a task's planned time and the moment it was started. Negative means early.
+// null when the task had no time that day.
+export function startDelay(plannedHHMM, startedAt) {
+  if (!plannedHHMM) return null;
+  const d = new Date(startedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getHours() * 60 + d.getMinutes() - toMinutes(plannedHHMM);
+}
+
+function median(list) {
+  if (!list.length) return null;
+  const s = [...list].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+}
+
+// The numbers for the self-test, from the saved starts. Only the first start of a task on a day counts.
+// Starts saved before v2.2 have no delay of their own: they use the time the task has in that day's plan.
+// delay is in minutes after the planned time; sinceOpen is seconds from opening the app to the start.
+export function startStats(moments = [], days = {}, fromKey = null) {
+  const seen = new Set();
+  const dayKeys = new Set();
+  const delays = [];
+  const opens = [];
+  // From v2.2 a start counts once he taps that he began (began). A start screen that only opened,
+  // by itself or by a stray tap, is not a start. Older starts have no such tap: they count when opened.
+  const when = (m) => m.began || (m.auto || m.v === 2 ? null : m.at);
+  [...(moments || [])].filter((m) => m && m.kind === 'start' && when(m))
+    .sort((a, b) => (when(a) < when(b) ? -1 : 1))
+    .forEach((m) => {
+      const key = toDateKey(new Date(when(m)));
+      if (fromKey && key < fromKey) return;
+      const once = `${key}|${m.taskId}`;
+      if (seen.has(once)) return;
+      seen.add(once);
+      dayKeys.add(key);
+      const delay = typeof m.delay === 'number' ? m.delay : startDelay(((days[key] || {}).times || {})[m.taskId], when(m));
+      if (delay !== null) delays.push(delay);
+      if (typeof m.sinceOpen === 'number') opens.push(m.sinceOpen);
+    });
+  return { starts: seen.size, days: dayKeys.size, timed: delays.length, medianDelay: median(delays), medianSinceOpen: median(opens) };
+}
+
+// Today as one list in time order: the day's tasks and its calendar events together.
+// tasks: [{ id, start: 'HH:MM' | null, status }], events: [{ id, start: 'HH:MM', minutes, title }].
+// Things without a time come last, in the order given. An open task is "next" when it is the first
+// open one in the list: that is the one thing Today puts on top.
+export function dayLine(tasks = [], events = []) {
+  const rows = [
+    ...tasks.map((t, i) => ({ kind: 'task', id: t.id, start: t.start || null, done: t.status === 'done', order: i })),
+    ...events.map((e, i) => ({ kind: 'event', id: e.id, start: e.start || null, done: false, order: tasks.length + i })),
+  ];
+  rows.sort((a, b) => {
+    if (a.start && b.start) return toMinutes(a.start) - toMinutes(b.start) || a.order - b.order;
+    if (a.start) return -1;
+    if (b.start) return 1;
+    return a.order - b.order;
+  });
+  const next = rows.find((r) => r.kind === 'task' && !r.done);
+  return rows.map(({ order, ...r }) => ({ ...r, next: !!next && r.kind === 'task' && r.id === next.id }));
+}
+
 // What happened on one day: what got done (wins first) and how much is still open.
 export function daySummary(dateKey, { days = {}, log = [], tasks = [] } = {}) {
   const planned = ((days[dateKey] && days[dateKey].taskIds) || []).map((id) => tasks.find((t) => t.id === id)).filter(Boolean);

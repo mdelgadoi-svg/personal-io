@@ -16,6 +16,17 @@ Read this first in every session. It is the project's working memory.
 - The audit recommends a 14-day feature freeze starting Nov 1 so the app gets used before it grows: fix only real blockers, and batch other change requests into one weekly session.
 - When a request is a new feature during the freeze, say so once, offer to note it for the weekly batch, and build it only if he confirms.
 - Prefer removing and simplifying over adding. Fewer words on screen, fewer steps, fewer ways to do the same thing.
+- The freeze ended Nov 15. From Nov 16 the work follows the 3-part plan below: one hypothesis per phase, smallest version first, stop after each phase for his review.
+
+## The 3-part plan (his decisions, Nov 16, 2026)
+
+Goal: an environment for people with ADHD with 3 parts: a low-guilt place to procrastinate (built-in games), a path from there into real work (planner, start screen, follow-up), and a place with information and direct advice (later, in no phase yet). He tests each phase for about 1 week against the tools he uses (Muse is a reference only: it reads his calendar and email and texts him a lot; here it should show, not tell).
+
+- **Phase 1, Design (H2): done in v2.2.** See "v2.2" below and `DESIGN.md`.
+- **Phase 2, Auto-organize (H1): next.** The plan applies itself on the first open of the day and is written to Google Calendar without a tap (this replaces "Google is only updated when he taps"). He sets his hours once and tasks land only inside them. Each reminder carries the first small step. Setup shows two connectors, Calendar and Email. Calendar is the only real connection for now. Email works by paste: the app gives a prompt to use in his own AI that is connected to his mail; that AI writes a small `.md` file; he uploads it and the app makes the cards from it with plain rules. No Claude key.
+- **Phase 3, Play to work (H3).** Built-in games only: chess against a simple computer player first, then Sudoku, from open-license code copied into the repo as plain files (credited, no build step). No reward engine, no points. The app counts play minutes per day and nudges, first at 10, 25 and 45 minutes. The nudge shows the time, is kind, and gives structure, in his words: "Good game, happy you are having a great time. Remember that [task] is important. Want to plan when to play, or is there anything more?" It names the task and offers to plan the play. Nothing blocks. This is an approved exception to "never sticky": he wants to see if it works.
+- **Logged for each test:** start delay (v2.2), play minutes per day, the % of play sessions followed by a start within 10 minutes, and what he did after each nudge (started, kept playing, closed the app).
+- Later, if it works, he may share it with his fiancee and then decide about a Claude key.
 
 ## What the app is
 
@@ -37,7 +48,15 @@ Core method (enforced in `js/rules.js`):
   - **Calm return.** After `gentleGapDays` (2) or more days away, the welcome shows no counts, no dates, no list: "No catching up needed", one small thing (`R.gentlePick`: something due that day first, else the shortest of the 3 most pressing) and "Start 1 minute". The "did you already do these" list is folded in `<details>`. The return is recorded when the welcome opens (a real save after days away), so Esc, the back gesture, a reload or a sync never lose it; Esc keeps ticks and the note. The welcome, the auto start and the break check wait for the first sync (8 s at most). That day is a **gentle day** (`R.isGentleDay` from `returns`; coming back at 8 PM or later makes tomorrow gentle too): the proposal is that one thing, anything due that day and starred calendar items, without "overdue" labels. Overdue tasks are not pushed in. After the welcome he lands on Today.
   - **Pause button** (header): "What's going on?" with I want a break, I'm avoiding something, I'm anxious, I'm tired, Too much at once. Scripted answers in `R.PAUSE` (no Claude). Each ends in one action: start 1 minute (`nextTask()`), a planned break, or write the worry (a journal note with `source: 'pause'`, never a task).
   - **Breaks with an end.** What (optional) and 10/20/30 min. The end goes to Google Calendar as a 5-minute free-time event with one reminder at that minute (`remind: [0]`, `free`, no bridge change), so the phone rings with the app closed. The header pill shows the break. At the end a kind window shows the next task: Start 1 minute, 5 more minutes (moves the reminder), Not now. Tapping the pill before the end opens "Back already?" (Keep my break, End break, Start 1 minute). Finishing a break always removes its reminder, also one Google sends back late. Starting any task ends a running break; a new break replaces the old one. Back windows for a break answered elsewhere (other tab or device) close by themselves. The auto start waits 15 minutes after "Not now". A break unanswered for 6 hours closes quietly (`R.breakState`).
-  - **Voice rules**: warm, short, no shame, every message ends in one small action. No streaks, points or red "not done" (it says "Not yet"). The start cat is never sad.
+  - **Voice rules**: warm, short, no shame, every message ends in one small action. No streaks, points or red "not done" (it says "Not yet"). The start cat is never sad. (One approved exception from Nov 16: the play nudges of Phase 3 show the time spent. They stay kind and never judge.)
+- **v2.2 (Nov 16, 2026): Today is one thing on top.** Phase 1 of the 3-part plan, after an Impeccable critique at phone width (22 of 40; the first Start button was three screens down). Today is now: the date, one navy card with the next open task (name, first small step, a gold "Start 1 minute", then time, length and "Done"), the rest of the day as plain rows in time order with calendar events in their place (`R.dayLine`), and one add line. With three tasks it fits one phone screen in about 40 words.
+  - **Rows:** the round check marks done, and the same check undoes it. Tapping the name opens the start screen. Three dots open the task. Calendar events that already ended are left out; a starred meeting shows once, as its event.
+  - **Gone from Today:** the count row, "Goals I'm moving today", the Focus and To do chips, the ★! ! 🤔 symbols (one drawn gold star marks what matters; other screens still use the symbols), the hour calendar on phones (it stays beside the list from 980px wide, and on the Calendar tab).
+  - **The add line** (`captureHTML`, Today and Plan): one field with a mic and a send button. Important, "I already did it" and "Talk it out" appear under it only while he is in the box. "Find tasks in my email" moved to Settings.
+  - **Navigation:** the bottom bar has 5 items, Today first, no Add; "Backlog" is called "Tasks" (the address is still `#backlog`). On phones the header shows Pause with its word and the "Talk it out" mic is in the add line.
+  - **Type:** Figtree ships with the app (`fonts/figtree.woff2`, SIL Open Font License, in the offline cache). Nothing is fetched from Google Fonts anymore.
+  - **Start screen:** no counting "60s" and no uppercase step label.
+  - **The self-test numbers:** a start is saved as `{ kind: 'start', v: 2, taskId, auto, from, sinceOpen, began, delay }`. Opening the start screen is not yet a start: `began` is set when he taps "Done, I started" or "Done, next step", with `delay` (minutes after the task's planned time, `R.startDelay`). `R.startStats` counts the first start of each task per day (older starts without `v` count when opened and take their planned time from the day). Settings shows one plain line under "Your numbers".
 - Talking or typing a note never creates tasks by itself. Only the word "task" (or "tarea") names one; Claude may suggest at most 3, unticked.
 
 ## Files
@@ -53,6 +72,9 @@ Core method (enforced in `js/rules.js`):
 | `bridge/Code.gs` | The Apps Script he pastes into his Berkeley account (web app, runs as him). Settings copies it with his key filled in |
 | `js/ai.js` | Claude API from the browser with his own key (model `claude-sonnet-5-5`, effort medium). Always optional |
 | `sw.js` | Offline cache. **Bump `VERSION` on every change to app files** |
+| `fonts/` | The Figtree typeface file and its license |
+| `DESIGN.md` | The look: colors, type, shapes, components, do and don't. Read it before any visual change |
+| `.impeccable/design.json` | Extra detail that goes with DESIGN.md (for the design skill) |
 | `tests/rules.test.js` | Unit tests for `rules.js` |
 | `tests/e2e/` | Browser checks (Python Playwright) |
 | `.claude/agents/personal-io-reviewer.md` | Independent reviewer agent |
@@ -63,7 +85,8 @@ Core method (enforced in `js/rules.js`):
 
 - The Impeccable design skill (github.com/pbakaus/impeccable, Apache 2.0, skill v4.9.2) was copied by hand into `.claude/skills/impeccable/` on Nov 15, 2026. To update it, copy the newer `.claude/skills/impeccable/` folder from that repo over this one.
 - Use it for any visual or UX change. Useful commands: `/impeccable critique`, `audit`, `polish`, `distill`, `quieter`, `adapt` (phone layout), `document` (record the current look in DESIGN.md).
-- It reads `PRODUCT.md` for product context. `DESIGN.md` does not exist yet: run `/impeccable document` to record the current look before any redesign.
+- It reads `PRODUCT.md` for product context and `DESIGN.md` for the look. Screens not yet redone (Plan, Tasks, Goals, Calendar, Settings, the task form, the welcome) still carry the older look; bring each one to `DESIGN.md` when it is next touched. Run `/impeccable document` again after a large visual change.
+- Critique reports stay on the machine that ran them (`.impeccable/critique/`, not in git).
 - Its first run downloads a small helper program. If that is blocked, it reads PRODUCT.md directly.
 - The app stays plain HTML, CSS and JavaScript: no React, no framework, no build step. Logic stays in `rules.js`.
 - Phone first: check every screen at phone width before reporting.
@@ -90,7 +113,7 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 - `personal-io:v1`: main JSON `{ settings, goals, tasks, events, days, log, journal, returns, moments, lastOpenDate, lastDailyCheck }`
 - Task: `id, status (open|done|trashed), title, goalId, important, priority (computed), deadline, minutes, firstSteps[], computer, place (everywhere|silent|commute), fixedDate, fixedTime, eventRef, progress, needs[]`
 - Day (key `YYYY-MM-DD`): `taskIds, times, slots, plan (rebuilt by syncPlan), set, planStale, googlePending, googleIds, reviewed (by task id), focus (ids from the proposal), prioChanged`
-- `moments` (v2.1, synced, joined by id; a finished break wins, otherwise the copy with the latest `upd`): `{ id, at, upd, kind: 'break', what, minutes, endAt, taskId, googleId, googleDay, backAt, back: start|not_now|replaced|closed, extended }`, `{ kind: 'pause', feeling, chose: step|break|worry }`, `{ kind: 'start', taskId, auto }`. Returns now also keep `hour` (for the evening rule); a return after days away is a real save, other returns stay quiet. For the 2-week test (from Nov 10): breaks ending near `endAt`, days with a start, which feelings come up.
+- `moments` (v2.1, synced, joined by id; a finished break wins, otherwise the copy with the latest `upd`): `{ id, at, upd, kind: 'break', what, minutes, endAt, taskId, googleId, googleDay, backAt, back: start|not_now|replaced|closed, extended }`, `{ kind: 'pause', feeling, chose: step|break|worry }`, `{ kind: 'start', taskId, auto }` (from v2.2 also `v: 2, from: next|row|list|pause|break|welcome|auto, sinceOpen, began, delay`). Returns now also keep `hour` (for the evening rule); a return after days away is a real save, other returns stay quiet. For the 2-week test (from Nov 10): breaks ending near `endAt`, days with a start, which feelings come up.
 - Other keys: `personal-io:claude-key`, `google-client-id`, `google-calendar-id`, `google-session` (token for its hour, plus whether Drive was allowed), `google-events` (last Google events per day, shown after the hour), `sync`, `sync-base`, `other-copy`, `calendar-only`, `v1-unreadable` (data that failed to load, kept instead of overwritten), `voice-lang`, `start-pic`
 - Also `personal-io:bridge`, `bridge-pending` (key made by "Copy my code", until Connect).
 - Not synced (per device): Claude key, start picture, voice language. The phone gets the Client ID from the "Use it on your phone" link in Settings (`#connect=<client id>`).
@@ -110,7 +133,7 @@ How sync works (v1.9, `syncNow` in `app.js`, decisions in `R.syncDecision` and `
 2. Edit. Escape all user text with `esc()` before putting it in HTML.
 3. Bump `VERSION` in `sw.js`.
 4. Run `node --test tests/*.test.js` (must pass).
-5. Run `bash tests/e2e/run_all.sh` if Playwright and Chromium are available; if not, say so plainly.
+5. Run `bash tests/e2e/run_all.sh` if Playwright and Chromium are available; if not, say so plainly. In a cloud session Chromium is there but the Python package is not: `pip install playwright==<the version of the installed Node playwright>` (never `playwright install`).
 6. For anything bigger than a small fix, run the `personal-io-reviewer` agent and fix what it finds before reporting.
 7. Commit with a short message starting with the version, for example `v1.9: ...`.
 8. The site publishes only from `main`. In a cloud session, finish by pushing and telling him to press **Create PR**, then merge it on GitHub (or merge it for him if he asks).
@@ -130,4 +153,6 @@ He sent `PERSONAL_IO_V2_BRIEF.md`: one-box capture with zero required fields (R1
 
 ## Open ideas (not approved, do not build without asking)
 
-An evening stopping point (write what is on your mind, see tomorrow's one thing, close; from his ADHD, anxiety and sleep research brief); Claude-powered empathy for Pause (needs a key; must still end in one action, no reassurance loops); small built-in games with a natural end (a chess puzzle); "Let's procrastinate together" with other people (needs a server: a separate product); a "This week" usage card; a weekly review; splitting `app.js` into screen files; removing the in-app events on the Calendar tab; merging "Talk it out" into the capture box; a shorter task form with "More details".
+An evening stopping point (write what is on your mind, see tomorrow's one thing, close; from his ADHD, anxiety and sleep research brief); Claude-powered empathy for Pause (needs a key; must still end in one action, no reassurance loops); "Let's procrastinate together" with other people (needs a server: a separate product); a "This week" usage card; a weekly review; splitting `app.js` into screen files; removing the in-app events on the Calendar tab; a shorter task form with "More details"; the third part of the plan (information and direct advice).
+
+From the Nov 16 critique, not done yet: Plan on a phone is a second, heavier Today (42 controls), to be simplified in Phase 2 when the plan applies itself; the welcome still asks for typing and has an uppercase label; the default first step "Close all windows and tabs, phone face down" shows even for a task done on the phone; the task form scrolls sideways by 13px; older screens still use the symbol code.
