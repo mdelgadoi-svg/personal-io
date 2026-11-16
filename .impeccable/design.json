@@ -1,88 +1,84 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-11-16T15:00:00Z",
+ "generatedAt": "2026-11-16T21:00:00Z",
  "title": "Design System: Personal IO",
  "extensions": {
   "colorMeta": {
    "primary": {
     "role": "primary",
-    "displayName": "Working Blue",
+    "displayName": "Sage",
     "tonalRamp": [
-     "#101B45",
-     "#1B2F78",
-     "#24409E",
-     "#3558C8",
-     "#6582DC",
-     "#9DB1EA",
-     "#CBD7F6",
-     "#EAF0FF"
+     "#1F251A",
+     "#2F3828",
+     "#434E3A",
+     "#55624A",
+     "#7C8870",
+     "#A9B19A",
+     "#CFD4C2",
+     "#E6E8DC"
     ]
+   },
+   "band": {
+    "role": "primary",
+    "displayName": "Band Green"
    },
    "gold": {
     "role": "secondary",
-    "displayName": "Start Gold",
+    "displayName": "Soft Gold",
     "tonalRamp": [
-     "#3D2E05",
-     "#6B520F",
-     "#A07C1C",
-     "#D4A83A",
-     "#F4C95D",
-     "#FFDA7A",
-     "#FFE9AE",
-     "#FFF6D9"
+     "#3B2F0E",
+     "#6B5720",
+     "#9A7E34",
+     "#B8963F",
+     "#E3C77A",
+     "#F0DDA8",
+     "#F6EFD9",
+     "#FBF7EA"
     ]
    },
-   "success": {
+   "clay": {
     "role": "tertiary",
-    "displayName": "Done Green",
+    "displayName": "Terracotta",
     "tonalRamp": [
-     "#0B2A1F",
-     "#134333",
-     "#185640",
-     "#216E52",
-     "#4A9478",
-     "#8DC0A9",
-     "#C4E2D3",
-     "#EAF6EF"
-    ]
-   },
-   "ink": {
-    "role": "neutral",
-    "displayName": "Navy Ink",
-    "tonalRamp": [
-     "#0E1626",
-     "#18243B",
-     "#34425C",
-     "#526079",
-     "#687DA8",
-     "#8A9AB8",
-     "#DCE3EF",
-     "#F3F6FD"
+     "#2E1410",
+     "#5A281F",
+     "#8A4034",
+     "#9A3B2E",
+     "#BF7A6E",
+     "#DDB3AA",
+     "#F0D9D3",
+     "#F6E5E0"
     ]
    },
    "ground": {
     "role": "neutral",
-    "displayName": "Cool Ground"
+    "displayName": "Paper",
+    "tonalRamp": [
+     "#1B1D18",
+     "#33372F",
+     "#63675B",
+     "#85887A",
+     "#DDD8CB",
+     "#E8E3D8",
+     "#F1EEE6",
+     "#FBF9F4"
+    ]
    }
   },
   "typographyMeta": {
-   "card-title": {
-    "displayName": "Card title",
-    "purpose": "The task on the navy card."
+   "band-title": {
+    "displayName": "Band title",
+    "purpose": "The task on the green band, in gold cream."
    },
-   "lead": {
-    "displayName": "Lead",
-    "purpose": "The Start button and short quiet-state lines."
-   },
-   "meta": {
-    "displayName": "Meta",
-    "purpose": "Lengths and status words under a task name."
+   "label": {
+    "displayName": "Label",
+    "purpose": "Tabs, the date, small section heads, the buttons on the band. Capitals with wide spacing."
    }
   },
   "shadows": [
    {
     "name": "window",
-    "value": "0 20px 48px rgb(24 36 59 / 25%)",
+    "value": "0 20px 48px rgb(51 55 47 / 22%)",
     "purpose": "The dialog over the page."
    },
    {
@@ -95,44 +91,40 @@
    {
     "name": "state",
     "value": "150ms",
-    "purpose": "Color changes on the check and the send button. Off with reduced motion."
+    "purpose": "Color changes on buttons and the check. Off with reduced motion."
    }
   ],
   "breakpoints": [
    {
     "name": "phone",
     "value": "760px"
-   },
-   {
-    "name": "wide-today",
-    "value": "980px"
    }
   ]
  },
  "components": [
   {
-   "name": "Next card",
+   "name": "The band",
    "kind": "card",
-   "refersTo": "next-card",
-   "description": "The one thing to do next, with the single gold button.",
-   "html": "<section class=\"ds-next\"><h2>Send application to Elemental</h2><p>Open the draft</p><button>Start 1 minute</button><div><span>9:30 AM · 1h</span><a>Done</a></div></section>",
-   "css": ".ds-next{background:#18243B;color:#fff;border-radius:20px;padding:22px 20px 14px;display:flex;flex-direction:column;gap:8px;font-family:Figtree,system-ui,sans-serif;max-width:360px}.ds-next h2{margin:0;font-size:24px;line-height:1.2}.ds-next p{margin:0;color:#D5DDEC}.ds-next button{margin-top:10px;min-height:56px;border:0;border-radius:12px;background:#F4C95D;color:#18243B;font:700 18px Figtree,system-ui,sans-serif;cursor:pointer}.ds-next button:hover{background:#FFDA7A}.ds-next button:focus-visible{outline:3px solid #fff;outline-offset:3px}.ds-next div{display:flex;justify-content:space-between;align-items:center;min-height:44px;font-size:15px;color:#D5DDEC}.ds-next a{color:#fff;font-weight:600;text-decoration:underline;text-decoration-color:#8A9AB8;text-underline-offset:4px}"
+   "refersTo": "band",
+   "description": "The next thing to do, edge to edge, with two small pills.",
+   "html": "<section class=\"ds-band\"><h2>Send application to Elemental</h2><p>Open the draft</p><div><button class=\"ds-go\">Start 1 minute</button><button class=\"ds-done\">Done</button></div><small>9:30 AM · 1h</small></section>",
+   "css": ".ds-band{background:#5F6A4F;color:#FBF9F4;padding:44px 24px 30px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-family:Roboto,system-ui,Arial,sans-serif}.ds-band h2{margin:0;font-size:28px;font-weight:400;color:#F0DDA8}.ds-band p{margin:0;font-size:17px}.ds-band div{display:flex;gap:12px;margin-top:16px}.ds-band button{min-height:44px;padding:0 26px;border-radius:999px;font:500 13px Roboto,system-ui,Arial,sans-serif;letter-spacing:.09em;text-transform:uppercase;cursor:pointer}.ds-go{background:#FBF9F4;border:1px solid #FBF9F4;color:#434E3A}.ds-go:hover{background:#F0DDA8;border-color:#F0DDA8}.ds-done{background:transparent;border:1px solid #A9B19A;color:#FBF9F4}.ds-done:hover{border-color:#FBF9F4}.ds-band button:focus-visible{outline:2px solid #F0DDA8;outline-offset:3px}.ds-band small{font-size:14px;color:#E4E6D8;margin-top:6px}"
   },
   {
    "name": "Primary button",
    "kind": "button",
    "refersTo": "button-primary",
-   "description": "The one solid blue action on a screen.",
+   "description": "The one filled action on a paper screen.",
    "html": "<button class=\"ds-btn-primary\">Use this plan</button>",
-   "css": ".ds-btn-primary{background:#3558C8;color:#fff;border:1px solid #3558C8;border-radius:12px;min-height:48px;padding:10px 16px;font:600 15px Figtree,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:hover{background:#24409E;border-color:#24409E}.ds-btn-primary:focus-visible{outline:3px solid #3558C8;outline-offset:3px}"
+   "css": ".ds-btn-primary{background:#55624A;color:#FBF9F4;border:1px solid #55624A;border-radius:999px;min-height:44px;padding:8px 20px;font:400 15px Roboto,system-ui,Arial,sans-serif;cursor:pointer}.ds-btn-primary:hover{background:#434E3A;border-color:#434E3A}.ds-btn-primary:focus-visible{outline:2px solid #55624A;outline-offset:3px}"
   },
   {
    "name": "Plain button",
    "kind": "button",
    "refersTo": "button",
    "description": "Any second action.",
-   "html": "<button class=\"ds-btn\">Pause</button>",
-   "css": ".ds-btn{background:#fff;color:#18243B;border:1px solid #687DA8;border-radius:12px;min-height:48px;padding:10px 16px;font:600 15px Figtree,system-ui,sans-serif;cursor:pointer}.ds-btn:hover{border-color:#3558C8}.ds-btn:focus-visible{outline:3px solid #3558C8;outline-offset:3px}"
+   "html": "<button class=\"ds-btn\">Change</button>",
+   "css": ".ds-btn{background:transparent;color:#33372F;border:1px solid #85887A;border-radius:999px;min-height:44px;padding:8px 20px;font:400 15px Roboto,system-ui,Arial,sans-serif;cursor:pointer}.ds-btn:hover{border-color:#55624A;background:#FBF9F4}.ds-btn:focus-visible{outline:2px solid #55624A;outline-offset:3px}"
   },
   {
    "name": "Add line",
@@ -140,68 +132,63 @@
    "refersTo": "add-line",
    "description": "One field to add anything, by typing or talking.",
    "html": "<div class=\"ds-add\"><input placeholder=\"Add a task\" aria-label=\"Add a task\"><button aria-label=\"Add task\">↑</button></div>",
-   "css": ".ds-add{display:flex;align-items:center;gap:4px;background:#fff;border:1px solid #687DA8;border-radius:16px;padding:4px 4px 4px 16px;max-width:360px}.ds-add:focus-within{border-color:#3558C8;outline:2px solid #3558C8;outline-offset:1px}.ds-add input{flex:1;min-width:0;border:0;outline:0;min-height:48px;font:16px Figtree,system-ui,sans-serif;color:#18243B}.ds-add input::placeholder{color:#526079}.ds-add button{width:48px;height:48px;border:0;border-radius:12px;background:#E9EEF7;color:#526079;font-size:18px;cursor:pointer}.ds-add input:not(:placeholder-shown)+button{background:#3558C8;color:#fff}"
+   "css": ".ds-add{display:flex;align-items:center;gap:4px;background:#FBF9F4;border:1px solid #DDD8CB;border-radius:999px;padding:4px 4px 4px 22px;max-width:420px}.ds-add:focus-within{border-color:#55624A;outline:2px solid #55624A;outline-offset:1px}.ds-add input{flex:1;min-width:0;border:0;outline:0;background:none;min-height:46px;font:16px Roboto,system-ui,Arial,sans-serif;color:#33372F}.ds-add input::placeholder{color:#63675B}.ds-add button{width:44px;height:44px;border:0;border-radius:50%;background:#E8E3D8;color:#63675B;font-size:18px;cursor:pointer}.ds-add input:not(:placeholder-shown)+button{background:#55624A;color:#FBF9F4}"
   },
   {
-   "name": "Day row",
+   "name": "Plan row",
    "kind": "custom",
-   "refersTo": "card",
-   "description": "One task in the day list: check, time, name, length.",
-   "html": "<div class=\"ds-row\"><span class=\"ds-check\"></span><span class=\"ds-time\">11:00 AM</span><span><strong>Pay rent</strong><small>10 min</small></span></div>",
-   "css": ".ds-row{display:grid;grid-template-columns:44px 76px 1fr;align-items:center;min-height:56px;border-top:1px solid #DCE3EF;font-family:Figtree,system-ui,sans-serif;color:#18243B;max-width:360px}.ds-check{width:24px;height:24px;border-radius:50%;border:1.5px solid #687DA8;background:#fff;justify-self:center}.ds-time{font-size:15px;color:#526079;font-variant-numeric:tabular-nums}.ds-row strong{display:block;font-size:16px;font-weight:600}.ds-row small{font-size:13px;color:#526079}"
+   "refersTo": "due-pill",
+   "description": "One task on Plan: the star, the name, how soon.",
+   "html": "<div class=\"ds-plrow\"><span class=\"ds-star\">★</span><span>Send application</span><span class=\"ds-due\">Today</span></div>",
+   "css": ".ds-plrow{display:grid;grid-template-columns:44px 1fr auto;align-items:center;min-height:56px;border-top:1px solid #DDD8CB;font:16px Roboto,system-ui,Arial,sans-serif;color:#33372F;max-width:420px}.ds-star{color:#E3C77A;text-align:center;font-size:20px}.ds-due{font-size:14px;background:#FBF9F4;border:1px solid #DDD8CB;border-radius:999px;padding:9px 16px}"
   }
  ],
  "narrative": {
-  "northStar": "The day is already laid out",
-  "overview": "**Creative North Star: \"The day is already laid out\"**\n\nPersonal IO should feel like a desk someone tidied for you before you sat down. The day is there, in order, and one thing is on top. The person using it arrives anxious and short on attention, so the screen has to be read in one look and has to offer one obvious thing to do. Nothing on it counts what was missed.\n\nThe look is cool and plain: a pale blue-grey ground, white surfaces, navy ink, one blue that means \"you can tap this\", and one gold that marks the single place to start. Shapes are soft and controls are large, because the phone is the main device and a thumb is the pointer.",
+  "northStar": "A printed invitation",
+  "overview": "**Creative North Star: \"A printed invitation\"**\n\nPersonal IO should feel like a card someone made with care and left on your desk. Warm paper, one soft green, a little gold. Things sit in the middle of the page with room around them. Nothing shouts, nothing counts what was missed, and each screen asks for one small thing.\n\nThe person using it arrives anxious and short on attention. Calm is the feature: few words, thin lines instead of boxes, small buttons that sit where the eye already is.",
   "keyCharacteristics": [
-   "One primary action per screen. On Today it is the gold \"Start 1 minute\" on the navy card; elsewhere it is solid blue. Everything else is quieter.",
-   "Words are few and plain. Labels beat explanations.",
-   "Large touch targets (48px buttons, 52px inputs).",
-   "Flat surfaces. Depth is saved for windows that open over the page.",
-   "No symbol code on Today: one drawn gold star for what matters, plain words for the rest.",
+   "Warm paper ground, sage green for anything you can tap, soft gold for what matters.",
+   "One green band per screen at most, edge to edge, like a section of the invitation. It holds the next thing to do.",
+   "Content sits in a centered column (640px) on a phone and on a computer alike.",
+   "Small pill buttons. No full-width buttons.",
+   "Light type weights (400 and 500). Small labels and the tabs are capitals with wide spacing.",
    "Times are always 12-hour with AM/PM."
   ],
   "rules": [
    {
-    "name": "The One Blue Rule",
-    "body": "One solid blue button per screen. A second action is an outline or a text link.",
-    "section": "colors"
-   },
-   {
-    "name": "The One Navy Card Rule",
-    "body": "Only the next thing to do sits on navy, with the gold button. Nothing else on a screen is dark.",
+    "name": "The One Band Rule",
+    "body": "At most one green band on a screen, and it holds the next thing to do. Everything else is paper.",
     "section": "colors"
    },
    {
     "name": "The No Red Guilt Rule",
-    "body": "Red marks errors and time, never a task that was not done. The words are \"Not yet\".",
+    "body": "Terracotta marks time and form errors, never a task that was not done. The words are \"Not yet\".",
     "section": "colors"
    },
    {
-    "name": "The Six Sizes Rule",
-    "body": "New work uses 13, 15, 16, 18, 20, 24 and 28px only. Older screens still use more; fix them as they are redone.",
+    "name": "The Light Hand Rule",
+    "body": "Weights are 400 and 500. Nothing is bold.",
     "section": "typography"
    },
    {
-    "name": "The No Shouting Rule",
-    "body": "No uppercase labels with letter spacing above a heading. The heading speaks for itself.",
+    "name": "The Capitals Are Small Rule",
+    "body": "Capitals with wide spacing are only for labels of 13px or less. Never for a sentence.",
     "section": "typography"
    }
   ],
   "dos": [
-   "**Do** keep one solid blue button per screen, and one gold button on the navy card.",
+   "**Do** keep content in the centered 640px column on new screens.",
+   "**Do** keep buttons small pills, as wide as their words.",
+   "**Do** use one green band at most per screen.",
    "**Do** draw icons as SVG in one stroke weight.",
-   "**Do** keep touch targets at 44px or more, 48px for main buttons.",
-   "**Do** write times as 12-hour with AM/PM.",
-   "**Do** say \"Not yet\" for unfinished work.",
-   "**Do** check every screen at 390px wide first."
+   "**Do** write times as 12-hour with AM/PM, and say \"Not yet\" for unfinished work.",
+   "**Do** check every screen at 390px and at 1366px."
   ],
   "donts": [
+   "**Don't** use bold type, full-width buttons, or boxes inside boxes.",
    "**Don't** use red, counts or lists to show what was missed.",
    "**Don't** add streaks, points or scores.",
-   "**Don't** put a card inside a card.",
-   "**Don't** add uppercase labels above headings, colored side stripes, pill chips or text symbols to new work.",
+   "**Don't** add pill chips, colored side stripes or text symbols to new work.",
    "**Don't** use em dashes in any text.",
    "**Don't** add a framework or a build step; the app is plain HTML, CSS and JavaScript."
   ]

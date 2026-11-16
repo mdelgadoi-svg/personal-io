@@ -45,6 +45,8 @@ Most focus apps block, warn or count streaks. Personal IO accepts that the user 
 
 ## Brand Commitments
 
+- The look is calm, like a printed invitation: his reference is the wedding invitation his fiancee made ("I feel really calm when I see it"). The UI matters a lot to him.
+- It must look right on the phone and on the computer; he uses both.
 - Name: Personal IO.
 - Voice: warm, short, no shame. Every message ends in one small action. "Not yet" instead of "not done". The start cat is never sad.
 - No em dashes anywhere.
