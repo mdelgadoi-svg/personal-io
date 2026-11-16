@@ -146,6 +146,7 @@ with sync_playwright() as p:
     assert 'Keep the app open' in ph.inner_text('[data-form="pause"]')
     ph.screenshot(path='tests/e2e/out/v21_phone.png')
     # 10. Esc on the welcome still makes the day small; so does a reload with the welcome open
+    pg.context.close()  # the first page is still open and would keep saving its copy into the fresh Drive below
     for how in ['esc', 'reload']:
         fake.update(text=None, calls=[], held=[])  # a fresh Drive copy for each run
         q = page(b, away, {'width': 1400, 'height': 1000})

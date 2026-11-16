@@ -150,7 +150,7 @@ function loadGoogleAhead(force = false) {
     .catch(() => {})
     .finally(() => {
       ui.gLoading = false;
-      const typing = !!recognizer || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
+      const typing = !!recognizer || capBusy() || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
       if (ui.gAhead && !modal.open && !typing) render();
     });
 }
@@ -222,8 +222,7 @@ function itemTitle(item) {
 function currentTab() {
   const hash = location.hash.slice(1);
   if (hash) return hash;
-  const day = state.days[todayKey()];
-  return day && day.set ? 'today' : 'start';
+  return 'today'; // the day, or its proposal, is the first thing to see
 }
 
 function render() {
@@ -256,7 +255,7 @@ function renderNowPill() {
   const { current } = currentAndNext();
   if (!current) { pill.innerHTML = ''; return; }
   const end = t12m(current.start + current.minutes);
-  pill.innerHTML = `<a class="now-pill" href="#today"><span class="dot"></span><span><strong>Now</strong><span class="long">: ${esc(itemTitle(current))}</span> · until ${end}</span></a>`;
+  pill.innerHTML = `<a class="now-pill" href="#today"><span class="dot"></span><span><strong>Now</strong><span class="long">: ${esc(itemTitle(current))}</span> · <span class="long">until </span>${end}</span></a>`;
 }
 
 // ----- calendar drawing (shared) -----
@@ -486,28 +485,29 @@ function taskFromCalendar(c, overrides) {
   };
 }
 
-// ----- "What's on your mind?" capture panel -----
+// ----- the add line (Today and Plan) -----
 
+const ICON = {
+  star: (on) => `<svg class="ic-star${on ? ' is-on' : ''}" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 17.1 6.6 20l1.1-6.1-4.5-4.3 6.1-.8z" stroke-width="1.8" stroke-linejoin="round"/></svg>`,
+  check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  up: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>',
+  more: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+};
+
+// One line to add anything. The extra choices only show while he is typing.
 function captureHTML() {
-  const empty = state.tasks.length === 0;
   return `
-  <section class="capture" aria-labelledby="cap-h">
-    ${empty ? '<span class="start-here">Start here</span>' : ''}
-    <div class="capture-head"><h2 id="cap-h">What's on your mind?</h2><span class="hint">Add one thing. You can organize it later.</span></div>
-    <div class="capture-row">
-      <div class="field" style="flex: 1 1 280px">
-        <label for="cap-text">Task, or something you already did</label>
-        <div class="cap-input-row">
-          <input class="input" id="cap-text" type="text" placeholder="e.g., Send my application" autocomplete="off" aria-describedby="cap-hint">
-          ${SpeechRec ? `<button type="button" class="btn mic mic-icon" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}<span class="visually-hidden">Start talking</span></button>` : ''}
-          <button type="button" class="btn cap-star" data-action="cap-important" aria-pressed="${!!ui.capImportant}">${ui.capImportant ? '★ Important' : '☆ Important'}</button>
-        </div>
-        <span class="hint" id="cap-hint">Say a day ("tomorrow", "Friday") and it becomes the deadline. <button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></span>
-      </div>
-      <div class="capture-actions">
-        <button type="button" class="btn btn-dark" data-action="quick-add">Add task</button>
-        <button type="button" class="btn btn-success" data-action="quick-done">✓ I already did it</button>
-      </div>
+  <section class="capture" aria-label="Add">
+    <div class="cap-bar">
+      <label class="visually-hidden" for="cap-text">Add a task</label>
+      <input class="cap-input" id="cap-text" type="text" placeholder="Add a task" autocomplete="off" enterkeyhint="done">
+      ${SpeechRec ? `<button type="button" class="cap-btn mic" data-action="mic" data-target="cap-text" data-single="1" aria-pressed="false" aria-label="Say the task">${MIC_ICON}</button>` : ''}
+      <button type="button" class="cap-btn cap-add" data-action="quick-add" aria-label="Add task">${ICON.up}</button>
+    </div>
+    <div class="cap-more">
+      <button type="button" class="cap-opt cap-star" data-action="cap-important" aria-pressed="${!!ui.capImportant}">${ICON.star(ui.capImportant)}Important</button>
+      <button type="button" class="cap-opt" data-action="quick-done">I already did it</button>
+      <button type="button" class="cap-opt" data-action="open-dump">Talk it out</button>
     </div>
   </section>`;
 }
@@ -904,13 +904,13 @@ function proposalHTML(dayKey) {
   const row = (id) => {
     const t = task(id);
     const why = gentle ? '' : whyText(p.why[id], dayKey); // a small day does not list what is late
-    return `<li>${markHTML(t.priority)} <span class="prop-title">${esc(t.title)}</span> <span class="hint">${esc(why)}${t.eventRef ? `${why ? ' · ' : ''}${t12(t.fixedTime)}` : ''}</span></li>`;
+    return `<li><span class="prop-title">${starMark(t)}${esc(t.title)}</span><span class="prop-why">${esc(why)}${t.eventRef ? `${why ? ' · ' : ''}${t12(t.fixedTime)}` : ''}</span></li>`;
   };
-  return `<section class="card card-pad proposal" aria-label="Proposal for ${word}">
-    <h2>${!gentle ? `My proposal for ${word}` : p.focus.length + p.calendar.length > 1 ? `A small day ${word}` : `One small thing for ${word}`}</h2>
-    ${p.focus.length ? `<div class="prop-group">${gentle ? '' : '<span class="eyebrow">Focus</span>'}<ol>${p.focus.map(row).join('')}</ol></div>` : ''}
-    ${p.also.length || p.calendar.length ? `<div class="prop-group"><span class="eyebrow">Also ${word}</span><ul>${[...p.calendar, ...p.also].map(row).join('')}</ul></div>` : ''}
-    <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
+  const title = !gentle ? `My proposal for ${word}` : p.focus.length + p.calendar.length > 1 ? `A small day ${word}` : `One small thing for ${word}`;
+  return `<section class="proposal" aria-label="Proposal for ${word}">
+    <h2>${title}</h2>
+    <ol>${[...p.focus, ...p.calendar, ...p.also].map(row).join('')}</ol>
+    <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn-link" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
   </section>`;
 }
 
@@ -956,143 +956,132 @@ function extraDoneToday(key, planned) {
   return state.tasks.filter((t) => t.status === 'done' && t.doneAt && R.toDateKey(new Date(t.doneAt)) === key && !planned.includes(t.id));
 }
 
-function todayTaskRowHTML(t, key) {
-  const st = todayStatus(t, key);
+// A drawn gold star for what matters (no text symbols on Today).
+function starMark(t) {
+  return t && R.isImportant(t) ? `<span class="dl-star" role="img" aria-label="Important">${ICON.star(true)}</span>` : '';
+}
+
+// The day as rows in time order: tasks of the day, things done on the side, and calendar events.
+// A starred meeting shows once, as its calendar event. Events that already ended are left out.
+function todayRows(key, skipTaskIds = []) {
   const day = state.days[key];
-  const start = day ? timeOn(t, key) : null;
+  const all = [...(day ? sortedDayTasks(key) : []), ...extraDoneToday(key, day ? day.taskIds : [])]
+    .filter((t) => !skipTaskIds.includes(t.id));
+  const now = nowMinutes();
+  const cal = calendarItems(key).filter((c) => !(c.task && skipTaskIds.includes(c.task.id))
+    && ((c.task && c.task.status === 'open') || R.toMinutes(c.start) + (c.minutes || 0) > now));
+  const onCalendar = new Set(calendarItems(key).filter((c) => c.task).map((c) => c.task.id));
+  const tasks = all.filter((t) => !t.eventRef);
+  const events = [
+    ...cal.map((c) => ({ id: `${c.src}:${c.id}`, start: c.start, cal: c })),
+    // a starred meeting whose calendar is not loaded here still shows, from the task itself
+    ...all.filter((t) => t.eventRef && !onCalendar.has(t.id)).map((t) => ({ id: `task:${t.id}`, start: timeOn(t, key), meeting: t })),
+  ];
+  const items = new Map([...tasks.map((t) => [t.id, t]), ...events.map((e) => [e.id, e])]);
+  return R.dayLine(tasks.map((t) => ({ id: t.id, start: timeOn(t, key), minutes: t.minutes || 30, status: t.status })), events, now)
+    .map((r) => ({ ...r, item: items.get(r.id) }));
+}
+
+function dayRowHTML(r, key) {
+  if (r.kind === 'event') {
+    const c = r.item.cal;
+    const t = c ? c.task : r.item.meeting;
+    const title = c ? c.title : t.title;
+    const inner = `<span class="dl-time">${r.start ? t12(r.start) : ''}</span><span class="dl-title">${starMark(t)}${esc(title)}</span>`;
+    return `<li class="dl-row is-event${t && t.status === 'done' ? ' is-done' : ''}">
+      <span class="dl-dot" aria-hidden="true"></span>
+      ${c ? `<button type="button" class="dl-main" data-action="cal-item" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${esc(c.date)}">${inner}</button>`
+          : `<button type="button" class="dl-main" data-action="edit-task" data-id="${t.id}">${inner}</button>`}
+    </li>`;
+  }
+  const t = r.item;
+  const done = t.status === 'done';
+  const st = todayStatus(t, key);
+  const meta = [
+    done ? '' : R.formatMinutes(t.minutes || 0),
+    st.word === 'Not yet' || st.word === 'Still working' ? `${st.word}${st.reason ? `: ${esc(st.reason)}` : ''}` : '',
+    t.progress && !done ? `Left off: ${esc(t.progress)}` : '',
+  ].filter(Boolean).join(' · ');
+  return `<li class="dl-row${done ? ' is-done' : ''}">
+    <button type="button" class="dl-check" data-action="${done ? 'reopen-task' : 'complete-task'}" data-id="${t.id}" aria-pressed="${done}" aria-label="Done: ${esc(t.title)}">${ICON.check}</button>
+    <button type="button" class="dl-main" data-action="${done ? 'edit-task' : 'start-task'}" data-id="${t.id}" data-from="row">
+      <span class="dl-time">${r.start ? t12(r.start) : ''}</span>
+      <span class="dl-title">${starMark(t)}${esc(t.title)}</span>
+      ${meta ? `<span class="dl-meta">${meta}</span>` : ''}
+    </button>
+    ${done ? '' : `<button type="button" class="dl-more" data-action="edit-task" data-id="${t.id}" aria-label="Open: ${esc(t.title)}">${ICON.more}</button>`}
+  </li>`;
+}
+
+// The one thing on top: its name, the first small step, and one button.
+function nextCardHTML(t, key) {
+  const start = timeOn(t, key);
+  const day = state.days[key];
   const index = day && day.plan ? day.plan.blocks.findIndex((b) => b.taskIds.includes(t.id)) : -1;
-  const askHow = index >= 0 && t.status === 'open' && nowMinutes() >= R.toMinutes(day.plan.blocks[index].start) && !(day.reviewed || {})[t.id];
-  return `<div class="item">
-    ${start ? `<div class="plan-time"><strong>${t12(start)}</strong></div>` : ''}
-    <div class="item-main">
-      <div style="display:flex; gap:8px; align-items:center">${markHTML(t.priority)} <span class="item-title" style="${t.status === 'done' ? 'text-decoration: line-through; color: var(--ink-2)' : ''}">${esc(t.title)}</span></div>
-      <div class="item-meta">${goalLabel(t)}<span>${R.formatMinutes(t.minutes || 0)}</span>${st.reason ? `<span>· ${esc(st.reason)}</span>` : ''}</div>
-      ${t.progress && t.status !== 'done' ? `<div class="left-off">Left off: ${esc(t.progress)}</div>` : ''}
+  const askHow = index >= 0 && nowMinutes() >= R.toMinutes(day.plan.blocks[index].start) && !(day.reviewed || {})[t.id];
+  const st = todayStatus(t, key);
+  const when = [start ? t12(start) : '', R.formatMinutes(t.minutes || 0), st.word === 'To do' ? '' : esc(st.word)].filter(Boolean).join(' · ');
+  return `<section class="next" aria-label="Next">
+    <h2 class="next-title"><button type="button" class="next-name" data-action="edit-task" data-id="${t.id}">${starMark(t)}${esc(t.title)}</button></h2>
+    <p class="next-step">${esc(firstMinute(t))}</p>
+    ${t.progress ? `<p class="next-left">Left off: ${esc(t.progress)}</p>` : ''}
+    <button type="button" class="btn next-go" data-action="start-task" data-id="${t.id}" data-from="next">Start 1 minute</button>
+    <div class="next-foot">
+      <span class="next-when">${when}</span>
+      <span class="next-links">
+        ${askHow ? `<button type="button" class="next-link" data-action="review" data-block="${index}">How did it go?</button>` : ''}
+        <button type="button" class="next-link" data-action="complete-task" data-id="${t.id}">Done</button>
+      </span>
     </div>
-    <div class="item-actions">
-      ${((day && day.focus) || []).includes(t.id) && t.status === 'open' ? '<span class="chip chip-focus">Focus</span>' : ''}
-      <span class="chip ${st.cls}">${st.word}</span>
-      ${askHow ? `<button class="btn btn-small" data-action="review" data-block="${index}">How did it go?</button>` : ''}
-      ${t.status !== 'done' ? `<button class="btn btn-small" data-action="start-task" data-id="${t.id}">▶ Start</button>
-      <button class="btn btn-small" data-action="complete-task" data-id="${t.id}">✓ Done</button>` : ''}
-    </div>
-  </div>`;
+  </section>`;
+}
+
+// With no open task left: say so only if something was done, and never hide a meeting still ahead.
+function doneWordHTML(rows) {
+  if (!rows.some((r) => r.kind === 'task' && r.done)) return '';
+  const meeting = rows.some((r) => r.kind === 'event' && (r.item.cal ? r.item.cal.task : r.item.meeting)?.status === 'open');
+  return `<div class="today-quiet"><p>${meeting ? 'Your tasks are done. A meeting is still ahead.' : 'All done for today.'}</p></div>`;
+}
+
+// All-day events have no hour: one quiet line above the list.
+function allDayHTML(key) {
+  const names = ((G.isConfigured() && G.cachedDay(key)) || []).filter((e) => e.allDay).map((e) => esc(e.title));
+  return names.length ? `<p class="today-allday">All day: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` and ${names.length - 2} more` : ''}</p>` : '';
 }
 
 function renderToday() {
   const key = todayKey();
   if (state.days[key]) ensureTimes(key);
   const day = state.days[key];
-  const planned = day ? day.taskIds : [];
-  const extras = extraDoneToday(key, planned);
-  const head = `
-  <section class="page-head">
-    <div><div class="date-line">${esc(longDay(key))}</div><h1>Today</h1>
-</div>
-  </section>`;
-  const calendar = `
-    <section class="col card card-pad" style="flex: 1 1 340px" aria-label="Calendar">
-      <div class="col-head"><h2>Calendar</h2><span class="hint">Click an event to turn it into a task</span></div>
-      ${calendarBlockHTML('cal-today', key, { nowLine: true, px: 40 })}
-    </section>`;
-  const extraHTML = extras.length ? `
-      <div class="col-head"><h2>Also done today</h2></div>
-      <div class="card list">${extras.map((t) => todayTaskRowHTML(t, key)).join('')}</div>` : '';
+  const calendar = `<aside class="today-cal card card-pad" aria-label="Calendar">${calendarBlockHTML('cal-today', key, { nowLine: true, px: 40 })}</aside>`;
+  const page = (main) => `<div class="today"><div class="today-main"><h1 class="today-date">${esc(longDay(key))}</h1>${main}</div>${calendar}</div>`;
+  const listHTML = (rows) => `${allDayHTML(key)}${rows.length ? `<ul class="dayline" id="day-list">${rows.map((r) => dayRowHTML(r, key)).join('')}</ul>` : ''}`;
 
   const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
   const evening = new Date().getHours() >= 20;
   if ((!day || !day.taskIds.length) && evening) {
-    return `${head}
-    <div class="card empty">Evening. Plan tomorrow instead.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-tomorrow">Plan tomorrow</button></div>
-    ${captureHTML()}`;
+    return page(`<div class="today-quiet"><p>Evening. Plan tomorrow instead.</p><button class="btn btn-dark" data-action="go-plan-tomorrow">Plan tomorrow</button></div>
+    ${listHTML(todayRows(key))}
+    ${captureHTML()}`);
   }
   if (!day || !day.taskIds.length || (onlyCalendar && proposalHTML(key))) {
-    // The proposal comes first: it is the first thing to see in the morning.
-    return `${head}
-    ${proposalHTML(key) || ''}
-    ${captureHTML()}
-    <div class="cols">
-      <section class="col" style="flex: 1.2 1 380px">
-        ${proposalHTML(key) ? '' : '<div class="card empty">Nothing to propose yet. Add tasks above.<br><button class="btn btn-dark" style="margin-top:12px" data-action="go-plan-today">Plan today</button></div>'}
-        ${extraHTML}
-      </section>
-      ${calendar}
-    </div>`;
+    // No plan yet: the proposal is the first thing to see in the morning.
+    const proposal = proposalHTML(key);
+    const inProposal = proposal ? proposalFor(key).calendar : [];
+    return page(`${proposal || '<div class="today-quiet"><p>Nothing planned yet. Add a task and it shows up here.</p></div>'}
+    ${listHTML(todayRows(key, inProposal))}
+    ${captureHTML()}`);
   }
 
-  const tasks = sortedDayTasks(key);
-  const done = tasks.filter((t) => t.status === 'done').length + extras.length;
-  const goalsToday = [...new Set(tasks.map((t) => t.goalId))].map(goal).filter(Boolean);
-  const need = R.dayTimeNeeded(tasks, S());
-  const { current, next } = currentAndNext();
-
-  const goalCards = goalsToday.map((g) => {
-    const mine = tasks.filter((t) => t.goalId === g.id);
-    const d = mine.filter((t) => t.status === 'done').length;
-    return `<div class="goal-today">
-      <div style="display:flex; justify-content:space-between; gap:8px"><strong>${esc(g.title)}</strong><span class="hint">${d} of ${mine.length} done</span></div>
-      ${g.why ? `<div class="why">${esc(g.why)}</div>` : ''}
-      <div class="bar"><div class="w" style="width:${mine.length ? Math.round((d / mine.length) * 100) : 0}%; background: var(--success)"></div></div>
-    </div>`;
-  }).join('');
-
-  return `${head}
-  <div class="summary-line">
-    <span><strong>${tasks.length}</strong> tasks</span>
-    <span><strong>${goalsToday.length}</strong> goal${goalsToday.length === 1 ? '' : 's'}</span>
-    <span><strong>${done}</strong> done</span>
-    <span><strong>${R.formatMinutes(need.total)}</strong> planned</span>
-    ${!day.set ? '<span class="chip chip-warn">Plan not set yet · <a href="#start">set it</a></span>' : ''}
-    ${day.set && day.planStale && G.isConfigured() ? `<button class="btn btn-small btn-dark" data-action="set-plan" data-day="${key}">Update Google Calendar</button>` : ''}
-  </div>
+  const rows = todayRows(key);
+  const next = rows.find((r) => r.next);
+  const notes = `${!day.set ? '<div class="today-note"><span>Plan not set yet.</span><a class="btn-link" href="#start">Set it</a></div>' : ''}
+  ${day.set && day.planStale && G.isConfigured() ? `<div class="today-note"><span>Your plan changed.</span><button class="btn btn-small" data-action="set-plan" data-day="${key}">Update Google Calendar</button></div>` : ''}`;
+  return page(`${notes}
   ${proposalHTML(key)}
-  ${nowCardHTML(current, next)}
-  ${captureHTML()}
-  <div class="cols">
-    <section class="col" style="flex: 1.2 1 380px">
-      <div class="col-head"><h2>Goals I'm moving today</h2></div>
-      <div class="card card-pad" style="display:flex; flex-direction:column; gap:14px">${goalCards || '<span class="hint">No tasks planned.</span>'}</div>
-      <div class="col-head"><h2>Tasks</h2></div>
-      <div class="card list">${tasks.map((t) => todayTaskRowHTML(t, key)).join('') || '<div class="item"><span class="hint">No tasks planned.</span></div>'}</div>
-      ${extraHTML}
-    </section>
-    ${calendar}
-  </div>`;
-}
-
-function nowCardHTML(current, next) {
-  if (!current) {
-    if (!next) return '<div class="note note-info" style="margin-bottom:20px">Nothing else scheduled in your plan today.</div>';
-    return `<div class="note note-info" style="margin-bottom:20px">Next at <strong>${t12m(next.start)}</strong>: ${esc(itemTitle(next))}.</div>`;
-  }
-  const end = current.start + current.minutes;
-  const done = nowMinutes() - current.start;
-  const pct = Math.max(0, Math.min(100, Math.round((done / current.minutes) * 100)));
-  let title = itemTitle(current);
-  let goalLine = '';
-  let actions = '';
-  if (current.type === 'block') {
-    const openTask = current.block.taskIds.map(task).find((t) => t && t.status === 'open');
-    if (openTask) {
-      title = openTask.title;
-      const g = goal(openTask.goalId);
-      if (g) goalLine = `For your goal: ${g.title}`;
-    }
-    actions = `${openTask ? `<button class="btn btn-outline" data-action="start-task" data-id="${openTask.id}">▶ Start</button>` : ''}<button class="btn btn-outline" data-action="review" data-block="${current.index}">How did it go?</button>`;
-  }
-  return `
-  <section class="now-card" aria-label="Now">
-    <div class="left">
-      <div class="label"><span class="dot"></span>Now · until ${t12m(end)}</div>
-      <div class="title">${esc(title)}</div>
-      ${goalLine ? `<div class="goal-line">${esc(goalLine)}</div>` : ''}
-    </div>
-    <div class="right">
-      <div class="times"><span>${R.formatMinutes(Math.max(done, 0))} done</span><span>${R.formatMinutes(Math.max(end - nowMinutes(), 0))} left</span></div>
-      <div class="prog"><div style="width:${pct}%"></div></div>
-      <div style="display:flex; gap:8px; margin-top:6px">${actions}</div>
-    </div>
-  </section>`;
+  ${next ? nextCardHTML(next.item, key) : doneWordHTML(rows)}
+  ${listHTML(rows.filter((r) => !r.next))}
+  ${captureHTML()}`);
 }
 
 // ----- welcome back: a short fresh start after time away -----
@@ -1214,7 +1203,7 @@ async function closeWelcome(goPlan, startId = null) {
   const after = () => {
     if (!goPlan && gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
     const t = startId && task(startId);
-    if (t && t.status === 'open') { openStarter(t); return; }
+    if (t && t.status === 'open') { openStarter(t, { from: 'welcome' }); return; }
     if (!goPlan) return;
     ui.planDay = 'today';
     if (location.hash === '#start') render(); else location.hash = '#start';
@@ -1401,7 +1390,7 @@ function toggleMic(btn) {
     if (single && box.value.trim()) {
       box.value = box.value.trim().replace(/[.]$/, '');
       box.focus();
-      toast('Check it, then press Enter or Add task.');
+      toast('Check it, then press Enter.');
     }
   };
   recognizer.start();
@@ -1460,7 +1449,7 @@ function talkRowHTML(t, i, kind) {
   return `<div class="talk-row" data-kind="${kind}" data-index="${i}">
     <label class="check-row"><input type="checkbox" data-talk="pick" ${t.pick ? 'checked' : ''} ${t.taken ? 'disabled' : ''}> <span class="item-title">${esc(t.title)}</span></label>
     ${t.from ? `<span class="hint">From the email: ${esc(t.from)}</span>` : ''}
-    ${t.taken ? '<span class="hint">Already in your backlog.</span>' : `<div class="talk-pickers">${prioSel}${goalSel}</div>`}
+    ${t.taken ? '<span class="hint">Already in your tasks.</span>' : `<div class="talk-pickers">${prioSel}${goalSel}</div>`}
   </div>`;
 }
 
@@ -1572,8 +1561,8 @@ function starterHTML() {
     return `
     <div class="modal starter" data-form="starter">
       ${starterPicture('happy')}
-      <div class="starter-step">You started. That was the hard part.</div>
-      <div class="starter-title">${esc(t.title)}</div>
+      <div class="starter-text" id="modal-title">You started. That was the hard part.</div>
+      <div class="starter-task">${esc(t.title)}</div>
       ${rows ? `<div class="starter-plan"><strong>${plan ? 'The rest of today' : 'To get it done'}</strong><ul>${rows}</ul></div>` : ''}
       <div class="modal-foot" style="justify-content:center"><button type="button" class="btn btn-dark" data-action="starter-close">Keep going</button></div>
     </div>`;
@@ -1584,10 +1573,9 @@ function starterHTML() {
   <div class="modal starter" data-form="starter">
     <div class="modal-head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost icon-btn" data-action="starter-close" aria-label="Close">✕</button></div>
     ${starterPicture(mood)}
-    <div class="starter-step">Step ${starter.i + 1} of ${n} · 1 min</div>
     <div class="starter-text" id="modal-title">${esc(starter.steps[starter.i])}</div>
-    <div class="starter-task">${esc(t.title)}</div>
-    <div class="starter-timer" role="timer" aria-live="off"><div class="prog"><div style="width:${pct}%"></div></div><span class="starter-left">${starter.left ? `${starter.left}s` : 'Time. Ready for the next one?'}</span></div>
+    <div class="starter-task">${esc(t.title)}${n > 1 ? ` · step ${starter.i + 1} of ${n}` : ''}</div>
+    <div class="starter-timer" role="timer" aria-live="off"><div class="prog"><div style="width:${pct}%"></div></div><span class="starter-left">${starter.left ? '' : 'One minute in. Ready for the next one?'}</span></div>
     <div class="modal-foot" style="justify-content:center">
       <button type="button" class="btn btn-dark btn-big" data-action="starter-next">${starter.i + 1 < n ? 'Done, next step' : 'Done, I started'}</button>
     </div>
@@ -1606,23 +1594,43 @@ function showStarterStep() {
     starter.left = Math.max(0, starter.left - 1);
     const left = modal.querySelector('.starter-left');
     const bar = modal.querySelector('.starter-timer .prog > div');
-    if (left) left.textContent = starter.left ? `${starter.left}s` : 'Time. Ready for the next one?';
+    if (left) left.textContent = starter.left ? '' : 'One minute in. Ready for the next one?';
     if (bar) bar.style.width = `${Math.round(((60 - starter.left) / 60) * 100)}%`;
     if (!starter.left) stopStarterTimer();
   }, 1000);
 }
 
-function openStarter(t, { auto = false } = {}) {
+let openedAt = Date.now(); // when the app was last opened or brought back to the front
+
+function openStarter(t, { auto = false, from = null } = {}) {
   if (!t) return;
   if (R.activeBreak(state.moments)) finishBreak('start'); // starting means the break is over
-  // Kept so you can see later how often you started something (see the 2-week test in CLAUDE.md).
+  // Kept for the self-test (see CLAUDE.md): which screen the start came from, and how many seconds
+  // after opening the app. It only counts as a start once he taps that he began (see starter-next).
   // An automatic start is housekeeping (quiet); maybeAutoStart saves it.
-  addMoment({ kind: 'start', taskId: t.id, auto });
+  const m = addMoment({ kind: 'start', v: 2, taskId: t.id, auto, from: auto ? 'auto' : from, sinceOpen: Math.round((Date.now() - openedAt) / 1000) });
   if (!auto) save(state);
   const steps = stepsOf(t).length ? stepsOf(t) : R.templateSteps(t.title, t.place, t.computer !== false);
   stopStarterTimer();
-  starter = { taskId: t.id, steps, i: 0, left: 60, timer: null };
+  starter = { taskId: t.id, steps, i: 0, left: 60, timer: null, momentId: m.id, moment: { ...m } };
   showStarterStep();
+}
+
+// "Done, I started": this is the real start. Saved once, with the minutes after the planned time.
+function markBegan() {
+  if (!starter) return;
+  let m = momentById(starter.momentId);
+  if (!m && starter.moment) { // a newer copy from the other device replaced the data: put the start back
+    m = { ...starter.moment };
+    state.moments = state.moments || [];
+    state.moments.push(m);
+  }
+  if (!m || m.began) return;
+  m.began = new Date().toISOString();
+  const delay = R.startDelay(timeOn(task(m.taskId) || {}, todayKey()), m.began);
+  if (delay !== null) m.delay = delay;
+  touch(m);
+  save(state);
 }
 
 // When a deep work block begins, the start screen opens by itself (once per block).
@@ -1978,7 +1986,7 @@ function renderBacklog() {
   const resultWord = { done: 'Done', working: 'Still working', not_started: 'Not started' };
   return `
   <section class="page-head">
-    <div><h1>Backlog</h1><div class="sub">Everything waiting for its turn.</div></div>
+    <div><h1>Tasks</h1><div class="sub">Everything waiting for its turn.</div></div>
   </section>
   <div class="cols">
     <section class="col" style="flex: 1.4 1 420px">
@@ -2122,7 +2130,7 @@ function taskFormHTML(t, opts) {
       ${t ? '<button type="button" class="btn" data-action="delete-task" style="color: var(--error)">Delete</button>' : ''}
       <button type="button" class="btn" data-action="copy-task" style="margin-right:auto" title="Save, then start a copy named Part 2">Save and copy as Part 2</button>
       <button type="button" class="btn" data-action="close-modal">Cancel</button>
-      <button type="submit" class="btn btn-dark">${opts.dayKey ? 'Save and add to day' : 'Save to backlog'}</button>
+      <button type="submit" class="btn btn-dark">${opts.dayKey ? 'Save and add to day' : 'Save task'}</button>
     </div>
   </form>`;
 }
@@ -2279,7 +2287,7 @@ function reviewHTML(blockIndex) {
   <form class="modal" data-form="review" data-block="${blockIndex}" novalidate>
     <div class="modal-head"><div><div class="date-line">${t12(block.start)} - ${end}</div><h2 id="modal-title">How did it go?</h2></div>
       <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
-    <div class="hint">Anything not done goes back to your backlog.</div>
+    <div class="hint">Anything not finished stays in your tasks.</div>
     <div class="errors" hidden></div>
     ${rows || '<div class="empty">Everything in this block is already done.</div>'}
     <div class="modal-foot">
@@ -2316,6 +2324,16 @@ function bridgeOnHTML() {
       <button type="button" class="btn btn-small" style="align-self:flex-start" data-action="copy-bridge-link">Copy link</button>
     </div></div>
     <button type="button" class="btn-link" style="align-self:flex-start" data-action="remove-bridge">Stop using the bridge on this device</button>`;
+}
+
+// One plain line for the self-test: how many starts, and how long after the planned time.
+function statsLine() {
+  const n = R.startStats(state.moments, state.days);
+  if (!n.starts) return 'No starts yet.';
+  const late = n.medianDelay === null ? '' : n.medianDelay > 0 ? ` Usually ${R.formatMinutes(n.medianDelay)} after the planned time.`
+    : n.medianDelay < 0 ? ` Usually ${R.formatMinutes(-n.medianDelay)} before the planned time.` : ' Usually right on time.';
+  const open = n.medianSinceOpen === null ? '' : ` About ${n.medianSinceOpen < 90 ? `${n.medianSinceOpen} seconds` : R.formatMinutes(Math.round(n.medianSinceOpen / 60))} from opening the app to starting.`;
+  return `${n.starts} start${n.starts === 1 ? '' : 's'} on ${n.days} day${n.days === 1 ? '' : 's'}.${late}${open}`;
 }
 
 function settingsHTML() {
@@ -2397,6 +2415,12 @@ function settingsHTML() {
         <button type="button" class="btn btn-small" data-action="test-key">Check the key</button>
         <span class="hint key-status">${AI.hasKey() ? (AI.looksLikeKey(AI.getKey()) ? 'A key is saved.' : 'The saved key does not look like a Claude API key.') : 'No key saved yet.'}</span>
       </div>
+      <div><button type="button" class="btn-link" data-action="open-email">Find tasks in my email</button></div>
+    </div>
+
+    <div class="card card-pad" style="display:flex; flex-direction:column; gap:6px">
+      <strong>Your numbers</strong>
+      <span class="stats-line">${esc(statsLine())}</span>
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
@@ -2498,6 +2522,7 @@ function quickCapture(alreadyDone) {
       state.tasks.push(t);
     }
     state.log.push({ at: nowIso, date: todayKey(), taskId: t.id, title: t.title, result: 'done', reason: null });
+    ui.capImportant = false;
     persist([existing ? `Marked done: ${t.title}` : `Logged as done: ${t.title}`]);
   } else {
     if (existing) { input.setAttribute('aria-invalid', 'true'); toast(`"${existing.title}" is already in your list.`); return; }
@@ -2509,7 +2534,7 @@ function quickCapture(alreadyDone) {
     state.tasks.push(t);
     ui.open[t.priority] = true;
     ui.capImportant = false;
-    persist([`Added: ${markText(t)}${said.title}${said.deadline ? `, due ${fmtDay(said.deadline)}` : ''}.`]);
+    persist([`Added to your tasks: ${said.title}${said.deadline ? `, due ${fmtDay(said.deadline)}` : ''}.`]);
   }
   document.getElementById('cap-text')?.focus();
 }
@@ -2604,7 +2629,8 @@ function localChanged(meta = getSync()) {
 }
 
 // You are typing or a window is open: update the data, but redraw the screen later.
-const userBusy = () => modal.open || !!recognizer || (view.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+const capBusy = () => !!document.getElementById('cap-text')?.value; // something typed in the add line
+const userBusy = () => modal.open || !!recognizer || capBusy() || (view.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
 function renderWhenFree() {
   if (userBusy()) ui.needRender = true; else render();
 }
@@ -2969,8 +2995,8 @@ const actions = {
     persist([`★ Matters: ${draft.title}`]);
   },
   'busy-ok': (el) => { getDay(el.dataset.day).busyOk = true; persist(); },
-  'start-task': (el) => openStarter(task(el.dataset.id)),
-  'starter-next': () => { if (!starter) return; starter.i += 1; showStarterStep(); },
+  'start-task': (el) => openStarter(task(el.dataset.id), { from: el.dataset.from || 'list' }),
+  'starter-next': () => { if (!starter) return; markBegan(); starter.i += 1; showStarterStep(); },
   'starter-close': () => { stopStarterTimer(); starter = null; closeModal(); },
   'copy-task': () => {
     const form = modal.querySelector('form[data-form="task"]');
@@ -3026,7 +3052,7 @@ const actions = {
     showPause();
   },
   'pause-break': () => { pause.view = 'break'; showPause(); },
-  'pause-step': (el) => { pauseChose('step'); pause = null; const t = task(el.dataset.id); closeModal(); openStarter(t); },
+  'pause-step': (el) => { pauseChose('step'); pause = null; const t = task(el.dataset.id); closeModal(); openStarter(t, { from: 'pause' }); },
   'pause-worry-save': () => {
     const text = (modal.querySelector('#pause-worry')?.value || '').trim();
     if (!text) { modal.querySelector('#pause-worry').focus(); return; }
@@ -3039,7 +3065,7 @@ const actions = {
   },
   'break-start': () => startBreak(pressedValue(modal, 'break-what'), Number(pressedValue(modal, 'break-min')) || 20),
   'break-back': () => { const b = R.activeBreak(state.moments); if (b) openModal(backHTML(b)); },
-  'back-start': (el) => { finishBreak('start', backWindowId()); const t = task(el.dataset.id); closeModal(); openStarter(t); },
+  'back-start': (el) => { finishBreak('start', backWindowId()); const t = task(el.dataset.id); closeModal(); openStarter(t, { from: 'break' }); },
   'back-not-now': () => { finishBreak('not_now', backWindowId()); closeModal(); },
   'back-more': () => { const ok = extendBreak(5, backWindowId()); closeModal(); if (ok) toast('5 more minutes.'); },
   'welcome-close': () => closeWelcome(false),
@@ -3075,11 +3101,21 @@ const actions = {
   'ask-claude': () => askClaude(),
   'complete-task': (el) => {
     const t = task(el.dataset.id);
+    // The card moves on to the next task under the same finger: a second quick tap must not finish that one too.
+    if (!t || t.status === 'done' || performance.now() - (ui.doneTap || -1000) < 700) return;
+    ui.doneTap = performance.now();
     Object.assign(t, { status: 'done', doneAt: new Date().toISOString(), lastTouchedAt: new Date().toISOString() });
     state.log.push({ at: new Date().toISOString(), date: todayKey(), taskId: t.id, title: t.title, result: 'done', reason: null });
+    if (modal.querySelector('[data-form="calitem"]')) closeModal();
     persist([`Done: ${t.title}`]);
   },
-  'reopen-task': (el) => { Object.assign(task(el.dataset.id), { status: 'open', doneAt: null }); persist(); },
+  'reopen-task': (el) => {
+    const t = task(el.dataset.id);
+    if (!t || t.status !== 'done' || performance.now() - (ui.doneTap || -1000) < 700) return; // a double tap on the check stays done
+    ui.doneTap = performance.now();
+    Object.assign(t, { status: 'open', doneAt: null });
+    persist([`Open again: ${t.title}`]);
+  },
   'keep-task': (el) => { task(el.dataset.id).lastTouchedAt = new Date().toISOString(); persist(['Kept. It stays important.']); },
   'demote-task': (el) => setImportant(el.dataset.id, false),
   'accept-proposal': async (el) => {
@@ -3103,7 +3139,7 @@ const actions = {
   },
   'keep-plan': (el) => { getDay(el.dataset.day).prioChanged = false; persist(); },
   'toggle-important': (el) => { const t = task(el.dataset.id); if (t) setImportant(t.id, !R.isImportant(t)); },
-  'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.textContent = ui.capImportant ? '★ Important' : '☆ Important'; },
+  'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.querySelector('.ic-star')?.classList.toggle('is-on', ui.capImportant); document.getElementById('cap-text')?.focus(); },
   'goal-up': (el) => {
     // Swap with the goal above it, skipping "Keep life running" (always last).
     const i = state.goals.findIndex((g) => g.id === el.dataset.id);
@@ -3299,7 +3335,7 @@ modal.addEventListener('submit', (e) => {
     if (existing) Object.assign(existing, draft); else state.tasks.push(draft);
     closeModal();
     if (form.dataset.day) addToDay(draft.id, form.dataset.day);
-    persist([existing ? 'Task updated.' : 'Task saved to your backlog.']);
+    persist([existing ? 'Task updated.' : 'Task saved.']);
     if (thenCopy) openCopyOf(draft);
   }
 
@@ -3356,7 +3392,7 @@ modal.addEventListener('submit', (e) => {
     (day.plan.blocks[index]?.taskIds || []).forEach((id) => { day.reviewed[id] = true; });
     const back = Object.values(outcomes).filter((o) => o.result !== 'done').length;
     closeModal();
-    persist([back ? `Saved. ${back} task${back === 1 ? '' : 's'} back in your backlog.` : 'Saved. Everything done.']);
+    persist([back ? `Saved. ${back} task${back === 1 ? '' : 's'} still in your tasks.` : 'Saved. Everything done.']);
   }
 
   if (kind === 'event') {
@@ -3613,6 +3649,7 @@ window.addEventListener('storage', (e) => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    openedAt = Date.now();
     if (G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow().then(checkBreak, checkBreak);
     else checkBreak();
   }
@@ -3637,7 +3674,7 @@ setInterval(() => { if (R.activeBreak(state.moments) || backWindowId()) checkBre
 
 // Keep the "now" line and current block fresh, without disturbing typing.
 setInterval(() => {
-  const busy = !!recognizer || (view.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+  const busy = !!recognizer || capBusy() || (view.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
   if (!busy && !modal.open) {
     const msgs = dailyCheck();
     render();
