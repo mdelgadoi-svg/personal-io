@@ -27,8 +27,8 @@ with sync_playwright() as p:
     card = pg.inner_text('.next'); assert 'Send application' in card and 'Open the draft' in card and 'start 1 minute' in card.lower(), card
     go = pg.locator('.next [data-action="start-task"]').bounding_box(); assert go['y'] + go['height'] < 500 and go['height'] >= 44 and go['width'] < 260, go  # a small button in its place, not a full-width one
     assert pg.evaluate('document.documentElement.scrollWidth') <= 390, 'no sideways scroll'
-    words = len(pg.inner_text('#view').split()); assert words <= 60, f'{words} words on Today'
-    assert pg.locator('#view button:visible, #view a:visible, #view input:visible').count() <= 14
+    words = len(pg.evaluate("(() => { const v = document.getElementById('view').cloneNode(true); v.querySelector('.today-cal')?.remove(); document.body.appendChild(v); const t = v.innerText; v.remove(); return t; })()").split()); assert words <= 60, f'{words} words on Today (not counting the calendar hours)'
+    assert pg.locator('#view button:visible, #view a:visible, #view input:visible').count() - pg.locator('#cal-today button:visible').count() <= 14
     for old in ['.summary-line', '.goal-today', '.chip', '#view .eyebrow']: assert pg.locator(old).count() == 0, old
 
     # the rest of the day in time order, with the calendar event in its place; no symbol code
@@ -83,13 +83,17 @@ with sync_playwright() as p:
     assert pg.locator('.next').count() == 0 and 'All done for today.' in pg.inner_text('#view')
 
     # the phone header has Pause with its word; a computer shows the same Today, centered
-    assert pg.locator('#cal-today').count() == 0 and 'Pause' in pg.inner_text('.pause-btn')   # the hour calendar has its own tab
+    cal = pg.locator('#cal-today'); assert cal.count() == 1 and 'Pause' in pg.inner_text('.pause-btn')   # the day's calendar, under the list on a phone
+    assert pg.locator('#cal-today .legend').count() == 0 and '★' not in cal.inner_text() and 'Class' in cal.inner_text(), cal.inner_text()
+    assert cal.bounding_box()['y'] > pg.locator('.capture').bounding_box()['y']
     assert pg.locator('.bottom-nav a').count() == 4 and pg.locator('.bottom-nav [data-action="new-task"]').count() == 0
     wide = b.new_context(viewport={'width': 1400, 'height': 900})
     wide.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(st)))
     w = wide.new_page(); w.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 9, 42)); w.on('pageerror', lambda e: errors.append(str(e)))
     w.goto(BASE + '#today'); w.wait_for_selector('.next')
     band = w.locator('.next').bounding_box(); assert band['width'] >= 1380 and w.evaluate('document.documentElement.scrollWidth') <= 1400, band  # the green band runs edge to edge on a computer
+    side = w.locator('.today-cal').bounding_box(); lst = w.locator('.dayline').bounding_box()
+    assert side['x'] > lst['x'] + lst['width'] and side['y'] < lst['y'] + lst['height'], (side, lst)  # on a computer the calendar is on the right of the list
     font = w.evaluate("document.fonts.ready.then(() => [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family).join(','))")
     assert 'Roboto' in font, font
     w.context.close()
@@ -118,7 +122,7 @@ with sync_playwright() as p:
     c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(meet)))
     x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 11, 20)); x.on('pageerror', lambda e: errors.append(str(e)))
     x.goto(BASE); x.wait_for_selector('.dayline')   # no address: the app opens on Today
-    v = x.inner_text('#view'); assert 'All done' not in v and v.count('Advisor meeting') == 1, v
+    v = x.inner_text('.today-main'); assert 'All done' not in x.inner_text('#view') and v.count('Advisor meeting') == 1, v
     print('all v2.2 checks passed')
 print('PAGE ERRORS', errors)
 assert not errors, errors

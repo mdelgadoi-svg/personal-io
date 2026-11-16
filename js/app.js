@@ -337,7 +337,8 @@ function calendarLegendHTML() {
 }
 
 const commuteItem = (start) => ({ start, minutes: S().commuteMinutes, cls: 'ev-commute', title: `Commute ${S().commuteMinutes} min` });
-const markText = (t) => (t ? `${R.PRIORITIES[t.priority].mark} ` : '');
+let plainCal = false; // Today's calendar shows names only, no level symbols
+const markText = (t) => (t && !plainCal ? `${R.PRIORITIES[t.priority].mark} ` : '');
 
 // Things made in Personal IO for one day.
 function ioItems(key) {
@@ -390,19 +391,26 @@ function googleItems(key, list) {
 function calendarBlockHTML(id, key, opts = {}) {
   afterRender.push(() => fillCalendar(id, key, opts));
   const cached = G.isConfigured() ? G.cachedDay(key) : null;
-  return `<div id="${id}" class="cal-slot">${calendarLegendHTML()}${timelineHTML([...ioItems(key), ...(cached ? googleItems(key, cached) : [])], opts)}</div>`;
+  plainCal = !!opts.plain;
+  const items = [...ioItems(key), ...(cached ? googleItems(key, cached) : [])];
+  plainCal = false;
+  return `<div id="${id}" class="cal-slot">${opts.plain ? '' : calendarLegendHTML()}${timelineHTML(items, opts)}</div>`;
 }
 
 async function fillCalendar(id, key, opts = {}) {
   const el = document.getElementById(id);
   if (!el) return;
   el.dataset.want = key;
+  const legendHTML = () => (opts.plain ? '' : calendarLegendHTML());
+  const gItems = (list) => { plainCal = !!opts.plain; const out = googleItems(key, list); plainCal = false; return out; };
+  plainCal = !!opts.plain;
   const io = [...ioItems(key), ...(opts.extra || [])];
-  if (!G.isConfigured()) { el.innerHTML = calendarLegendHTML() + timelineHTML(io, opts); return; }
+  plainCal = false;
+  if (!G.isConfigured()) { el.innerHTML = legendHTML() + timelineHTML(io, opts); return; }
   if (!G.isConnected()) {
     const last = G.cachedDay(key);
     el.innerHTML = `<div class="note note-info" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
-      <span>${last ? 'Google events from the last time you connected.' : 'Show your Google Calendar here.'}</span><button class="btn btn-small" data-action="connect-google">${last ? 'Connect again' : 'Connect Google'}</button></div>${calendarLegendHTML()}${timelineHTML([...io, ...(last ? googleItems(key, last) : [])], opts)}`;
+      <span>${last ? 'Google events from the last time you connected.' : 'Show your Google Calendar here.'}</span><button class="btn btn-small" data-action="connect-google">${last ? 'Connect again' : 'Connect Google'}</button></div>${legendHTML()}${timelineHTML([...io, ...(last ? gItems(last) : [])], opts)}`;
     return;
   }
   try {
@@ -410,10 +418,10 @@ async function fillCalendar(id, key, opts = {}) {
     const allDay = events.filter((e) => e.allDay).map((e) => esc(e.title));
     const still = document.getElementById(id);
     if (!still || still.dataset.want !== key) return; // you moved to another day meanwhile
-    still.innerHTML = `${allDay.length ? `<div class="hint all-day" style="margin-bottom:6px">All day: ${allDay.slice(0, 2).join(', ')}${allDay.length > 2 ? ` and ${allDay.length - 2} more` : ''}</div>` : ''}${calendarLegendHTML()}${timelineHTML([...io, ...googleItems(key, events)], opts)}`;
+    still.innerHTML = `${allDay.length ? `<div class="hint all-day" style="margin-bottom:6px">All day: ${allDay.slice(0, 2).join(', ')}${allDay.length > 2 ? ` and ${allDay.length - 2} more` : ''}</div>` : ''}${legendHTML()}${timelineHTML([...io, ...gItems(events)], opts)}`;
   } catch (err) {
     const still = document.getElementById(id);
-    if (still && still.dataset.want === key) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${calendarLegendHTML()}${timelineHTML(io, opts)}`;
+    if (still && still.dataset.want === key) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${legendHTML()}${timelineHTML(io, opts)}`;
   }
 }
 
@@ -1121,38 +1129,44 @@ function allDayHTML(key) {
   return names.length ? `<p class="today-allday">All day: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` and ${names.length - 2} more` : ''}</p>` : '';
 }
 
+// The hours Today's calendar shows: 7 AM to 9 PM, wider if something on the day is earlier or later.
+function dayHours(key) {
+  const items = [...ioItems(key), ...((G.isConfigured() && G.cachedDay(key)) ? googleItems(key, G.cachedDay(key)) : [])];
+  const first = Math.min(7 * 60, ...items.map((i) => i.start));
+  const last = Math.max(21 * 60, ...items.map((i) => i.start + i.minutes));
+  return { startHour: Math.max(0, Math.floor(first / 60)), endHour: Math.min(24, Math.ceil(last / 60)) };
+}
+
 function renderToday() {
   const key = todayKey();
   if (state.days[key]) ensureTimes(key);
   const day = state.days[key];
-  const page = (main) => `<div class="today"><h1 class="today-date">${esc(longDay(key))}</h1>${main}</div>`;
+  // top: the proposal or the band. rest: the day's list and the add line, with the day's calendar beside it.
+  const page = (top, rest) => `<div class="today"><h1 class="today-date">${esc(longDay(key))}</h1>${top}
+    <div class="today-body"><div class="today-main">${rest}</div>
+    <section class="today-cal" aria-label="Your day">${calendarBlockHTML('cal-today', key, { nowLine: true, px: 44, plain: true, ...dayHours(key) })}</section></div></div>`;
   const listHTML = (rows) => `${allDayHTML(key)}${rows.length ? `<ul class="dayline" id="day-list">${rows.map((r) => dayRowHTML(r, key)).join('')}</ul>` : ''}`;
 
   const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
   const evening = new Date().getHours() >= 20;
   if ((!day || !day.taskIds.length) && evening) {
-    return page(`<div class="today-quiet"><p>Evening. Plan tomorrow instead.</p><button class="btn btn-dark" data-action="go-plan-tomorrow">Plan tomorrow</button></div>
-    ${listHTML(todayRows(key))}
-    ${captureHTML()}`);
+    return page('<div class="today-quiet"><p>Evening. Plan tomorrow instead.</p><button class="btn btn-dark" data-action="go-plan-tomorrow">Plan tomorrow</button></div>',
+      `${listHTML(todayRows(key))}${captureHTML()}`);
   }
   if (!day || !day.taskIds.length || (onlyCalendar && proposalHTML(key))) {
     // No plan yet: the proposal is the first thing to see in the morning.
     const proposal = proposalHTML(key);
     const inProposal = proposal ? proposalFor(key).calendar : [];
-    return page(`${proposal || '<div class="today-quiet"><p>Nothing planned yet. Add a task and it shows up here.</p></div>'}
-    ${listHTML(todayRows(key, inProposal))}
-    ${captureHTML()}`);
+    return page(proposal || '<div class="today-quiet"><p>Nothing planned yet. Add a task and it shows up here.</p></div>',
+      `${listHTML(todayRows(key, inProposal))}${captureHTML()}`);
   }
 
   const rows = todayRows(key);
   const next = rows.find((r) => r.next);
   const notes = `${!day.set ? '<div class="today-note"><span>Plan not set yet.</span><a class="btn-link" href="#start">Set it</a></div>' : ''}
   ${day.set && day.planStale && G.isConfigured() ? `<div class="today-note"><span>Your plan changed.</span><button class="btn btn-small" data-action="set-plan" data-day="${key}">Update Google Calendar</button></div>` : ''}`;
-  return page(`${notes}
-  ${proposalHTML(key)}
-  ${next ? nextCardHTML(next.item, key) : doneWordHTML(rows)}
-  ${listHTML(rows.filter((r) => !r.next))}
-  ${captureHTML()}`);
+  return page(`${notes}${proposalHTML(key)}${next ? nextCardHTML(next.item, key) : doneWordHTML(rows)}`,
+    `${listHTML(rows.filter((r) => !r.next))}${captureHTML()}`);
 }
 
 // ----- welcome back: a short fresh start after time away -----

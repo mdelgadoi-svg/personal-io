@@ -1,6 +1,6 @@
 // Lets Personal IO open even without internet, and install like an app.
 // Bump VERSION whenever app files change so devices pick up the update.
-const VERSION = 'io-v34';
+const VERSION = 'io-v35';
 const FILES = [
   './',
   './index.html',

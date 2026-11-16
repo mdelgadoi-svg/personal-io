@@ -509,8 +509,21 @@ dialog:not(.wide) .modal-side { display: none; }
 .dl-star { display: inline-flex; vertical-align: -3px; margin-right: 6px; }
 
 .today { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.today-body { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.today-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+/* The day's calendar: only that day, quiet, on paper. Below the list on a phone, on the right on a computer. */
+.today-cal { background: var(--card); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 16px 16px 20px 8px; }
+.today-cal .ev { font-size: 12px; }
+.today-cal .ev-io { background: var(--primary-soft); border-color: var(--primary); color: var(--ink); }
+@media (min-width: 1100px) {
+  .today { max-width: 1040px; }
+  .today-date, .today > .today-note, .today > .proposal { width: 100%; max-width: 640px; margin-inline: auto; }
+  .today-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 40px; align-items: start; }
+  .today-cal { position: sticky; top: 84px; max-height: calc(100vh - 110px); overflow-y: auto; }
+}
 .today-date { font-size: 13px; font-weight: 400; color: var(--ink-2); letter-spacing: var(--track); text-transform: uppercase; text-align: center; }
 .today-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 15px; color: var(--ink); background: var(--gold-soft); border-radius: var(--radius-ctl); padding: 8px 16px; }
+.today > .today-quiet { max-width: 640px; width: 100%; margin-inline: auto; }
 .today-quiet { text-align: center; padding: 28px 20px; display: flex; flex-direction: column; gap: 16px; align-items: center; }
 .today-quiet p { margin: 0; font-size: 22px; font-weight: 400; color: var(--primary-ink); }
 .today-allday { margin: 0; font-size: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
