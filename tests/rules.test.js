@@ -500,8 +500,9 @@ test('start numbers: first start of a task per day, old starts use the plan time
   ];
   assert.deepEqual(startStats(moments, days), { starts: 3, days: 2, timed: 2, medianDelay: 17, medianSinceOpen: 30 });
   assert.deepEqual(startStats(moments, days, '2026-11-16'), { starts: 2, days: 1, timed: 1, medianDelay: 4, medianSinceOpen: 30 });
-  const tapped = [{ kind: 'start', taskId: 'b', at: at(16, 14, 0), auto: true, began: at(16, 14, 6), delay: 6 }];
+  const tapped = [{ kind: 'start', taskId: 'b', at: at(16, 14, 0), auto: true, began: at(16, 14, 6), delay: 6, sinceOpen: 7200 }];
   assert.equal(startStats(tapped, days).medianDelay, 6);
+  assert.equal(startStats(tapped, days).medianSinceOpen, null); // how long the app sat open is not his start time
   assert.deepEqual(startStats([], {}), { starts: 0, days: 0, timed: 0, medianDelay: null, medianSinceOpen: null });
 });
 
@@ -513,5 +514,10 @@ test('Today is one list in time order, tasks and events together, with one next 
   assert.deepEqual(line.map((r) => r.id), ['a', 'd', 'e1', 'b', 'c']);
   assert.deepEqual(line.filter((r) => r.next).map((r) => r.id), ['d']);
   assert.equal(line[2].kind, 'event');
-  assert.equal(dayLine([{ id: 'a', start: '09:00', status: 'done' }], []).some((r) => r.next), false);
+  assert.equal(dayLine([{ id: 'a', start: '09:00', status: 'done' }], []).some((r) => r.next), false);  // the task whose time is running now goes on top, even with an earlier one still open
+  const day = [{ id: 'early', start: '10:30', minutes: 30, status: 'open' }, { id: 'rent', start: '11:00', minutes: 10, status: 'open' }];
+  assert.deepEqual(dayLine(day, [], 11 * 60 + 5).filter((r) => r.next).map((r) => r.id), ['rent']);
+  assert.deepEqual(dayLine(day, [], 11 * 60 + 15).filter((r) => r.next).map((r) => r.id), ['early']);
+  assert.deepEqual(dayLine(day, [], 9 * 60).filter((r) => r.next).map((r) => r.id), ['early']);
+  assert.equal(Object.keys(dayLine(day, [])[0]).includes('minutes'), false);
 });

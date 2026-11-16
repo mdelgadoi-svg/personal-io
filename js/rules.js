@@ -620,18 +620,19 @@ export function startStats(moments = [], days = {}, fromKey = null) {
       dayKeys.add(key);
       const delay = typeof m.delay === 'number' ? m.delay : startDelay(((days[key] || {}).times || {})[m.taskId], when(m));
       if (delay !== null) delays.push(delay);
-      if (typeof m.sinceOpen === 'number') opens.push(m.sinceOpen);
+      if (typeof m.sinceOpen === 'number' && !m.auto) opens.push(m.sinceOpen);
     });
   return { starts: seen.size, days: dayKeys.size, timed: delays.length, medianDelay: median(delays), medianSinceOpen: median(opens) };
 }
 
 // Today as one list in time order: the day's tasks and its calendar events together.
-// tasks: [{ id, start: 'HH:MM' | null, status }], events: [{ id, start: 'HH:MM', minutes, title }].
-// Things without a time come last, in the order given. An open task is "next" when it is the first
-// open one in the list: that is the one thing Today puts on top.
-export function dayLine(tasks = [], events = []) {
+// tasks: [{ id, start: 'HH:MM' | null, minutes, status }], events: [{ id, start: 'HH:MM' }].
+// Things without a time come last, in the order given. One open task is "next", the one thing Today
+// puts on top: the task whose own time is running now (now = minutes since midnight), so the card,
+// the header and the automatic start all name the same task; otherwise the first open one.
+export function dayLine(tasks = [], events = [], now = null) {
   const rows = [
-    ...tasks.map((t, i) => ({ kind: 'task', id: t.id, start: t.start || null, done: t.status === 'done', order: i })),
+    ...tasks.map((t, i) => ({ kind: 'task', id: t.id, start: t.start || null, done: t.status === 'done', order: i, minutes: t.minutes || 30 })),
     ...events.map((e, i) => ({ kind: 'event', id: e.id, start: e.start || null, done: false, order: tasks.length + i })),
   ];
   rows.sort((a, b) => {
@@ -640,8 +641,11 @@ export function dayLine(tasks = [], events = []) {
     if (b.start) return 1;
     return a.order - b.order;
   });
-  const next = rows.find((r) => r.kind === 'task' && !r.done);
-  return rows.map(({ order, ...r }) => ({ ...r, next: !!next && r.kind === 'task' && r.id === next.id }));
+  const open = rows.filter((r) => r.kind === 'task' && !r.done);
+  const running = now === null ? null
+    : [...open].reverse().find((r) => r.start && toMinutes(r.start) <= now && now < toMinutes(r.start) + r.minutes);
+  const next = running || open[0];
+  return rows.map(({ order, minutes, ...r }) => ({ ...r, next: !!next && r.kind === 'task' && r.id === next.id }));
 }
 
 // What happened on one day: what got done (wins first) and how much is still open.

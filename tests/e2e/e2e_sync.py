@@ -82,7 +82,7 @@ with sync_playwright() as p:
     pc.close()
     pc = page(comp)
     pc.add_init_script("localStorage.removeItem('personal-io:google-session')")
-    pc.goto(BASE); pc.wait_for_selector('.col-day')
+    pc.goto(BASE + '#start'); pc.wait_for_selector('.col-day')
     print('reopened at 7 PM, plan page shows:', pc.inner_text('.col-day h2'), '| rows:', pc.locator('.col-day .plan-row').count(), '|', pc.inner_text('.col-day .note-ok') if pc.locator('.col-day .note-ok').count() else 'no set note')
     print('Google event still shown after the hour:', pc.locator('#cal-plan .ev-google').count(), '| pill:', pc.inner_text('#sync-pill'))
     pc.screenshot(path='tests/e2e/out/sync_reopen.png')

@@ -1,8 +1,8 @@
 {
   "name": "Personal IO",
   "short_name": "Personal IO",
-  "description": "Goals, a few tasks a day, each at a real time. Start in one minute.",
-  "start_url": "./#start",
+  "description": "Your day, already laid out. Start in one minute.",
+  "start_url": "./#today",
   "scope": "./",
   "display": "standalone",
   "background_color": "#F3F6FD",

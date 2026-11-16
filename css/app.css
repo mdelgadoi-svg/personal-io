@@ -117,7 +117,7 @@ h2 { font-size: 20px; font-weight: 700; }
 .btn-ghost { border-color: transparent; background: transparent; }
 .btn-ghost:hover { border-color: var(--line); }
 .btn-small { min-height: 44px; padding: 6px 12px; font-size: 14px; }
-.btn-link { border: none; background: none; color: var(--primary); font-weight: 600; padding: 8px 2px; cursor: pointer; min-height: 40px; font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
+.btn-link { border: none; background: none; color: var(--primary); font-weight: 600; padding: 8px 2px; cursor: pointer; min-height: 44px; min-width: 44px; font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
 .btn-link:hover { color: var(--primary-ink); }
 .icon-btn { width: 48px; padding: 0; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -341,8 +341,8 @@ body.dragging-task .col-day { outline: 3px dashed var(--primary); outline-offset
 .pick-sel { position: absolute; left: 2px; right: 2px; background: rgb(53 88 200 / 22%); border: 2px solid var(--primary); border-radius: 8px; color: var(--ink); font-size: 12px; font-weight: 700; padding: 2px 6px; pointer-events: none; z-index: 3; }
 .starter { align-items: center; text-align: center; gap: 12px; }
 .starter .cat { display: block; margin: 0 auto; }
-.starter-text { font-size: 28px; font-weight: 700; line-height: 1.2; color: var(--ink); max-width: 22ch; text-wrap: balance; }
-.starter-task { color: var(--ink-2); font-size: 16px; }
+.starter-text { font-size: 28px; font-weight: 700; line-height: 1.2; color: var(--ink); max-width: min(22ch, 100%); text-wrap: balance; overflow-wrap: anywhere; }
+.starter-task { color: var(--ink-2); font-size: 16px; overflow-wrap: anywhere; max-width: 100%; }
 .starter-timer { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
 .starter-timer .prog { width: 100%; height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; }
 .starter-timer .prog > div { height: 100%; background: var(--primary); transition: width 1s linear; }
@@ -489,13 +489,11 @@ dialog:not(.wide) .modal-side { display: none; }
 .proposal ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .proposal li { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line-2); }
 .proposal li:first-child { border-top: none; padding-top: 0; }
-.prop-title { font-weight: 600; }
+.prop-title { font-weight: 600; overflow-wrap: anywhere; }
 .prop-why { font-size: 13px; color: var(--ink-2); }
 .prop-actions { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .prop-actions .btn-dark { flex: 1 1 auto; min-height: 52px; font-size: 16px; }
 .prop-note { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-@media (max-width: 760px) {
-}
 
 /* ---------- v2.2: Today is one thing on top, then the day in order ---------- */
 .ic-star { fill: none; stroke: var(--ink-2); flex: none; }
@@ -509,22 +507,23 @@ dialog:not(.wide) .modal-side { display: none; }
 .today-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 15px; color: var(--ink); background: var(--gold-soft); border-radius: var(--radius-ctl); padding: 8px 14px; }
 .today-quiet { background: var(--card); border-radius: var(--radius); padding: 24px 20px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
 .today-quiet p { margin: 0; font-size: 18px; font-weight: 600; }
+.today-allday { margin: 0; font-size: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
 
 /* The one dark thing on the screen. Gold is the single place to start. */
 .next { background: var(--ink); color: #fff; border-radius: 20px; padding: 14px 20px 14px; display: flex; flex-direction: column; gap: 4px; }
 .next-title { font-size: 24px; line-height: 1.2; font-weight: 700; text-wrap: balance; }
-.next-name { all: unset; cursor: pointer; display: block; padding: 8px 0; }
+.next-name { all: unset; cursor: pointer; display: block; padding: 8px 0; overflow-wrap: anywhere; }
 .next-name:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; border-radius: 8px; }
 .next .ic-star.is-on { stroke: var(--gold); }
-.next-step, .next-left { margin: 0; font-size: 16px; line-height: 1.4; color: var(--on-dark-2); }
+.next-step, .next-left { margin: 0; font-size: 16px; line-height: 1.4; color: var(--on-dark-2); overflow-wrap: anywhere; }
 .next-left { font-size: 15px; }
 .next-go { margin-top: 14px; width: 100%; min-height: 56px; font-size: 18px; font-weight: 700; background: var(--gold); border-color: var(--gold); color: var(--ink); }
 .next-go:hover { background: var(--gold-hover); border-color: var(--gold-hover); color: var(--ink); }
 .next-go:active { transform: translateY(1px); }
 .next-go:focus-visible { outline-color: #fff; }
-.next-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.next-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0 12px; min-height: 44px; }
 .next-when { font-size: 15px; color: var(--on-dark-2); font-variant-numeric: tabular-nums; }
-.next-links { display: flex; gap: 4px; }
+.next-links { display: flex; gap: 4px; margin-left: auto; }
 .next-link { background: none; border: none; color: #fff; font-size: 15px; font-weight: 600; min-height: 44px; padding: 0 10px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--on-dark-line); text-underline-offset: 4px; border-radius: 8px; }
 .next-link:hover { text-decoration-color: #fff; }
 .next-link:focus-visible { outline-color: var(--gold); }
@@ -545,7 +544,7 @@ dialog:not(.wide) .modal-side { display: none; }
 .dl-main:focus-visible, .dl-check:focus-visible, .dl-more:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; border-radius: 12px; }
 .dl-time { font-size: 15px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dl-title { font-size: 16px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
-.dl-meta { grid-column: 2; font-size: 13px; color: var(--ink-2); }
+.dl-meta { grid-column: 2; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .dl-more { width: 44px; height: 56px; background: none; border: none; padding: 0; cursor: pointer; color: var(--field); display: grid; place-items: center; }
 .dl-more:hover { color: var(--primary); }
 .dl-row.is-event .dl-title { font-weight: 400; }
@@ -567,7 +566,9 @@ dialog:not(.wide) .modal-side { display: none; }
 .cap-input:not(:placeholder-shown) ~ .cap-add { background: var(--primary); color: #fff; }
 .cap-input:not(:placeholder-shown) ~ .cap-add:hover { background: var(--primary-ink); }
 .cap-more { display: none; flex-wrap: wrap; gap: 0 4px; padding: 0 6px; }
-.capture:focus-within .cap-more, .cap-bar:has(.cap-input:not(:placeholder-shown)) + .cap-more { display: flex; }
+.capture:focus-within .cap-more { display: flex; }
+/* separate rules: a browser without :has() still shows the choices on focus */
+.cap-bar:has(.cap-input:not(:placeholder-shown)) + .cap-more, .cap-more:has(.cap-star[aria-pressed="true"]) { display: flex; }
 .cap-opt { display: inline-flex; align-items: center; gap: 6px; background: none; border: none; min-height: 44px; padding: 0 10px; border-radius: 12px; font-size: 15px; font-weight: 600; color: var(--primary-ink); cursor: pointer; }
 .cap-opt:hover { background: var(--primary-soft); }
 .cap-opt[aria-pressed="true"] { color: var(--ink); background: var(--gold-soft); }
@@ -583,6 +584,14 @@ dialog:not(.wide) .modal-side { display: none; }
   #now-pill:empty ~ .pause-btn { width: auto; padding: 0 14px; }
   #now-pill:empty ~ .pause-btn .dump-label { display: inline; }
   .brand { min-width: 44px; min-height: 44px; }
+  /* With the Now or Break pill showing, the sync pill keeps its cloud and color and drops its word, so the header fits. */
+  #now-pill:not(:empty) ~ #sync-pill .sync-word { display: none; }
+  .topbar-inner { gap: 8px; }
+  .topbar-right { min-width: 0; gap: 6px; }
+  #now-pill { min-width: 0; }
+  .topbar-right > .btn, #sync-pill { flex: none; }
+  .now-pill { min-width: 0; white-space: nowrap; overflow: hidden; }
+  .now-pill > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .bottom-nav a { min-height: 48px; justify-content: center; flex: 1 1 0; }
 }
 @media (prefers-reduced-motion: reduce) {

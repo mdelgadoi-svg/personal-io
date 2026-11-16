@@ -43,14 +43,20 @@ with sync_playwright() as p:
     pg.click('.dl-row:has-text("Pay rent") .dl-check'); pg.wait_for_timeout(200)
     assert next(t for t in data(pg)['tasks'] if t['id'] == 'b')['status'] == 'done'
     assert pg.locator('.dl-row.is-done:has-text("Pay rent")').count() == 1
-    pg.click('.dl-row:has-text("Pay rent") .dl-check'); pg.wait_for_timeout(200)
+    pg.click('.dl-row:has-text("Pay rent") .dl-check'); pg.wait_for_timeout(200)   # a double tap stays done
+    assert next(t for t in data(pg)['tasks'] if t['id'] == 'b')['status'] == 'done'
+    pg.wait_for_timeout(800); pg.click('.dl-row:has-text("Pay rent") .dl-check'); pg.wait_for_timeout(200)
     assert next(t for t in data(pg)['tasks'] if t['id'] == 'b')['status'] == 'open'
 
     # the add line: its choices show only while typing; a day in the title becomes the deadline
     assert not pg.locator('[data-action="cap-important"]').is_visible() and not pg.locator('[data-action="quick-done"]').is_visible()
     pg.fill('#cap-text', 'Call mom Friday'); assert pg.locator('[data-action="quick-done"]').is_visible()
-    pg.click('[data-action="cap-important"]'); pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(200)
+    pg.click('[data-action="cap-important"]')
+    assert pg.evaluate("document.activeElement.id") == 'cap-text', 'the cursor stays in the box after the star'
+    assert pg.input_value('#cap-text') == 'Call mom Friday'
+    pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(200)
     mom = next(t for t in data(pg)['tasks'] if t['title'] == 'Call mom'); assert mom['important'] and mom['deadline'] == '2026-11-20', mom
+    toast = pg.inner_text('#toasts'); assert 'Added to your tasks: Call mom' in toast and '🤔' not in toast, toast
     pg.keyboard.press('Escape'); pg.locator('#cap-text').blur()
 
     # a start: opening the start screen is not yet a start; "Done, I started" is, 12 minutes after 9:30 AM
@@ -69,9 +75,11 @@ with sync_playwright() as p:
     pg.keyboard.press('Escape')
 
     # the top card moves on when its task is done; with everything done the screen says so
-    pg.click('.next [data-action="complete-task"]'); pg.wait_for_timeout(200)
+    pg.wait_for_timeout(800); pg.click('.next [data-action="complete-task"]'); pg.wait_for_timeout(150)
     assert 'Pay rent' in pg.inner_text('.next')
-    for _ in range(2): pg.click('.next [data-action="complete-task"]'); pg.wait_for_timeout(200)
+    pg.click('.next [data-action="complete-task"]'); pg.wait_for_timeout(150)   # a second quick tap must not finish the next task too
+    assert next(t for t in data(pg)['tasks'] if t['id'] == 'b')['status'] == 'open' and 'Pay rent' in pg.inner_text('.next')
+    for _ in range(2): pg.wait_for_timeout(800); pg.click('.next [data-action="complete-task"]'); pg.wait_for_timeout(150)
     assert pg.locator('.next').count() == 0 and 'All done for today.' in pg.inner_text('#view')
 
     # a wide screen keeps the hour calendar beside the list; the phone header has Pause with its word
@@ -83,5 +91,33 @@ with sync_playwright() as p:
     w.goto(BASE + '#today'); w.wait_for_selector('.next'); assert w.locator('#cal-today').is_visible()
     font = w.evaluate("document.fonts.ready.then(() => [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family).join(','))")
     assert 'Figtree' in font, font
+    w.context.close()
+
+    # a pasted link as a task name wraps inside the card; the task whose time is running is the one on top;
+    # a day with only a starred meeting never says "All done"
+    odd = json.loads(json.dumps(st))
+    odd['tasks'][0]['title'] = 'https://example.com/' + 'averyveryverylongpathwithoutanyspaces' * 4
+    odd['tasks'][0]['progress'] = 'page-3-of-the-application-form-without-spaces-' * 3
+    for name, state, hour, minute in [('long', odd, 9, 42), ('running', st, 11, 5)]:
+        c = b.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
+        c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(state)))
+        x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, hour, minute)); x.on('pageerror', lambda e: errors.append(str(e)))
+        x.goto(BASE + '#today'); x.wait_for_selector('.next')
+        assert x.evaluate('document.documentElement.scrollWidth') <= 390, name + ': sideways scroll'
+        if name == 'running': assert 'Pay rent' in x.inner_text('.next'), x.inner_text('.next')
+        if name == 'long':
+            x.click('.next [data-action="start-task"]'); x.wait_for_selector('[data-form="starter"]')
+            assert x.evaluate("document.getElementById('modal').scrollWidth <= document.getElementById('modal').clientWidth + 1"), 'start window scrolls sideways'
+        c.close()
+    meet = json.loads(json.dumps(st))
+    meet['tasks'] = [dict(T('m', 'Advisor meeting', True, 30), eventRef={'src': 'own', 'id': 'e2', 'date': D}, fixedDate=D, fixedTime='15:30')]
+    meet['events'].append({"id": "e2", "title": "Advisor meeting", "date": D, "start": "15:30", "minutes": 30, "repeat": "none"})
+    meet['days'][D].update(taskIds=['m'], times={}, focus=[], proposed=['m'])
+    c = b.new_context(viewport={'width': 390, 'height': 844})
+    c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(meet)))
+    x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 11, 20)); x.on('pageerror', lambda e: errors.append(str(e)))
+    x.goto(BASE); x.wait_for_selector('.dayline')   # no address: the app opens on Today
+    v = x.inner_text('#view'); assert 'All done' not in v and v.count('Advisor meeting') == 1, v
     print('all v2.2 checks passed')
 print('PAGE ERRORS', errors)
+assert not errors, errors
