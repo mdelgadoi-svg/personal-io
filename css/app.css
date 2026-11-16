@@ -233,14 +233,14 @@ main:focus, main:focus-visible { outline: none; }
 .group-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .group-both .group-toggle { background: var(--do); color: #fff; }
 .group-both .group-toggle .mark .s, .group-both .group-toggle .mark .b { color: #fff; }
-.group-both .group-toggle .count { background: rgb(255 255 255 / 20%); }
+.group-both .group-toggle .count { background: var(--primary-ink); }
 .group-urgent .group-toggle { background: var(--do-soft); color: var(--primary-ink); box-shadow: inset 6px 0 0 var(--do); }
-.group-urgent .group-toggle .count { background: #fff; }
+.group-urgent .group-toggle .count { background: var(--card); }
 .group-important .group-toggle { background: var(--should-soft); color: var(--should); box-shadow: inset 6px 0 0 var(--should); }
 .group-important .group-toggle .mark .s { color: var(--should); }
-.group-important .group-toggle .count { background: #fff; }
+.group-important .group-toggle .count { background: var(--card); }
 .group-nice .group-toggle { background: var(--might-soft); color: var(--ink); box-shadow: inset 6px 0 0 var(--might); }
-.group-nice .group-toggle .count { background: #fff; }
+.group-nice .group-toggle .count { background: var(--card); }
 .group-toggle:hover { filter: brightness(.97); }
 .group > .item { padding: 12px 16px; border-top: 1px solid var(--line-2); display: flex; gap: 12px; align-items: center; }
 
@@ -342,7 +342,7 @@ body.dragging-task .col-day { outline: 3px dashed var(--primary); outline-offset
 .col-day.drop-over { background: var(--primary-soft); }
 .busy-card { background: var(--gold-soft); border: 2px solid var(--gold); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; color: var(--ink); }
 .busy-list { display: flex; flex-direction: column; gap: 6px; }
-.busy-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border-radius: 10px; padding: 6px 10px; }
+.busy-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--card); border-radius: 10px; padding: 6px 10px; }
 .busy-btns { display: flex; gap: 6px; }
 .side-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .side-cal-head .icon-btn { font-size: 22px; line-height: 1; }
@@ -364,7 +364,7 @@ body.dragging-task .col-day { outline: 3px dashed var(--primary); outline-offset
 /* ---------- welcome back ---------- */
 .welcome .big { font-size: 26px; font-weight: 500; }
 .welcome-box { border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
-.welcome-check { border: 2px solid var(--line); background: var(--surface, #fff); margin: 0; }
+.welcome-check { border: 1px solid var(--line); background: var(--card); margin: 0; }
 .welcome-check legend { font-weight: 500; padding: 0 4px; }
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; font-size: 15px; }
 .check-row input { width: 20px; height: 20px; accent-color: var(--primary); flex: none; }
@@ -377,7 +377,7 @@ body.dragging-task .col-day { outline: 3px dashed var(--primary); outline-offset
 .pause-list { display: flex; flex-direction: column; gap: 8px; }
 .pause-pick { justify-content: flex-start; text-align: left; min-height: 52px; font-size: 16px; }
 .pause-text { font-size: 18px; line-height: 1.45; color: var(--ink); margin: 0; }
-.break-pill { border: 0; font: inherit; cursor: pointer; background: var(--gold-soft); color: var(--ink); white-space: nowrap; }
+.break-pill { border: 1px solid var(--gold); font: inherit; cursor: pointer; background: var(--gold-soft); color: var(--ink); white-space: nowrap; }
 .break-pill:hover { color: var(--ink); }
 
 
@@ -446,7 +446,7 @@ dialog:not(.wide) .modal-side { display: none; }
 @media (hover: none) and (pointer: coarse) { .for-touch { display: inline; } .for-mouse { display: none; } }
 
 /* ---------- v1.7: tasks with their own times ---------- */
-.plan-row { display: flex; gap: 12px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.plan-row { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
 .plan-row.is-done { opacity: .6; }
 .plan-row.is-done .slot-title { text-decoration: line-through; }
 .plan-time { flex: 0 0 74px; display: flex; flex-direction: column; font-size: 14px; color: var(--ink-2); }
@@ -561,8 +561,9 @@ dialog:not(.wide) .modal-side { display: none; }
 .dl-row.is-done .dl-main { grid-column: 2 / -1; }
 
 /* One line to add anything. The choices under it appear only while he is in the box. */
-.capture { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 18px; }
-.cap-bar { display: flex; align-items: center; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 4px 4px 22px; transition: border-color .15s; }
+/* The choices sit above the field, so the phone's bottom bar never covers them. */
+.capture { display: flex; flex-direction: column-reverse; gap: 6px; margin: 4px 0 18px; }
+.cap-bar { display: flex; align-items: center; gap: 4px; background: var(--card); border: 1px solid var(--field); border-radius: 999px; padding: 4px 4px 4px 22px; transition: border-color .15s; }
 .cap-bar:focus-within { border-color: var(--primary); outline: 2px solid var(--primary); outline-offset: 1px; }
 .cap-input { flex: 1 1 auto; min-width: 0; border: none; background: none; outline: none; min-height: 48px; font-size: 16px; color: var(--ink); padding: 0; }
 .cap-input::placeholder { color: var(--ink-2); opacity: 1; }
@@ -622,12 +623,14 @@ dialog:not(.wide) .modal-side { display: none; }
 .pl-title { font-size: 16px; color: var(--ink); overflow-wrap: anywhere; }
 .pl-meta { font-size: 13px; color: var(--ink-2); }
 .pl-when { font-size: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 6px; }
-.pl-due { appearance: none; -webkit-appearance: none; font: inherit; font-size: 14px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 999px; min-height: 40px; padding: 0 16px; cursor: pointer; text-align: center; text-align-last: center; max-width: 132px; }
+.pl-due { appearance: none; -webkit-appearance: none; font: inherit; font-size: 14px; color: var(--ink); background: var(--card); border: 1px solid var(--field); border-radius: 999px; min-height: 40px; padding: 0 16px; cursor: pointer; text-align: center; text-align-last: center; max-width: 132px; }
 .pl-due:hover { border-color: var(--primary); }
 .pl-due.is-none { color: var(--ink-2); background: transparent; border-style: dashed; }
 .pl-empty { text-align: center; color: var(--ink-2); margin: 14px 0; }
 .pl-foot { text-align: center; margin-top: 26px; font-size: 14px; }
-.pl-foot a { color: var(--ink-2); display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
+.pl-foot { display: flex; justify-content: center; flex-wrap: wrap; gap: 0 18px; }
+.pl-foot-link { font: inherit; font-size: 14px; color: var(--ink-2); background: none; border: none; cursor: pointer; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; }
+.pl-foot-link:hover { color: var(--primary-ink); text-decoration-color: var(--primary); }
 
 /* The older screens breathe a little more and sit in the middle, like the rest. */
 .page-head { margin-bottom: 26px; }
@@ -646,3 +649,34 @@ dialog:not(.wide) .modal-side { display: none; }
 .plan-actions { margin-left: auto; }
 .plan-actions .btn-small, .item-actions .btn-small { padding: 6px 14px; }
 .chip-focus { color: var(--ink); background: var(--gold-soft); border: 1px solid var(--gold); }
+
+/* The header never wraps and never loses a button: it drops words, then the name, as the window narrows. */
+.topbar-inner, .topbar .btn, .tabs a, .brand-name { white-space: nowrap; }
+.tabs, .brand { flex: none; }
+.topbar-right { flex: 0 1 auto; min-width: 0; }
+.topbar-right > .btn, #sync-pill { flex: none; }
+#now-pill { min-width: 0; flex: 0 1 auto; }
+/* the task name in the Now pill gives way first: it shortens with three dots */
+.now-pill { min-width: 0; overflow: hidden; }
+.now-pill > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1280px) {
+  .now-pill .long { display: none; }
+  .brand-name { display: none; }
+  .tabs { margin: 0 auto 0 8px; }
+}
+@media (max-width: 1200px) {
+  .topbar-inner { padding: 12px 16px; gap: 10px; }
+  .topbar .dump-label { display: none; }
+  .topbar .dump-btn { width: 40px; padding: 0; }
+  .tabs { gap: 0; margin-left: 0; }
+  .tabs a { padding: 12px 9px; letter-spacing: .05em; }
+  .sync-pill .sync-word { display: none; }
+  .sync-pill { padding: 0 11px; }
+}
+@media (max-width: 900px) {
+  .topbar .btn-dark { display: none; }
+}
+@media (max-width: 760px) {
+  /* the day builder: the name gets the full row, its buttons go under it */
+  .plan-row .plan-body { flex: 1 1 100%; }
+}

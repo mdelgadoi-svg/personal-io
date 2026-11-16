@@ -658,15 +658,17 @@ export function planList(tasks = [], goals = []) {
 }
 
 // "How soon" as a few plain choices instead of a date picker. "This week" means Friday.
+// On Saturday and Sunday this week is over: the coming Friday is "Next week" and there is no later choice.
 export function dueChoices(todayKey) {
   const weekday = parseDateKey(todayKey).getDay();
+  const weekend = weekday === 0 || weekday === 6;
   const friday = addDays(todayKey, (5 - weekday + 7) % 7);
   const all = [
     { key: 'none', label: 'No date', deadline: '' },
     { key: 'today', label: 'Today', deadline: todayKey },
     { key: 'tomorrow', label: 'Tomorrow', deadline: addDays(todayKey, 1) },
-    { key: 'week', label: 'This week', deadline: friday },
-    { key: 'next', label: 'Next week', deadline: addDays(friday, 7) },
+    ...(weekend ? [{ key: 'next', label: 'Next week', deadline: friday }]
+      : [{ key: 'week', label: 'This week', deadline: friday }, { key: 'next', label: 'Next week', deadline: addDays(friday, 7) }]),
   ];
   // On Thursday and Friday "This week" would repeat Tomorrow or Today: leave it out.
   return all.filter((c, i) => all.findIndex((x) => x.deadline === c.deadline) === i);

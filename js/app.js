@@ -239,6 +239,15 @@ function render() {
   renderSyncPill();
   if (tab !== 'goals') loadGoogleAhead();
   afterRender = [];
+  const cap = document.getElementById('cap-text');
+  const typed = cap ? cap.value : '';
+  const capFocus = !!cap && document.activeElement === cap;
+  afterRender.push(() => {
+    const box = document.getElementById('cap-text');
+    if (!box || !typed) return;
+    box.value = typed;
+    if (capFocus) box.focus();
+  });
   if (tab === 'today') view.innerHTML = renderToday();
   else if (tab === 'calendar') view.innerHTML = renderCalendar();
   else if (tab === 'goals') view.innerHTML = renderGoals();
@@ -553,7 +562,9 @@ function planCalendarHTML(key) {
   return `<h2 class="pl-head">On your calendar today</h2>
   <ul class="pl-list">${items.slice(0, 12).map((c) => `<li class="pl-row">
     ${c.task
-      ? `<button type="button" class="pl-star" data-action="cal-item" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}" aria-label="Matters: ${esc(c.title)}">${ICON.star(true)}</button>`
+      ? (c.task.status === 'open'
+        ? `<button type="button" class="pl-star" data-action="cal-untrack" data-id="${c.task.id}" aria-pressed="true" aria-label="Matters: ${esc(c.title)}">${ICON.star(true)}</button>`
+        : `<button type="button" class="pl-star" data-action="cal-item" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}" aria-label="Done: ${esc(c.title)}">${ICON.star(true)}</button>`)
       : `<button type="button" class="pl-star" data-action="busy-prio" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}" aria-pressed="false" aria-label="Matters: ${esc(c.title)}">${ICON.star(false)}</button>`}
     <button type="button" class="pl-main" data-action="cal-item" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}"><span class="pl-title">${esc(c.title)}</span></button>
     <span class="pl-when">${t12(c.start)}</span>
@@ -569,7 +580,7 @@ function renderPlan() {
     ${matters.length ? list(matters) : `<p class="pl-empty">${rest.length ? 'Star the one or two things that matter most.' : 'Nothing here yet. Add the first thing above.'}</p>`}
     ${rest.length ? `<h2 class="pl-head">Everything else</h2>${list(rest)}` : ''}
     ${planCalendarHTML(todayKey())}
-    <p class="pl-foot"><a href="#start">Change today's times</a></p>
+    <p class="pl-foot"><button type="button" class="pl-foot-link" data-action="go-plan-today">Change today's times</button><a class="pl-foot-link" href="#backlog">Done and trash</a></p>
   </div>`;
 }
 
@@ -1318,7 +1329,7 @@ function renderCalendar() {
   return `
   <section class="page-head">
     <div><div class="date-line">${esc(range)}</div><h1>Calendar</h1>
-      <div class="sub">Click any event to keep it in mind (★!, !, ★) or mark it done.</div></div>
+      <div class="sub">Tap an event to star it or mark it done.</div></div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
       ${googleBar}
       <button class="btn" data-action="cal-move" data-step="${phone ? -1 : -7}" aria-label="Previous">‹</button>
@@ -2558,7 +2569,7 @@ function setImportant(id, important) {
     if (d.proposed) d.prioChanged = !samePlan(proposalFor(key), d); // only when the proposal is really different
   });
   ui.open[t.priority] = true;
-  persist([`${important ? '★ Important' : 'Not important'}: ${t.title}`]);
+  persist([`${important ? 'Starred' : 'Star removed'}: ${t.title}`]);
 }
 
 // "What's on your mind?" One line becomes a 🤔 task, or a logged win.
@@ -2583,6 +2594,7 @@ function quickCapture(alreadyDone) {
     }
     state.log.push({ at: nowIso, date: todayKey(), taskId: t.id, title: t.title, result: 'done', reason: null });
     ui.capImportant = false;
+    input.value = '';
     persist([existing ? `Marked done: ${t.title}` : `Logged as done: ${t.title}`]);
   } else {
     if (existing) { input.setAttribute('aria-invalid', 'true'); toast(`"${existing.title}" is already in your list.`); return; }
@@ -2594,6 +2606,7 @@ function quickCapture(alreadyDone) {
     state.tasks.push(t);
     ui.open[t.priority] = true;
     ui.capImportant = false;
+    input.value = '';
     persist([`Added to your tasks: ${said.title}${said.deadline ? `, due ${fmtDay(said.deadline)}` : ''}.`]);
   }
   document.getElementById('cap-text')?.focus();
@@ -2933,7 +2946,7 @@ const actions = {
     catch { toast('Copy did not work. Select the link and copy it.'); }
   },
   'plan-day': (el) => { ui.planDay = el.dataset.day; render(); },
-  'go-plan-today': () => { ui.planDay = 'today'; location.hash = '#start'; },
+  'go-plan-today': () => { ui.planDay = 'today'; if (location.hash === '#start') render(); else location.hash = '#start'; },
   'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; if (location.hash === '#start') render(); else location.hash = '#start'; },
   'filter-goal': (el) => { ui.goalFilter = ui.goalFilter === el.dataset.id ? null : el.dataset.id; render(); },
   'clear-filter': () => { ui.goalFilter = null; render(); },
@@ -3015,6 +3028,8 @@ const actions = {
     if (e) openModal(eventFormHTML(e));
   },
   'cal-untrack': (el) => {
+    if (performance.now() - (ui.starTap || -1000) < 700) return;
+    ui.starTap = performance.now();
     const id = el.dataset.id;
     state.tasks = state.tasks.filter((t) => t.id !== id);
     Object.values(state.days).forEach((d) => { d.taskIds = d.taskIds.filter((x) => x !== id); });
@@ -3198,7 +3213,12 @@ const actions = {
     persist([getDay(key).set ? 'Plan updated. Tap "Update Google Calendar" when you are ready.' : 'Plan updated.']);
   },
   'keep-plan': (el) => { getDay(el.dataset.day).prioChanged = false; persist(); },
-  'toggle-important': (el) => { const t = task(el.dataset.id); if (t) setImportant(t.id, !R.isImportant(t)); },
+  'toggle-important': (el) => {
+    if (performance.now() - (ui.starTap || -1000) < 700) return;
+    ui.starTap = performance.now();
+    const t = task(el.dataset.id);
+    if (t) setImportant(t.id, !R.isImportant(t));
+  },
   'cap-important': (el) => { ui.capImportant = !ui.capImportant; el.setAttribute('aria-pressed', String(ui.capImportant)); el.querySelector('.ic-star')?.classList.toggle('is-on', ui.capImportant); document.getElementById('cap-text')?.focus(); },
   'goal-up': (el) => {
     // Swap with the goal above it, skipping "Keep life running" (always last).
@@ -3296,7 +3316,11 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.change === 'plan-due') {
     const t = task(el.dataset.id);
     if (!t || el.value === 'keep') return;
-    if (el.value === 'pick') { openModal(taskFormHTML(t, {}), true); refreshSideCalendar(); return; }
+    if (el.value === 'pick') {
+      const now = R.dueKey(t.deadline, todayKey());
+      el.value = now === 'date' ? 'keep' : now; // the pill shows the real value again if he closes the form
+      openModal(taskFormHTML(t, {}), true); refreshSideCalendar(); return;
+    }
     const choice = R.dueChoices(todayKey()).find((c) => c.key === el.value);
     if (!choice) return;
     t.deadline = choice.deadline;
@@ -3305,8 +3329,8 @@ document.addEventListener('change', async (e) => {
     Object.entries(state.days).forEach(([key, d]) => {
       if (key >= todayKey() && d.taskIds.length && d.proposed) d.prioChanged = !samePlan(proposalFor(key), d);
     });
-    el.blur(); // so the list can redraw in its new order
     persist();
+    document.getElementById(`due-${t.id}`)?.focus(); // the row may have moved: stay on it
     return;
   }
   if (el.dataset.change === 'plan-length') {

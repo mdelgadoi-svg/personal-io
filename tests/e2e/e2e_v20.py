@@ -85,7 +85,7 @@ with sync_playwright() as p:
             pg.goto(BASE + '#today'); pg.wait_for_timeout(400)
             print('Justin in proposal at 3:00 PM:', 'Meeting with Justin' in pg.inner_text('.proposal') and '3:00 PM' in pg.inner_text('.proposal'))
             pg.goto(BASE + '#plan'); pg.click('.pl-row:has-text("Justin") .pl-main'); pg.wait_for_timeout(200)  # the meeting, from the Plan list
-            pg.click('[data-action="cal-untrack"]'); pg.wait_for_timeout(300)
+            pg.click('#modal [data-action="cal-untrack"]'); pg.wait_for_timeout(300)
             print('unstarred Justin left the list:', not any('Justin' in t['title'] for t in data(pg)['tasks'] if t['status'] == 'open'))
             # goal order: move "Get a job" above "Do good in school"
             pg.goto(BASE + '#goals'); pg.wait_for_timeout(200)

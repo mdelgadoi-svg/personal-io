@@ -545,7 +545,8 @@ test('how soon: a few plain choices; This week is Friday and never repeats anoth
   assert.deepEqual(mon.map((c) => [c.key, c.deadline]), [['none', ''], ['today', '2026-11-16'], ['tomorrow', '2026-11-17'], ['week', '2026-11-20'], ['next', '2026-11-27']]);
   assert.deepEqual(dueChoices('2026-11-19').map((c) => c.key), ['none', 'today', 'tomorrow', 'next']); // Thursday: Friday is tomorrow
   assert.deepEqual(dueChoices('2026-11-20').map((c) => c.key), ['none', 'today', 'tomorrow', 'next']); // Friday
-  assert.equal(dueChoices('2026-11-21').find((c) => c.key === 'week').deadline, '2026-11-27');           // Saturday: the coming Friday
+  assert.deepEqual(dueChoices('2026-11-21').map((c) => [c.key, c.label, c.deadline]).slice(3), [['next', 'Next week', '2026-11-27']]); // Saturday: this week is over
+  assert.deepEqual(dueChoices('2026-11-22').map((c) => c.key), ['none', 'today', 'tomorrow', 'next']);        // Sunday
   assert.equal(dueKey('', '2026-11-16'), 'none');
   assert.equal(dueKey('2026-11-10', '2026-11-16'), 'today'); // late counts as today, no red word
   assert.equal(dueKey('2026-11-20', '2026-11-16'), 'week');

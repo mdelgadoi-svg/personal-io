@@ -34,10 +34,14 @@ with sync_playwright() as p:
     assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == 'Plan'
 
     # one star: it moves up; the star again: it moves back
+    pg.fill('#cap-text', 'half typed')   # what he typed must survive the taps below
     pg.click('.pl-row:has-text("Read the report") .pl-star'); pg.wait_for_timeout(200)
     assert task(pg, 'c')['important'] is True and 'Read the report' in titles(pg, 0)
-    pg.click('.pl-row:has-text("Read the report") .pl-star'); pg.wait_for_timeout(200)
+    pg.click('.pl-star >> nth=1'); pg.wait_for_timeout(200)   # a double tap: whatever slid under the finger stays as it was
+    assert [t['important'] for t in data(pg)['tasks']] == [True, False, True, False], data(pg)['tasks']
+    pg.wait_for_timeout(800); pg.click('.pl-row:has-text("Read the report") .pl-star'); pg.wait_for_timeout(200)
     assert task(pg, 'c')['important'] is False and 'Read the report' in titles(pg, 1)
+    assert pg.input_value('#cap-text') == 'half typed'; pg.fill('#cap-text', '')
 
     # how soon: plain choices set the deadline and the order follows
     assert pg.locator('#due-d').evaluate('e => e.options[e.selectedIndex].text') == 'Dec 9'
@@ -46,6 +50,7 @@ with sync_playwright() as p:
     pg.select_option('#due-c', 'week'); pg.wait_for_timeout(200); assert task(pg, 'c')['deadline'] == '2026-11-20'
     pg.select_option('#due-b', 'none'); pg.wait_for_timeout(200); assert task(pg, 'b')['deadline'] == '' and titles(pg, 1)[-1] == 'Pay rent', titles(pg, 1)
     pg.select_option('#due-d', 'pick'); pg.wait_for_selector('form[data-form="task"]'); pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    assert pg.locator('#due-d').evaluate('e => e.options[e.selectedIndex].text') == 'Dec 9', 'the pill shows the real date again'
 
     # adding from Plan shows the new thing at once; a meeting on the calendar can be starred here
     pg.fill('#cap-text', 'Buy stamps tomorrow'); pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(200)
@@ -55,15 +60,18 @@ with sync_playwright() as p:
     pg.click('.pl-row:has-text("Class") .pl-star'); pg.wait_for_timeout(300)
     assert any(t.get('eventRef') and t['title'] == 'Class' and t['important'] for t in data(pg)['tasks']), 'the starred class is kept'
     assert 'Class' not in titles(pg, 0) + titles(pg, 1), 'a meeting stays on the calendar part of the list'
+    pg.wait_for_timeout(800); pg.click('.pl-row:has-text("Class") .pl-star'); pg.wait_for_timeout(300)   # the same star takes it away
+    assert not any(t.get('eventRef') for t in data(pg)['tasks'])
 
     # every control on Plan is big enough for a thumb
     small = pg.evaluate("[...document.querySelectorAll('#view button, #view a, #view select, #view input')].filter(e => e.offsetParent && (e.getBoundingClientRect().height < 40 || e.getBoundingClientRect().width < 40)).map(e => e.className + ' ' + (e.textContent || '').trim().slice(0, 20))")
     assert not small, small
 
     # the day builder and the old full list are still there, behind Plan
-    pg.click('.pl-foot a'); pg.wait_for_selector('.col-day')
+    pg.click('.pl-foot [data-action="go-plan-today"]'); pg.wait_for_selector('.col-day')
+    name = pg.locator('.col-day .slot-title').first.bounding_box() if pg.locator('.col-day .slot-title').count() else None
     assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == 'Plan'
-    pg.goto(BASE + '#backlog'); pg.wait_for_selector('.col-backlog, .group')
+    pg.goto(BASE + '#plan'); pg.click('.pl-foot a[href="#backlog"]'); pg.wait_for_selector('.group')
     assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == 'Plan'
     pg.context.close()
 
@@ -78,6 +86,20 @@ with sync_playwright() as p:
     assert float(r.replace('px', '')) >= 22 and use.bounding_box()['width'] < 240, (r, use.bounding_box())
     assert w.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(241, 238, 230)'
     font = w.evaluate("document.fonts.ready.then(() => [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family).join(','))"); assert 'Roboto' in font, font
+    # the header keeps every button in reach at any window width, with the Now pill and the sync pill showing
+    busy = json.loads(json.dumps(st))
+    busy['days'][D] = {"taskIds": ["a"], "times": {"a": "08:30"}, "slots": 3, "set": True, "reviewed": {}, "googleIds": [], "plan": {"blocks": [{"start": "08:30", "minutes": 60, "taskIds": ["a"], "color": "blue"}], "events": [], "needsTime": [], "didNotFit": []}}
+    for width in [761, 800, 960, 1100, 1201, 1281, 1366]:
+        c = b.new_context(viewport={'width': width, 'height': 700})
+        c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);localStorage.setItem('personal-io:bridge', JSON.stringify({url:'https://script.google.com/macros/s/X/exec', key:'k'}));sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(busy)))
+        x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 9, 0)); x.route('https://script.google.com/**', lambda r: r.fulfill(status=500, body='no'))
+        x.goto(BASE + '#today'); x.wait_for_timeout(1500)
+        if x.locator('dialog[open]').count(): x.keyboard.press('Escape')
+        assert x.inner_text('#now-pill') and x.inner_text('#sync-pill') is not None
+        right = x.evaluate("Math.max(...[...document.querySelectorAll('.topbar a, .topbar button')].filter(e => e.offsetParent).map(e => e.getBoundingClientRect().right))")
+        tall = x.evaluate("document.querySelector('.topbar').getBoundingClientRect().height")
+        assert right <= width and tall < 80, (width, right, tall)
+        c.close()
     print('all v2.3 checks passed')
 print('PAGE ERRORS', errors)
 assert not errors, errors
