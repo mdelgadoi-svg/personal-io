@@ -24,8 +24,8 @@ with sync_playwright() as p:
     pg.goto(BASE + '#today'); pg.wait_for_selector('.next')
 
     # one thing on top, its start button on the first screen, and the whole page close to one screen
-    card = pg.inner_text('.next'); assert 'Send application' in card and 'Open the draft' in card and 'Start 1 minute' in card, card
-    go = pg.locator('.next [data-action="start-task"]').bounding_box(); assert go['y'] + go['height'] < 500 and go['height'] >= 48, go
+    card = pg.inner_text('.next'); assert 'Send application' in card and 'Open the draft' in card and 'start 1 minute' in card.lower(), card
+    go = pg.locator('.next [data-action="start-task"]').bounding_box(); assert go['y'] + go['height'] < 500 and go['height'] >= 44 and go['width'] < 260, go  # a small button in its place, not a full-width one
     assert pg.evaluate('document.documentElement.scrollWidth') <= 390, 'no sideways scroll'
     words = len(pg.inner_text('#view').split()); assert words <= 60, f'{words} words on Today'
     assert pg.locator('#view button:visible, #view a:visible, #view input:visible').count() <= 14
@@ -82,15 +82,16 @@ with sync_playwright() as p:
     for _ in range(2): pg.wait_for_timeout(800); pg.click('.next [data-action="complete-task"]'); pg.wait_for_timeout(150)
     assert pg.locator('.next').count() == 0 and 'All done for today.' in pg.inner_text('#view')
 
-    # a wide screen keeps the hour calendar beside the list; the phone header has Pause with its word
-    assert not pg.locator('#cal-today').is_visible() and 'Pause' in pg.inner_text('.pause-btn')
-    assert pg.locator('.bottom-nav a').count() == 5 and pg.locator('.bottom-nav [data-action="new-task"]').count() == 0
+    # the phone header has Pause with its word; a computer shows the same Today, centered
+    assert pg.locator('#cal-today').count() == 0 and 'Pause' in pg.inner_text('.pause-btn')   # the hour calendar has its own tab
+    assert pg.locator('.bottom-nav a').count() == 4 and pg.locator('.bottom-nav [data-action="new-task"]').count() == 0
     wide = b.new_context(viewport={'width': 1400, 'height': 900})
     wide.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(st)))
     w = wide.new_page(); w.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 9, 42)); w.on('pageerror', lambda e: errors.append(str(e)))
-    w.goto(BASE + '#today'); w.wait_for_selector('.next'); assert w.locator('#cal-today').is_visible()
+    w.goto(BASE + '#today'); w.wait_for_selector('.next')
+    band = w.locator('.next').bounding_box(); assert band['width'] >= 1380 and w.evaluate('document.documentElement.scrollWidth') <= 1400, band  # the green band runs edge to edge on a computer
     font = w.evaluate("document.fonts.ready.then(() => [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family).join(','))")
-    assert 'Figtree' in font, font
+    assert 'Roboto' in font, font
     w.context.close()
 
     # a pasted link as a task name wraps inside the card; the task whose time is running is the one on top;

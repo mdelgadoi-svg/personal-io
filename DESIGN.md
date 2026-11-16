@@ -1,67 +1,66 @@
 ---
 name: Personal IO
-description: A private day planner for a person with ADHD. The day is already made; one small step starts it.
+description: A calm place for the day. It looks like a printed invitation, and one small step starts the work.
 colors:
-  ground: "#F3F6FD"
-  card: "#FFFFFF"
-  ink: "#18243B"
-  ink-2: "#526079"
-  line: "#DCE3EF"
-  line-2: "#E9EEF7"
-  field: "#687DA8"
-  primary: "#3558C8"
-  primary-ink: "#24409E"
-  primary-soft: "#EAF0FF"
-  gold: "#F4C95D"
-  gold-soft: "#FFF6D9"
-  success: "#216E52"
-  success-soft: "#EAF6EF"
-  error: "#B42318"
-  error-soft: "#FDECEA"
-  on-dark-2: "#D5DDEC"
-  on-dark-line: "#8A9AB8"
-  gold-hover: "#FFDA7A"
+  ground: "#F1EEE6"
+  card: "#FBF9F4"
+  ink: "#33372F"
+  ink-2: "#63675B"
+  line: "#DDD8CB"
+  line-2: "#E8E3D8"
+  field: "#85887A"
+  primary: "#55624A"
+  primary-ink: "#434E3A"
+  primary-soft: "#E6E8DC"
+  band: "#5F6A4F"
+  on-band: "#FBF9F4"
+  on-band-2: "#E4E6D8"
+  on-band-line: "#A9B19A"
+  gold: "#E3C77A"
+  gold-soft: "#F6EFD9"
+  gold-cream: "#F0DDA8"
+  success: "#4B6B4F"
+  success-soft: "#E4EBDF"
+  clay: "#8A4034"
+  error: "#9A3B2E"
+  error-soft: "#F6E5E0"
 typography:
   headline:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
+    fontSize: "30px"
+    fontWeight: 400
+    lineHeight: 1.25
+  band-title:
+    fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
     fontSize: "28px"
-    fontWeight: 700
+    fontWeight: 400
     lineHeight: 1.25
   title:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
     fontSize: "20px"
-    fontWeight: 700
+    fontWeight: 500
     lineHeight: 1.25
   body:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
     fontSize: "16px"
     fontWeight: 400
-    lineHeight: 1.45
-  lead:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "18px"
-    fontWeight: 700
-    lineHeight: 1.3
-  card-title:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "24px"
-    fontWeight: 700
-    lineHeight: 1.2
+    lineHeight: 1.55
   label:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "15px"
-    fontWeight: 600
-    lineHeight: 1.45
+    fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: "0.09em"
   meta:
-    fontFamily: "Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
     fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.45
 rounded:
   sm: "8px"
   ctl: "12px"
-  card: "16px"
-  dialog: "20px"
+  card: "14px"
+  dialog: "18px"
   pill: "999px"
 spacing:
   xs: "6px"
@@ -69,215 +68,189 @@ spacing:
   md: "12px"
   lg: "16px"
   xl: "20px"
+  band: "44px"
 components:
   button:
-    backgroundColor: "{colors.card}"
+    backgroundColor: "transparent"
     textColor: "{colors.ink}"
-    rounded: "{rounded.ctl}"
-    padding: "10px 16px"
-    height: "48px"
+    rounded: "{rounded.pill}"
+    padding: "8px 20px"
+    height: "44px"
   button-primary:
     backgroundColor: "{colors.primary}"
-    textColor: "{colors.card}"
-    rounded: "{rounded.ctl}"
-    padding: "10px 16px"
-    height: "48px"
+    textColor: "{colors.on-band}"
+    rounded: "{rounded.pill}"
+    padding: "8px 20px"
+    height: "44px"
   button-primary-hover:
     backgroundColor: "{colors.primary-ink}"
-  button-success:
-    backgroundColor: "{colors.success}"
-    textColor: "{colors.card}"
-    rounded: "{rounded.ctl}"
+  button-start:
+    backgroundColor: "{colors.on-band}"
+    textColor: "{colors.primary-ink}"
+    rounded: "{rounded.pill}"
+    padding: "0 26px"
+    height: "44px"
+  button-start-hover:
+    backgroundColor: "{colors.gold-cream}"
+  band:
+    backgroundColor: "{colors.band}"
+    textColor: "{colors.on-band}"
+    padding: "44px 24px 30px"
+  add-line:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.pill}"
+    height: "54px"
+  due-pill:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.pill}"
+    height: "40px"
+  card:
+    backgroundColor: "{colors.card}"
+    rounded: "{rounded.card}"
+    padding: "16px 18px"
   input:
     backgroundColor: "{colors.card}"
     textColor: "{colors.ink}"
     rounded: "{rounded.ctl}"
     padding: "12px 14px"
     height: "52px"
-  card:
-    backgroundColor: "{colors.card}"
-    rounded: "{rounded.card}"
-    padding: "16px 18px"
-  chip:
-    backgroundColor: "{colors.line-2}"
-    textColor: "{colors.ink-2}"
-    rounded: "{rounded.pill}"
-    padding: "3px 10px"
-  next-card:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.card}"
-    rounded: "{rounded.dialog}"
-    padding: "14px 20px"
-  button-start:
-    backgroundColor: "{colors.gold}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.ctl}"
-    height: "56px"
-  button-start-hover:
-    backgroundColor: "{colors.gold-hover}"
-  add-line:
-    backgroundColor: "{colors.card}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.card}"
-    height: "56px"
 ---
 
 # Design System: Personal IO
 
-Recorded Nov 16, 2026 from `css/app.css` and the running app at phone width, then updated the same day for v2.2 (the new Today, the add line, the Figtree typeface). The colors come from Marcelo's own design file. He confirms or corrects the wording in the pull request. Screens not yet redone (Plan, Tasks, Goals, Calendar, Settings, the task form) still carry older sizes, chips and symbols; bring each one to this file when it is next touched.
+Rewritten Nov 16, 2026 for v2.3. Marcelo sent the wedding invitation his fiancee made and said: "I feel really calm when I see it." This look comes from that page: its colors, its air, its flow. He did not want its typefaces, so the type is plain Roboto. He confirms or corrects this file in the pull request.
 
 ## Overview
 
-**Creative North Star: "The day is already laid out"**
+**Creative North Star: "A printed invitation"**
 
-Personal IO should feel like a desk someone tidied for you before you sat down. The day is there, in order, and one thing is on top. The person using it arrives anxious and short on attention, so the screen has to be read in one look and has to offer one obvious thing to do. Nothing on it counts what was missed.
+Personal IO should feel like a card someone made with care and left on your desk. Warm paper, one soft green, a little gold. Things sit in the middle of the page with room around them. Nothing shouts, nothing counts what was missed, and each screen asks for one small thing.
 
-The look is cool and plain: a pale blue-grey ground, white surfaces, navy ink, one blue that means "you can tap this", and one gold that marks the single place to start. Shapes are soft and controls are large, because the phone is the main device and a thumb is the pointer.
+The person using it arrives anxious and short on attention. Calm is the feature: few words, thin lines instead of boxes, small buttons that sit where the eye already is.
 
 **Key Characteristics:**
-- One primary action per screen. On Today it is the gold "Start 1 minute" on the navy card; elsewhere it is solid blue. Everything else is quieter.
-- Words are few and plain. Labels beat explanations.
-- Large touch targets (48px buttons, 52px inputs).
-- Flat surfaces. Depth is saved for windows that open over the page.
-- No symbol code on Today: one drawn gold star for what matters, plain words for the rest.
+- Warm paper ground, sage green for anything you can tap, soft gold for what matters.
+- One green band per screen at most, edge to edge, like a section of the invitation. It holds the next thing to do.
+- Content sits in a centered column (640px) on a phone and on a computer alike.
+- Small pill buttons. No full-width buttons.
+- Light type weights (400 and 500). Small labels and the tabs are capitals with wide spacing.
 - Times are always 12-hour with AM/PM.
 
 ## Colors
 
-A cool, low-saturation base with one working blue and one warm gold.
+Paper, sage and a little gold, taken from the invitation.
 
 ### Primary
-- **Working Blue** (`primary`): the one solid fill for the main action on a screen, the current tab, and links. Blue means "tap here".
-- **Deep Working Blue** (`primary-ink`): hover and pressed state of the blue, and blue text on a pale blue fill.
-- **Pale Blue** (`primary-soft`): a selected or highlighted area that is not itself a button.
+- **Sage** (`primary`, hover `primary-ink`): every control you can tap, links, the current choice, headings on paper.
+- **Band Green** (`band`): the one filled band on Today, and the Now pill in the header.
 
 ### Secondary
-- **Start Gold** (`gold`, hover `gold-hover`) and **Pale Gold** (`gold-soft`): the one place to start (the Start button on the navy card), the star on a task that matters, the break pill. Gold never carries text by itself on white.
+- **Soft Gold** (`gold`, `gold-soft`): the star on what matters, a gentle highlight.
+- **Gold Cream** (`gold-cream`): the heading on the green band only.
 
 ### Tertiary
-- **Done Green** (`success`, `success-soft`): finished things and "I already did it". Never a call to action for new work.
-- **Alert Red** (`error`, `error-soft`): form errors, the "now" line on the calendar, and the "!" due-soon mark. Never used to say something was not done.
+- **Terracotta** (`clay`, and `error` for form errors): the "now" line on the calendar and error text. Used very little. Never to say something was not done.
+- **Done Green** (`success`, `success-soft`): the filled check of a finished task.
 
 ### Neutral
-- **Cool Ground** (`ground`): the page.
-- **Surface White** (`card`): cards, inputs, the bars, windows.
-- **Navy Ink** (`ink`): all main text, and the fill of the one navy card on Today. On navy, secondary text is `on-dark-2` and quiet lines are `on-dark-line`.
-- **Slate Ink** (`ink-2`): secondary text, meta lines, idle nav items.
-- **Field Slate** (`field`): the 2px outline of inputs and plain buttons.
-- **Hairline** (`line`, `line-2`): card borders and row dividers.
+- **Paper** (`ground`): the page, the header and the bottom bar.
+- **Sheet** (`card`): cards, the add line, windows.
+- **Ink** (`ink`) and **Soft Ink** (`ink-2`): text and secondary text.
+- **Hairlines** (`line`, `line-2`) and **Field** (`field`): dividers, and the outline of buttons and inputs.
+- On the band: `on-band` for text and the Start button, `on-band-2` for quiet text, `on-band-line` for outlines.
 
 ### Named Rules
-**The One Blue Rule.** One solid blue button per screen. A second action is an outline or a text link.
+**The One Band Rule.** At most one green band on a screen, and it holds the next thing to do. Everything else is paper.
 
-**The One Navy Card Rule.** Only the next thing to do sits on navy, with the gold button. Nothing else on a screen is dark.
-
-**The No Red Guilt Rule.** Red marks errors and time, never a task that was not done. The words are "Not yet".
+**The No Red Guilt Rule.** Terracotta marks time and form errors, never a task that was not done. The words are "Not yet".
 
 ## Typography
 
-**Display Font:** Figtree (with system-ui, -apple-system, Segoe UI)
-**Body Font:** Figtree (same stack)
+**Display Font:** Roboto (with system-ui, -apple-system, Segoe UI, Arial)
+**Body Font:** Roboto (same stack)
 
-**Character:** One friendly, round sans family for everything. The file ships with the app (`fonts/figtree.woff2`, one variable file, SIL Open Font License), so it works offline and nothing is fetched from another site. Hierarchy comes from size and weight.
+**Character:** One plain, familiar sans, which is what he asked for. The file ships with the app (`fonts/roboto.woff2`, one variable file, SIL Open Font License), so it looks the same on the phone and the computer and nothing is fetched from another site. Calm comes from light weights and air, not from a fancy face.
 
 ### Hierarchy
-- **Headline** (700, 28px, 24px on phones, 1.25): the page name on screens that have one.
-- **Card title** (700, 24px, 1.2): the task on the navy card.
-- **Title** (700, 20px, 1.25): section and card headings, window titles.
-- **Lead** (700, 18px): the Start button, the short line of a quiet state.
-- **Body** (400, 16px, 1.45): task names are 16px at weight 600.
-- **Label** (600, 15px): buttons, times in the day list, the choices under the add line.
-- **Meta** (400, 13px): lengths and status words under a task name.
-- **Nav** (600, 11px): bottom bar labels and calendar hours.
+- **Headline** (400, 30px, 26px on phones): the page name, in deep sage, centered on the new screens.
+- **Band title** (400, 28px, 24px on phones): the task on the green band, in gold cream.
+- **Title** (500, 20px): headings of older sections and windows.
+- **Body** (400, 16px, line height 1.55).
+- **Label** (400, 13px, capitals, 0.09em spacing): the tabs, the date on Today, small section heads, the two buttons on the band.
+- **Meta** (400, 13px): lengths, times, status words.
 
 ### Named Rules
-**The Six Sizes Rule.** New work uses 13, 15, 16, 18, 20, 24 and 28px only. Older screens still use more; fix them as they are redone.
+**The Light Hand Rule.** Weights are 400 and 500. Nothing is bold.
 
-**The No Shouting Rule.** No uppercase labels with letter spacing above a heading. The heading speaks for itself.
+**The Capitals Are Small Rule.** Capitals with wide spacing are only for labels of 13px or less. Never for a sentence.
 
 ## Layout
 
-One column on phones (breakpoint 760px), with 16px side padding and a fixed bottom bar. On a computer the page is up to 1400px wide and older screens split into 2 or 3 flexible columns (`.cols`) with a 20px gap. The header is sticky.
+One centered column, 640px at most, on every screen size. On a phone the side padding is 16px and there is a fixed bottom bar with four items: Today, Plan, Calendar, Goals. On a computer the same four are in the header, centered, as spaced capitals with a thin line under the current one, like the head of the invitation.
 
-Today is one column, 560px at most, in this order: the date, the navy card with the next thing, the rest of the day as rows in time order (tasks and calendar events together), the add line. From 980px wide the hour calendar sits beside it. With three tasks the whole of Today fits one phone screen in about 40 words.
+Today, top to bottom: the date as a small label, the green band (edge to edge, text centered), the rest of the day as rows, the add line. Plan: the title, the add line, what matters, everything else, today's calendar. Sections are separated by space and hairlines, not by boxes.
 
-The bottom bar holds five items: Today, Plan, Calendar, Goals, Tasks.
+Older screens (the day builder, Goals, Calendar, Settings, the task form) still use their wider layouts with cards. They carry the new colors, type and buttons.
 
 ## Elevation & Depth
 
-Flat by default. Cards are white on the cool ground with a 1px hairline border and no shadow. Depth appears only when something floats.
+Flat. Depth appears only when something floats over the page.
 
 ### Shadow Vocabulary
-- **Window** (`box-shadow: 0 20px 48px rgb(24 36 59 / 25%)`): the dialog, over a 40% navy backdrop.
+- **Window** (`box-shadow: 0 20px 48px rgb(51 55 47 / 22%)`): the dialog, over a 35% ink backdrop.
 - **Toast** (`box-shadow: 0 8px 24px rgb(0 0 0 / 20%)`): messages above the bottom bar.
-- **Dragging** (`box-shadow: 0 10px 24px rgb(24 36 59 / 18%)`): a row while it is dragged.
 
 ## Shapes
 
-Soft rectangles. Small focus shapes are 8px, controls 12px, cards and the add line 16px, windows and the navy card 20px. Chips and goal pills are full pills. Plain buttons and inputs carry a 1px slate outline. Rows in the Today list have no box at all: a hairline between them on the page ground. Older priority groups on Plan still use a 6px colored bar on the left edge; do not add new ones.
+Buttons, the add line and the "how soon" choice are full pills with a 1px outline. Cards are 14px, windows 18px, inputs 12px. The band has square corners and runs edge to edge. The logo is a thin circle with the letters IO inside.
 
 ## Components
 
 ### Buttons
-- **Shape:** soft rectangle (12px), 48px tall, 15px text at weight 600.
-- **Primary:** solid Working Blue with white text (`.btn-dark`). Hover goes to Deep Working Blue.
-- **Plain:** white with a 1px slate outline. Hover turns the outline blue.
-- **Start:** solid Start Gold with navy text, 56px tall, full width, only on the navy card.
-- **Success:** solid Done Green, used for "I already did it".
-- **Small:** 44px tall, 14px text, used inside rows.
-- **Link:** blue underlined text, 40px tall.
-- **Focus:** 3px blue outline, 3px away from the control.
+- **Shape:** pill, 44px tall, 15px text at weight 400, 1px outline in `field`. They are as wide as their words, never full width.
+- **Primary:** filled Sage with paper text. One per screen.
+- **On the band:** "Start 1 minute" is a paper pill with sage text; "Done" is an outline pill. Both use the small spaced capitals.
+- **Link:** sage text with a thin underline.
+- **Focus:** a 2px sage outline, 3px away (gold cream on the band).
 
-### Chips
-- **Style:** full pill, 13px text at weight 600, pale fill. Used on older screens only. Today has no chips.
-
-### Cards / Containers
-- **Corner Style:** 16px.
-- **Background:** white on the cool ground.
-- **Shadow Strategy:** none; see Elevation.
-- **Border:** 1px hairline on older cards. The proposal card and quiet states on Today are plain white with no border.
-- **Internal Padding:** 16px by 18px; list rows 12px by 16px.
-
-### Inputs / Fields
-- **Style:** white, 1px slate outline, 12px corners, 52px tall, 16px text.
-- **Focus:** blue border plus a 3px blue outline.
-- **Error:** red border; messages in a pale red box with a red border.
-
-### Navigation
-- **Phone:** fixed bottom bar, icon above an 11px label, slate when idle and blue at weight 800 when current.
-- **Computer:** text tabs in the header; the current tab is a solid blue pill.
-- **Header:** the IO mark, the Now or Break pill, the sync pill, then Pause (with its word when there is room) and Settings. On a computer, Talk it out and Add task are there too.
-
-### Next card (signature)
-- The one navy surface. The task name (24px), its first small step in `on-dark-2`, the full-width gold "Start 1 minute", then a quiet foot: time and length on the left, "Done" as an underlined link on the right.
+### The band (signature)
+- Band Green, edge to edge, text centered: the task in gold cream, its first small step, the two pills, then the time and length in a quiet line.
 
 ### Day list
-- One row per task or calendar event, in time order. A task row is a round check on the left (tap for done, tap again to undo), then the time, the name and a 13px meta line; tapping the name starts it; three dots open it. A calendar event row has a small slate dot and regular weight. Done rows are struck through in slate.
+- One row per task or calendar event, in time order, hairlines between. A round check on the left (tap for done, tap again to undo), the time, the name, a meta line. Tapping the name starts it; three dots open it. Events have a small dot and no check.
+
+### Plan list
+- One row per task: a star (tap to say it matters), the name, and a "how soon" pill with plain choices (No date, Today, Tomorrow, This week, Next week, Pick a date). Starred rows are on top; the app orders the rest.
 
 ### Add line
-- One white field, 16px corners, with a mic and a send button inside. The send button turns blue once there is text. Three text choices appear under it only while he is in the box: Important (a star that fills gold), I already did it, Talk it out.
+- One pill-shaped field with a mic and a round send button. The send button turns sage once there is text. Three text choices appear under it only while he is in the box.
+
+### Cards and inputs (older screens)
+- Cards are sheets (`card`) with a faint hairline. Inputs are 52px tall with a 1px outline and 12px corners.
+
+### Navigation
+- **Phone:** bottom bar on paper, icon above an 11px label, sage when current.
+- **Computer:** spaced capitals in the header, a thin line under the current one.
 
 ### Marks
-- On Today: a drawn star, outlined in navy and filled gold, before the name of a task that matters. No other symbols.
-- On older screens priority still shows as text marks: ★! (important and due soon), ★ (important), ! (due soon, in red), 🤔 (later). Replace them with the drawn star when those screens are redone.
-
-### Start screen
-- A centered window: the cat, the first step in 28px at weight 700, the task name in slate, a quiet one minute bar with no counting number, and one large blue button.
+- A drawn star, filled soft gold, for what matters. Older screens still show text symbols (★!, !, 🤔); replace them when those screens are redone.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep one solid blue button per screen, and one gold button on the navy card.
+- **Do** keep content in the centered 640px column on new screens.
+- **Do** keep buttons small pills, as wide as their words.
+- **Do** use one green band at most per screen.
 - **Do** draw icons as SVG in one stroke weight.
-- **Do** keep touch targets at 44px or more, 48px for main buttons.
-- **Do** write times as 12-hour with AM/PM.
-- **Do** say "Not yet" for unfinished work.
-- **Do** check every screen at 390px wide first.
+- **Do** write times as 12-hour with AM/PM, and say "Not yet" for unfinished work.
+- **Do** check every screen at 390px and at 1366px.
 
 ### Don't:
+- **Don't** use bold type, full-width buttons, or boxes inside boxes.
 - **Don't** use red, counts or lists to show what was missed.
 - **Don't** add streaks, points or scores.
-- **Don't** put a card inside a card.
-- **Don't** add uppercase labels above headings, colored side stripes, pill chips or text symbols to new work.
+- **Don't** add pill chips, colored side stripes or text symbols to new work.
 - **Don't** use em dashes in any text.
 - **Don't** add a framework or a build step; the app is plain HTML, CSS and JavaScript.

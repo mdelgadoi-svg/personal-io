@@ -521,3 +521,34 @@ test('Today is one list in time order, tasks and events together, with one next 
   assert.deepEqual(dayLine(day, [], 9 * 60).filter((r) => r.next).map((r) => r.id), ['early']);
   assert.equal(Object.keys(dayLine(day, [])[0]).includes('minutes'), false);
 });
+
+// ---------- v2.3: Plan is what matters and how soon ----------
+
+test('the Plan list: starred on top, the rest below, both ranked, no meetings', async () => {
+  const { planList } = await import('../js/rules.js');
+  const tasks = [
+    task({ id: 'later', title: 'Later', priority: 'nice', important: false, deadline: '' }),
+    task({ id: 'soon', title: 'Soon', priority: 'urgent', important: false, deadline: today }),
+    task({ id: 'big', title: 'Big', priority: 'important', important: true, deadline: '' }),
+    task({ id: 'now', title: 'Now', priority: 'both', important: true, deadline: today }),
+    task({ id: 'meet', title: 'Meeting', priority: 'both', important: true, deadline: today, eventRef: { src: 'own', id: 'e', date: today } }),
+    task({ id: 'done', title: 'Done', priority: 'both', important: true, status: 'done' }),
+  ];
+  const p = planList(tasks, []);
+  assert.deepEqual(p.matters.map((t) => t.id), ['now', 'big']);
+  assert.deepEqual(p.rest.map((t) => t.id), ['soon', 'later']);
+});
+
+test('how soon: a few plain choices; This week is Friday and never repeats another choice', async () => {
+  const { dueChoices, dueKey } = await import('../js/rules.js');
+  const mon = dueChoices('2026-11-16'); // a Monday
+  assert.deepEqual(mon.map((c) => [c.key, c.deadline]), [['none', ''], ['today', '2026-11-16'], ['tomorrow', '2026-11-17'], ['week', '2026-11-20'], ['next', '2026-11-27']]);
+  assert.deepEqual(dueChoices('2026-11-19').map((c) => c.key), ['none', 'today', 'tomorrow', 'next']); // Thursday: Friday is tomorrow
+  assert.deepEqual(dueChoices('2026-11-20').map((c) => c.key), ['none', 'today', 'tomorrow', 'next']); // Friday
+  assert.equal(dueChoices('2026-11-21').find((c) => c.key === 'week').deadline, '2026-11-27');           // Saturday: the coming Friday
+  assert.equal(dueKey('', '2026-11-16'), 'none');
+  assert.equal(dueKey('2026-11-10', '2026-11-16'), 'today'); // late counts as today, no red word
+  assert.equal(dueKey('2026-11-20', '2026-11-16'), 'week');
+  assert.equal(dueKey('2026-11-27', '2026-11-16'), 'next');
+  assert.equal(dueKey('2026-12-09', '2026-11-16'), 'date');
+});

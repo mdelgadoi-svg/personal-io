@@ -229,9 +229,12 @@ function render() {
   relevel();
   if (state.days[todayKey()]) ensureTimes(todayKey());
   const tab = currentTab();
+  // The day builder (#start) and the old full list (#backlog) sit behind Plan now.
+  const shown = tab === 'start' || tab === 'backlog' ? 'plan' : tab;
   document.querySelectorAll('[data-tab]').forEach((a) => {
-    if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    if (a.dataset.tab === shown) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+  document.body.dataset.tab = tab;
   renderNowPill();
   renderSyncPill();
   if (tab !== 'goals') loadGoogleAhead();
@@ -240,6 +243,7 @@ function render() {
   else if (tab === 'calendar') view.innerHTML = renderCalendar();
   else if (tab === 'goals') view.innerHTML = renderGoals();
   else if (tab === 'backlog') view.innerHTML = renderBacklog();
+  else if (tab === 'plan') view.innerHTML = renderPlan();
   else view.innerHTML = renderStart();
   afterRender.forEach((fn) => fn());
 }
@@ -276,9 +280,9 @@ function inkOn(hex) {
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   };
   const bg = lum(hex);
-  const navy = (bg + 0.05) / (lum('#18243B') + 0.05);
+  const navy = (bg + 0.05) / (lum('#33372F') + 0.05);
   const white = 1.05 / (bg + 0.05);
-  return navy >= white ? '#18243B' : '#FFFFFF';
+  return navy >= white ? '#33372F' : '#FFFFFF';
 }
 
 function hoursHTML({ startHour = 7, endHour = 23, px = 56 } = {}) {
@@ -512,7 +516,64 @@ function captureHTML() {
   </section>`;
 }
 
-// ----- start page (plan) -----
+// ----- Plan: what matters, and how soon. The app builds the day from this. -----
+
+function dueWord(deadline) {
+  const d = R.daysUntil(deadline, todayKey());
+  return fmtDay(deadline, d >= 0 && d < 7 ? { weekday: 'long' } : { month: 'short', day: 'numeric' });
+}
+
+function mattersRowHTML(t) {
+  const key = todayKey();
+  const day = state.days[key];
+  const at = day && day.taskIds.includes(t.id) ? timeOn(t, key) : null;
+  const inToday = !!(day && day.taskIds.includes(t.id));
+  const current = R.dueKey(t.deadline, key);
+  const options = [
+    ...R.dueChoices(key).map((c) => `<option value="${c.key}"${c.key === current ? ' selected' : ''}>${c.label}</option>`),
+    current === 'date' ? `<option value="keep" selected>${esc(dueWord(t.deadline))}</option>` : '',
+    '<option value="pick">Pick a date</option>',
+  ].join('');
+  const on = R.isImportant(t);
+  return `<li class="pl-row">
+    <button type="button" class="pl-star" data-action="toggle-important" data-id="${t.id}" aria-pressed="${on}" aria-label="Matters: ${esc(t.title)}">${ICON.star(on)}</button>
+    <button type="button" class="pl-main" data-action="edit-task" data-id="${t.id}">
+      <span class="pl-title">${esc(t.title)}</span>
+      ${inToday ? `<span class="pl-meta">Today${at ? ` at ${t12(at)}` : ''}</span>` : ''}
+    </button>
+    <label class="visually-hidden" for="due-${t.id}">How soon: ${esc(t.title)}</label>
+    <select class="pl-due${current === 'none' ? ' is-none' : ''}" id="due-${t.id}" data-change="plan-due" data-id="${t.id}">${options}</select>
+  </li>`;
+}
+
+// Today's calendar as things that can matter: one star turns a meeting into something the day keeps.
+function planCalendarHTML(key) {
+  const items = calendarItems(key).filter((c) => (c.task && c.task.status === 'open') || R.toMinutes(c.start) + (c.minutes || 0) > nowMinutes());
+  if (!items.length) return '';
+  return `<h2 class="pl-head">On your calendar today</h2>
+  <ul class="pl-list">${items.slice(0, 12).map((c) => `<li class="pl-row">
+    ${c.task
+      ? `<button type="button" class="pl-star" data-action="cal-item" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}" aria-label="Matters: ${esc(c.title)}">${ICON.star(true)}</button>`
+      : `<button type="button" class="pl-star" data-action="busy-prio" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}" aria-pressed="false" aria-label="Matters: ${esc(c.title)}">${ICON.star(false)}</button>`}
+    <button type="button" class="pl-main" data-action="cal-item" data-src="${esc(c.src)}" data-id="${esc(c.id)}" data-date="${key}"><span class="pl-title">${esc(c.title)}</span></button>
+    <span class="pl-when">${t12(c.start)}</span>
+  </li>`).join('')}</ul>`;
+}
+
+function renderPlan() {
+  const { matters, rest } = R.planList(state.tasks, state.goals);
+  const list = (tasks) => `<ul class="pl-list">${tasks.map(mattersRowHTML).join('')}</ul>`;
+  return `<div class="plan">
+    <h1 class="plan-title">What matters</h1>
+    ${captureHTML()}
+    ${matters.length ? list(matters) : `<p class="pl-empty">${rest.length ? 'Star the one or two things that matter most.' : 'Nothing here yet. Add the first thing above.'}</p>`}
+    ${rest.length ? `<h2 class="pl-head">Everything else</h2>${list(rest)}` : ''}
+    ${planCalendarHTML(todayKey())}
+    <p class="pl-foot"><a href="#start">Change today's times</a></p>
+  </div>`;
+}
+
+// ----- the day builder (behind Plan: "Change today's times") -----
 
 function renderStart() {
   const hour = new Date().getHours();
@@ -910,7 +971,7 @@ function proposalHTML(dayKey) {
   return `<section class="proposal" aria-label="Proposal for ${word}">
     <h2>${title}</h2>
     <ol>${[...p.focus, ...p.calendar, ...p.also].map(row).join('')}</ol>
-    <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn-link" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
+    <div class="prop-actions"><button class="btn btn-dark" data-action="accept-proposal" data-day="${dayKey}">Use this plan</button><button class="btn" data-action="change-proposal" data-day="${dayKey}">Change</button></div>
   </section>`;
 }
 
@@ -1025,13 +1086,13 @@ function nextCardHTML(t, key) {
     <h2 class="next-title"><button type="button" class="next-name" data-action="edit-task" data-id="${t.id}">${starMark(t)}${esc(t.title)}</button></h2>
     <p class="next-step">${esc(firstMinute(t))}</p>
     ${t.progress ? `<p class="next-left">Left off: ${esc(t.progress)}</p>` : ''}
-    <button type="button" class="btn next-go" data-action="start-task" data-id="${t.id}" data-from="next">Start 1 minute</button>
+    <div class="next-actions">
+      <button type="button" class="next-go" data-action="start-task" data-id="${t.id}" data-from="next">Start 1 minute</button>
+      <button type="button" class="next-done" data-action="complete-task" data-id="${t.id}">Done</button>
+    </div>
     <div class="next-foot">
       <span class="next-when">${when}</span>
-      <span class="next-links">
-        ${askHow ? `<button type="button" class="next-link" data-action="review" data-block="${index}">How did it go?</button>` : ''}
-        <button type="button" class="next-link" data-action="complete-task" data-id="${t.id}">Done</button>
-      </span>
+      ${askHow ? `<button type="button" class="next-link" data-action="review" data-block="${index}">How did it go?</button>` : ''}
     </div>
   </section>`;
 }
@@ -1053,8 +1114,7 @@ function renderToday() {
   const key = todayKey();
   if (state.days[key]) ensureTimes(key);
   const day = state.days[key];
-  const calendar = `<aside class="today-cal card card-pad" aria-label="Calendar">${calendarBlockHTML('cal-today', key, { nowLine: true, px: 40 })}</aside>`;
-  const page = (main) => `<div class="today"><div class="today-main"><h1 class="today-date">${esc(longDay(key))}</h1>${main}</div>${calendar}</div>`;
+  const page = (main) => `<div class="today"><h1 class="today-date">${esc(longDay(key))}</h1>${main}</div>`;
   const listHTML = (rows) => `${allDayHTML(key)}${rows.length ? `<ul class="dayline" id="day-list">${rows.map((r) => dayRowHTML(r, key)).join('')}</ul>` : ''}`;
 
   const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
@@ -1526,17 +1586,17 @@ function starterPicture(mood) {
 function catSVG(mood) {
   const mouth = mood === 'happy' ? 'M84 130 q8 12 16 0 q8 12 16 0' : 'M86 132 q14 10 28 0';
   const blush = '<ellipse cx="52" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/><ellipse cx="148" cy="122" rx="10" ry="6" fill="#F4A9B8" opacity=".7"/>';
-  const eye = (cx) => `<ellipse cx="${cx}" cy="96" rx="21" ry="25" fill="#18243B"/><circle cx="${cx + 7}" cy="85" r="8" fill="#fff"/><circle cx="${cx - 7}" cy="106" r="4" fill="#fff"/>`;
+  const eye = (cx) => `<ellipse cx="${cx}" cy="96" rx="21" ry="25" fill="#33372F"/><circle cx="${cx + 7}" cy="85" r="8" fill="#fff"/><circle cx="${cx - 7}" cy="106" r="4" fill="#fff"/>`;
   const label = mood === 'happy' ? 'The cat is happy' : 'A calm cat, here with you';
   return `<svg class="cat" viewBox="0 0 200 180" width="170" height="153" role="img" aria-label="${label}">
-    <path d="M42 74 L50 16 L86 50 Z" fill="#C3CCDD" stroke="#18243B" stroke-width="4" stroke-linejoin="round"/>
-    <path d="M158 74 L150 16 L114 50 Z" fill="#C3CCDD" stroke="#18243B" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M42 74 L50 16 L86 50 Z" fill="#DDD9CE" stroke="#33372F" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M158 74 L150 16 L114 50 Z" fill="#DDD9CE" stroke="#33372F" stroke-width="4" stroke-linejoin="round"/>
     <path d="M52 56 L54 30 L72 48 Z M148 56 L146 30 L128 48 Z" fill="#F4A9B8"/>
-    <ellipse cx="100" cy="104" rx="72" ry="62" fill="#C3CCDD" stroke="#18243B" stroke-width="4"/>
+    <ellipse cx="100" cy="104" rx="72" ry="62" fill="#DDD9CE" stroke="#33372F" stroke-width="4"/>
     ${eye(70)}${eye(130)}${blush}
-    <path d="M94 120 l6 6 l6 -6 z" fill="#E58FA0" stroke="#18243B" stroke-width="2" stroke-linejoin="round"/>
-    <path d="${mouth}" fill="none" stroke="#18243B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M30 118 l30 4 M28 132 l32 -2 M170 118 l-30 4 M172 132 l-32 -2" stroke="#18243B" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M94 120 l6 6 l6 -6 z" fill="#E58FA0" stroke="#33372F" stroke-width="2" stroke-linejoin="round"/>
+    <path d="${mouth}" fill="none" stroke="#33372F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M30 118 l30 4 M28 132 l32 -2 M170 118 l-30 4 M172 132 l-32 -2" stroke="#33372F" stroke-width="2.5" stroke-linecap="round"/>
   </svg>`;
 }
 
@@ -3233,6 +3293,22 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', async (e) => {
   const el = e.target;
+  if (el.dataset.change === 'plan-due') {
+    const t = task(el.dataset.id);
+    if (!t || el.value === 'keep') return;
+    if (el.value === 'pick') { openModal(taskFormHTML(t, {}), true); refreshSideCalendar(); return; }
+    const choice = R.dueChoices(todayKey()).find((c) => c.key === el.value);
+    if (!choice) return;
+    t.deadline = choice.deadline;
+    t.lastTouchedAt = new Date().toISOString();
+    Object.assign(t, R.levelFields(t, todayKey(), S()));
+    Object.entries(state.days).forEach(([key, d]) => {
+      if (key >= todayKey() && d.taskIds.length && d.proposed) d.prioChanged = !samePlan(proposalFor(key), d);
+    });
+    el.blur(); // so the list can redraw in its new order
+    persist();
+    return;
+  }
   if (el.dataset.change === 'plan-length') {
     const key = el.closest('.slots').dataset.day;
     const t = task(el.dataset.id);

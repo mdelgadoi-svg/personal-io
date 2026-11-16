@@ -648,6 +648,38 @@ export function dayLine(tasks = [], events = [], now = null) {
   return rows.map(({ order, minutes, ...r }) => ({ ...r, next: !!next && r.kind === 'task' && r.id === next.id }));
 }
 
+// ---------- Plan: not a day to build, only what matters and how soon ----------
+
+// One list for the Plan page: matters = starred, rest = everything else, both in the order the app
+// would do them (rankTasks). Starred meetings are left out: they live on the calendar.
+export function planList(tasks = [], goals = []) {
+  const ranked = rankTasks((tasks || []).filter((t) => t.status === 'open' && !t.eventRef), goals);
+  return { matters: ranked.filter((t) => isImportant(t)), rest: ranked.filter((t) => !isImportant(t)) };
+}
+
+// "How soon" as a few plain choices instead of a date picker. "This week" means Friday.
+export function dueChoices(todayKey) {
+  const weekday = parseDateKey(todayKey).getDay();
+  const friday = addDays(todayKey, (5 - weekday + 7) % 7);
+  const all = [
+    { key: 'none', label: 'No date', deadline: '' },
+    { key: 'today', label: 'Today', deadline: todayKey },
+    { key: 'tomorrow', label: 'Tomorrow', deadline: addDays(todayKey, 1) },
+    { key: 'week', label: 'This week', deadline: friday },
+    { key: 'next', label: 'Next week', deadline: addDays(friday, 7) },
+  ];
+  // On Thursday and Friday "This week" would repeat Tomorrow or Today: leave it out.
+  return all.filter((c, i) => all.findIndex((x) => x.deadline === c.deadline) === i);
+}
+
+// Which of those choices a task's deadline is. A past deadline counts as today. Any other day is 'date'.
+export function dueKey(deadline, todayKey) {
+  if (!deadline) return 'none';
+  if (deadline <= todayKey) return 'today';
+  const hit = dueChoices(todayKey).find((c) => c.deadline === deadline);
+  return hit ? hit.key : 'date';
+}
+
 // What happened on one day: what got done (wins first) and how much is still open.
 export function daySummary(dateKey, { days = {}, log = [], tasks = [] } = {}) {
   const planned = ((days[dateKey] && days[dateKey].taskIds) || []).map((id) => tasks.find((t) => t.id === id)).filter(Boolean);
