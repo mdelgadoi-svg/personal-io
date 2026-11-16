@@ -56,6 +56,18 @@ Core method (enforced in `js/rules.js`):
 | `tests/rules.test.js` | Unit tests for `rules.js` |
 | `tests/e2e/` | Browser checks (Python Playwright) |
 | `.claude/agents/personal-io-reviewer.md` | Independent reviewer agent |
+| `.claude/skills/impeccable/` | Impeccable design skill (see Design work) |
+| `PRODUCT.md` | Product context the design skill reads: users, purpose, voice, principles |
+
+## Design work (Impeccable)
+
+- The Impeccable design skill (github.com/pbakaus/impeccable, Apache 2.0, skill v4.9.2) was copied by hand into `.claude/skills/impeccable/` on Nov 15, 2026. To update it, copy the newer `.claude/skills/impeccable/` folder from that repo over this one.
+- Use it for any visual or UX change. Useful commands: `/impeccable critique`, `audit`, `polish`, `distill`, `quieter`, `adapt` (phone layout), `document` (record the current look in DESIGN.md).
+- It reads `PRODUCT.md` for product context. `DESIGN.md` does not exist yet: run `/impeccable document` to record the current look before any redesign.
+- Its first run downloads a small helper program. If that is blocked, it reads PRODUCT.md directly.
+- The app stays plain HTML, CSS and JavaScript: no React, no framework, no build step. Logic stays in `rules.js`.
+- Phone first: check every screen at phone width before reporting.
+- The voice rules and the working agreement above still win over anything the skill suggests.
 
 
 ## Data
