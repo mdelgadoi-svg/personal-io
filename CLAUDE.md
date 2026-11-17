@@ -2,6 +2,8 @@
 
 Read this first in every session. It is the project's working memory.
 
+**Current plan:** `PLAN.md` (Nov 17, 2026): three sections (Procrastination, Today's Planning, Life Planning), the Follower agent first, then the Today and 90-day agents. Read it before building.
+
 ## The person and how to work with him
 
 - Owner: Marcelo (GitHub `mdelgadoi-svg`). It is his personal planner, built around how he starts and finishes work. He does not write code; he describes changes and reviews the result in the app.
@@ -89,6 +91,7 @@ Core method (enforced in `js/rules.js`):
 | `.claude/agents/personal-io-reviewer.md` | Independent reviewer agent |
 | `.claude/skills/impeccable/` | Impeccable design skill (see Design work) |
 | `PRODUCT.md` | Product context the design skill reads: users, purpose, voice, principles |
+| `PLAN.md` | The current plan: the three sections, the Follower, the phases and what gets measured |
 
 ## Design work (Impeccable)
 
