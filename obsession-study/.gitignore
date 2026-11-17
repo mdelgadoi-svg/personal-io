@@ -1,0 +1,11 @@
+# Raw data stays on your machine, not on GitHub (this repository is public).
+# companies.xlsx comes from PitchBook, which does not allow republishing.
+data/*.xlsx
+data/transcripts/*
+!data/transcripts/README.md
+papers/*.pdf
+# API outputs and caches (Phase 3)
+outputs/
+.cache/
+__pycache__/
+.env
