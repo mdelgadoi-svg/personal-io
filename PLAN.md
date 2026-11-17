@@ -14,7 +14,7 @@ People with ADHD will procrastinate. Give that time a calm place inside the app 
 | **Today's Planning** | Today (the next thing, the day's list, the day's calendar) and the "What matters" list (what is now the Plan tab). |
 | **Life Planning** | The 90-day plan with his triangle (strengths, what you love, context), the scorecard, and Goals. |
 
-The tab names are his: "Procrastination", "Today's Planning", "Life Planning". The app still opens on Today's Planning. Calendar stops being its own tab (the day's calendar is already on Today; the week view can sit behind a link).
+The tab names are his: "Procrastination", "Today's Planning", "Life Planning". The app still opens on Today's Planning. The Calendar tab stays (he wants the week view to see what is coming and move things).
 
 ## The Follower: the most important agent
 
@@ -26,12 +26,14 @@ One agent, always in the loop, across all three sections. Version 1 is plain rul
 - In planning: minutes planning without starting anything.
 - From Today: the next task and its time, and whether a task was started.
 
-**What it does** (one short line at a time, kind, always ending in one action; never blocks)
-- **Play time:** at about 10, 25 and 45 minutes of play in a day, shown between games (never in the middle of one). In his words: "Good game, happy you are having a great time. Remember that [next task] is important. Want to plan when to play, or is there anything more?" Buttons: Start 1 minute (the next task), Plan my play (puts a play block in today's plan), Keep playing.
-- **Streaks:** after 3 wins in a row, or 2 losses in a row, it suggests this is a good place to stop.
-- **Lowering the level as play grows:** the more he has played that day, the calmer the next game: a weaker and slower computer player, shorter games (for Sudoku, a smaller or easier grid), and "New game" sits under today's next task instead of on top. (To confirm with him: this is my reading of "decreasing the levels or the type of players".)
+**What it does** (his correction, Nov 17: it does not tell him to go away; it changes how the game plays)
+- **It sets the level. He never picks one.**
+  - **Tight** (a meeting or a planned task starts within 45 minutes, or a planned task's time has begun and it is still open, or tasks are due today with no plan yet, or he already played 30 minutes today): the chess opponent is strong, so a game ends fast; Sudoku is a quick small grid. Losing twice quickly, he will want to leave by himself.
+  - **Free** (nothing close): the chess opponent is easy and Sudoku is a full grid, so he stays here instead of going to Instagram or TikTok. Two wins in a row make the opponent a bit stronger, three make it strong, so a winning streak does not pull him in for hours.
+- **After every game** the next task is on the screen with "Start 1 minute". "Play again" is there, smaller. Nothing blocks.
+- **One kind line, only when it is a lot:** at 25 and 45 minutes of play in a day, between games, in his words: "Good game, happy you are having a good time. Remember that [next task] matters today. Want to plan when to play?" Buttons: Start 1 minute, Plan my play (a break with an end), Keep playing.
 - **Over-planning:** after about 10 minutes in Today's Planning, or about 20 in Life Planning, without starting anything: "You have planned enough. Start the first thing?"
-- **Coming back:** leaving a game always lands on Today's next thing first.
+- **Few tokens:** version 1 uses none (plain rules). It also keeps a short summary of the day and week (`R.followerSummary`), small enough to hand to an AI later for a few hundred tokens.
 
 **What it logs** (in `moments`, synced, for the self-test)
 - Each session: section, minutes, games, results.
@@ -39,12 +41,12 @@ One agent, always in the loop, across all three sections. Version 1 is plain rul
 
 ## Phases
 
-### Phase A: Procrastination + the Follower (next)
-- The three sections in the header and bottom bar.
+### Phase A: Procrastination + the Follower (built in v2.4, Nov 17; in his hands for a week of use)
+- The three sections in the header and bottom bar, plus Calendar.
 - **Chess** against a simple computer player with a few levels. No clock, no rating, a natural end. Rules from an open-license library copied into the repo as plain files (for example chess.js, BSD license, credited); the board and the computer player are our own small code.
 - **Sudoku** with its own small generator (no outside code needed), easy to medium grids.
 - **The Follower v1** as above, all rules in `rules.js` with unit tests.
-- Done when: he can play both games on phone and computer, the nudges appear at the right moments and never mid-game, the level drops as play grows, and the numbers below are logged.
+- Done when: he can play both games on phone and computer, the level follows his day (strong when something is close, easy when he is free), the next task is there after every game, and the numbers below are logged.
 
 ### Phase B: Today's Planning agent
 - The day builds itself on the first open of the day and is written to Google Calendar without a tap, inside hours he sets once.

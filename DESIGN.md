@@ -188,7 +188,7 @@ Paper, sage and a little gold, taken from the invitation.
 
 ## Layout
 
-One centered column, 640px at most, on every screen size. On a phone the side padding is 16px and there is a fixed bottom bar with four items: Today, Plan, Calendar, Goals. On a computer the same four are in the header, centered, as spaced capitals with a thin line under the current one, like the head of the invitation.
+One centered column, 640px at most, on every screen size (560px for the games). On a phone the side padding is 16px and there is a fixed bottom bar with four items: Procrastination, Today's Planning, Life Planning, Calendar. On a computer the same four are in the header, centered, as spaced capitals with a thin line under the current one, like the head of the invitation. Today's Planning has two screens (Today, What matters) with a small pill switch on top of both.
 
 Today, top to bottom: the date as a small label, the green band (edge to edge, text centered), the rest of the day as rows, the add line. Plan: the title, the add line, what matters, everything else, today's calendar. Sections are separated by space and hairlines, not by boxes.
 
@@ -223,6 +223,11 @@ Buttons, the add line and the "how soon" choice are full pills with a 1px outlin
 
 ### Plan list
 - One row per task: a star (tap to say it matters), the name, and a "how soon" pill with plain choices (No date, Today, Tomorrow, This week, Next week, Pick a date). Starred rows are on top; the app orders the rest.
+
+### Chess board and Sudoku grid
+- **Board:** paper squares and soft sage squares (`#F7F4EC`, `#BFC8AE`), a thin `field` outline, 6px corners, the standard drawn pieces. The chosen piece and the last move sit on a wash of Soft Gold; where a piece can go shows a small ink dot (a ring on a capture); a king in check has a terracotta outline. On a computer the board never needs scrolling.
+- **Sudoku:** a sheet with hairlines, thicker Soft Ink lines between the boxes, given numbers at weight 500 on a slightly darker paper, his numbers in deep sage, a repeated number in the error color, the chosen cell in pale gold. Round number buttons under it.
+- **After a game:** the result as a quiet heading, then the next task on a sheet with the one filled button, then outline pills.
 
 ### Add line
 - One pill-shaped field with a mic and a round send button. The send button turns sage once there is text. Three text choices appear under it only while he is in the box.

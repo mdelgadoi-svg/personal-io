@@ -682,6 +682,122 @@ export function dueKey(deadline, todayKey) {
   return hit ? hit.key : 'date';
 }
 
+// ---------- the Follower: one agent that watches the whole day (plain rules, no AI) ----------
+// It only sees what happens in the app: play, planning, and whether work starts.
+// It does not tell him to go away. It changes how the game plays.
+
+export const FOLLOW = {
+  soonMinutes: 45,    // a meeting or planned task this close makes play "tight"
+  muchPlay: 30,       // minutes of play in a day after which play is "tight"
+  lineAt: [25, 45],   // minutes of play at which one kind line appears, between games
+  planLimit: 10,      // minutes in Today's Planning without a start
+  lifeLimit: 20,      // minutes in Life Planning without a start
+  sessionGap: 5,      // minutes between two games that still count as one sitting
+  convertMinutes: 10, // a start this soon after play counts as "play turned into work"
+};
+
+// How the next game should feel. tight: something is close, or it has been a lot. free: nothing is close.
+// nowMin and nextStartMin are minutes since midnight; nextStartMin is the next meeting or planned task today.
+// lateOpen: a planned task's time has begun and it is still open. dueNoPlan: tasks due today and no plan yet.
+export function playMode({ nowMin = 0, nextStartMin = null, lateOpen = false, dueNoPlan = false, playedMin = 0 } = {}, f = FOLLOW) {
+  if (nextStartMin !== null && nextStartMin >= nowMin && nextStartMin - nowMin <= f.soonMinutes) return { mode: 'tight', why: 'soon' };
+  if (lateOpen) return { mode: 'tight', why: 'late' };
+  if (dueNoPlan) return { mode: 'tight', why: 'due' };
+  if (playedMin >= f.muchPlay) return { mode: 'tight', why: 'much' };
+  return { mode: 'free', why: 'free' };
+}
+
+// How many of the last games in a row ended the same way. results: oldest first, 'win' | 'loss' | other.
+export function streak(results = [], kind = 'win') {
+  let n = 0;
+  for (let i = results.length - 1; i >= 0 && results[i] === kind; i -= 1) n += 1;
+  return n;
+}
+
+// The chess opponent. He never picks it. Tight: strong, so a game ends fast.
+// Free: easy, so he stays here; wins in a row make it stronger so a winning streak does not pull him in.
+export function chessLevel(mode, results = []) {
+  if (mode === 'tight') return 'strong';
+  const wins = streak(results, 'win');
+  return wins >= 3 ? 'strong' : wins >= 2 ? 'even' : 'easy';
+}
+
+// Sudoku: a quick small grid when it is tight, a full one when he is free.
+export function sudokuSize(mode) { return mode === 'tight' ? 6 : 9; }
+
+// One game's minutes (never more than an hour, so a game left open overnight does not count as play).
+function gameMinutes(m, nowMs) {
+  const end = m.endAt ? Date.parse(m.endAt) : nowMs;
+  return Math.max(0, Math.min(60, (end - Date.parse(m.at)) / 60000));
+}
+
+// Minutes played on one day (local day), including a game still going.
+export function playMinutes(moments = [], dayKey, nowMs = Date.now()) {
+  return Math.round((moments || []).filter((m) => m.kind === 'play' && m.at && toDateKey(new Date(m.at)) === dayKey)
+    .reduce((sum, m) => sum + gameMinutes(m, nowMs), 0));
+}
+
+// The results of today's finished games of one kind, oldest first.
+export function playResults(moments = [], dayKey, game = 'chess') {
+  return (moments || []).filter((m) => m.kind === 'play' && m.game === game && m.endAt && toDateKey(new Date(m.at)) === dayKey)
+    .sort((a, b) => (a.at < b.at ? -1 : 1)).map((m) => m.result);
+}
+
+// The one kind line, only when it is a lot: at 25 and 45 minutes of play in a day, each once a day.
+// said: the marks already shown today (from the saved nudges). Returns the mark to show now, or null.
+export function playLine(playedMin, said = [], f = FOLLOW) {
+  const due = f.lineAt.filter((m) => playedMin >= m && !said.includes(`play${m}`));
+  return due.length ? `play${due[due.length - 1]}` : null;
+}
+
+// Over-planning: minutes in a planning section without starting anything. Each once per sitting.
+export function planLine(section, minutes, f = FOLLOW) {
+  if (section === 'today' && minutes >= f.planLimit) return 'plan';
+  if (section === 'life' && minutes >= f.lifeLimit) return 'life';
+  return null;
+}
+
+// The numbers for the play test. A sitting is a run of games less than 5 minutes apart.
+// It "turned into work" when a task was really started (began) within 10 minutes after its last game.
+export function playStats(moments = [], fromKey = null, f = FOLLOW) {
+  const games = (moments || []).filter((m) => m.kind === 'play' && m.at && m.endAt && (!fromKey || toDateKey(new Date(m.at)) >= fromKey))
+    .sort((a, b) => (a.at < b.at ? -1 : 1));
+  const starts = (moments || []).filter((m) => m.kind === 'start' && (m.began || (!m.v && !m.auto))).map((m) => Date.parse(m.began || m.at));
+  const sittings = [];
+  games.forEach((g) => {
+    const last = sittings[sittings.length - 1];
+    if (last && Date.parse(g.at) - last.end <= f.sessionGap * 60000) { last.end = Date.parse(g.endAt); last.games += 1; }
+    else sittings.push({ end: Date.parse(g.endAt), games: 1 });
+  });
+  const turned = sittings.filter((s) => starts.some((t) => t >= s.end && t - s.end <= f.convertMinutes * 60000)).length;
+  const days = new Set(games.map((g) => toDateKey(new Date(g.at))));
+  const minutes = Math.round(games.reduce((sum, g) => sum + gameMinutes(g, Date.parse(g.endAt)), 0));
+  return {
+    games: games.length, sittings: sittings.length, days: days.size, minutes,
+    perDay: days.size ? Math.round(minutes / days.size) : 0,
+    turned, share: sittings.length ? Math.round((turned / sittings.length) * 100) : null,
+  };
+}
+
+// The Follower's memory in a few lines: small enough to hand to an AI later for a few hundred tokens.
+export function followerSummary({ moments = [], days = {}, todayKey, nowMs = Date.now() } = {}) {
+  const from = addDays(todayKey, -6);
+  const p = playStats(moments, from);
+  const s = startStats(moments, days, from);
+  const nudges = (moments || []).filter((m) => m.kind === 'nudge' && m.at && toDateKey(new Date(m.at)) >= from);
+  const did = (k) => nudges.filter((n) => n.did === k).length;
+  const visits = (moments || []).filter((m) => m.kind === 'visit' && m.at && toDateKey(new Date(m.at)) >= from);
+  const spent = (sec) => Math.round(visits.filter((v) => v.section === sec).reduce((sum, v) => sum + (v.minutes || 0), 0));
+  return [
+    `Last 7 days, up to ${todayKey}.`,
+    `Play: ${p.minutes} min in ${p.games} games on ${p.days} days (${playMinutes(moments, todayKey, nowMs)} min today).`,
+    `After play: ${p.share === null ? 'no sittings yet' : `${p.turned} of ${p.sittings} sittings were followed by a task start within 10 min (${p.share}%)`}.`,
+    `Starts: ${s.starts} on ${s.days} days${s.medianDelay === null ? '' : `, usually ${s.medianDelay} min after the planned time`}.`,
+    `Planning time: ${spent('today')} min in Today's Planning, ${spent('life')} min in Life Planning.`,
+    `Follower lines shown: ${nudges.length} (started a task ${did('start')}, planned play ${did('plan')}, kept going ${did('keep')}, no answer ${nudges.filter((n) => !n.did).length}).`,
+  ].join('\n');
+}
+
 // What happened on one day: what got done (wins first) and how much is still open.
 export function daySummary(dateKey, { days = {}, log = [], tasks = [] } = {}) {
   const planned = ((days[dateKey] && days[dateKey].taskIds) || []).map((id) => tasks.find((t) => t.id === id)).filter(Boolean);

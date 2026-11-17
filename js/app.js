@@ -5,6 +5,7 @@ import * as R from './rules.js';
 import { load, save, newId, exportBackup, readBackup, normalize, onSave, getSync, setSync, keepOtherCopy, getBaseCopy, setBaseCopy, loadFailed } from './store.js';
 import * as AI from './ai.js';
 import * as G from './google.js';
+import * as Play from './play.js';
 
 let state = load();
 const ui = { planDay: null, goalFilter: null, showDone: false, open: { both: true, urgent: true, important: false, nice: false } };
@@ -219,6 +220,19 @@ function itemTitle(item) {
 
 // ---------- rendering ----------
 
+function sectionOf(tab) {
+  if (tab === 'play') return 'play';
+  if (tab === 'goals') return 'life';
+  if (tab === 'calendar') return 'calendar';
+  return 'today';
+}
+
+// The two screens of Today's Planning, as a small quiet switch on top of both.
+function planNavHTML(here) {
+  const link = (hash, word) => `<a href="#${hash}"${here === hash ? ' aria-current="page"' : ''}>${word}</a>`;
+  return `<nav class="subnav" aria-label="Today's Planning">${link('today', 'Today')}${link('plan', 'What matters')}</nav>`;
+}
+
 function currentTab() {
   const hash = location.hash.slice(1);
   if (hash) return hash;
@@ -229,12 +243,13 @@ function render() {
   relevel();
   if (state.days[todayKey()]) ensureTimes(todayKey());
   const tab = currentTab();
-  // The day builder (#start) and the old full list (#backlog) sit behind Plan now.
-  const shown = tab === 'start' || tab === 'backlog' ? 'plan' : tab;
+  // Three sections and the calendar. Today's Planning holds Today, What matters, and what sits behind it.
+  const shown = sectionOf(tab);
   document.querySelectorAll('[data-tab]').forEach((a) => {
     if (a.dataset.tab === shown) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   document.body.dataset.tab = tab;
+  followTick(shown);
   renderNowPill();
   renderSyncPill();
   if (tab !== 'goals') loadGoogleAhead();
@@ -253,6 +268,7 @@ function render() {
   else if (tab === 'goals') view.innerHTML = renderGoals();
   else if (tab === 'backlog') view.innerHTML = renderBacklog();
   else if (tab === 'plan') view.innerHTML = renderPlan();
+  else if (tab === 'play') view.innerHTML = Play.render();
   else view.innerHTML = renderStart();
   afterRender.forEach((fn) => fn());
 }
@@ -583,6 +599,7 @@ function renderPlan() {
   const { matters, rest } = R.planList(state.tasks, state.goals);
   const list = (tasks) => `<ul class="pl-list">${tasks.map(mattersRowHTML).join('')}</ul>`;
   return `<div class="plan">
+    ${planNavHTML('plan')}
     <h1 class="plan-title">What matters</h1>
     ${captureHTML()}
     ${matters.length ? list(matters) : `<p class="pl-empty">${rest.length ? 'Star the one or two things that matter most.' : 'Nothing here yet. Add the first thing above.'}</p>`}
@@ -1142,7 +1159,7 @@ function renderToday() {
   if (state.days[key]) ensureTimes(key);
   const day = state.days[key];
   // top: the proposal or the band. rest: the day's list and the add line, with the day's calendar beside it.
-  const page = (top, rest) => `<div class="today"><h1 class="today-date">${esc(longDay(key))}</h1>${top}
+  const page = (top, rest) => `<div class="today">${planNavHTML('today')}<h1 class="today-date">${esc(longDay(key))}</h1>${top}
     <div class="today-body"><div class="today-main">${rest}</div>
     <section class="today-cal" aria-label="Your day">${calendarBlockHTML('cal-today', key, { nowLine: true, px: 44, plain: true, ...dayHours(key) })}</section></div></div>`;
   const listHTML = (rows) => `${allDayHTML(key)}${rows.length ? `<ul class="dayline" id="day-list">${rows.map((r) => dayRowHTML(r, key)).join('')}</ul>` : ''}`;
@@ -1701,6 +1718,59 @@ function openStarter(t, { auto = false, from = null } = {}) {
   showStarterStep();
 }
 
+// ----- the Follower: one agent that watches the whole day (rules in rules.js, no AI) -----
+// It counts the time in each section while the app is on screen, keeps one "visit" record per sitting,
+// and says one kind line when planning goes on without a start. The games ask it how to play.
+
+const follow = { section: null, last: 0, sitMs: 0, sinceStartMs: 0, said: false };
+
+function followTick(section = follow.section) {
+  const now = Date.now();
+  const visible = document.visibilityState === 'visible';
+  if (follow.section && follow.last) {
+    const delta = Math.min(Math.max(now - follow.last, 0), 90000); // a sleeping phone does not count
+    if (visible || delta < 2000) { follow.sitMs += delta; follow.sinceStartMs += delta; }
+  }
+  follow.last = now;
+  if (section !== follow.section) {
+    endVisit();
+    if (follow.section === 'play') Play.leave({ home: true });
+    follow.section = section;
+    follow.sitMs = 0; follow.sinceStartMs = 0; follow.said = false;
+    return;
+  }
+  if (!visible || follow.said || modal.open) return;
+  const which = R.planLine(follow.section, follow.sinceStartMs / 60000);
+  const t = which ? nextTask() : null;
+  if (!which || !t) return;
+  follow.said = true;
+  const m = addMoment({ kind: 'nudge', which, did: null });
+  save(state, { quiet: true });
+  toast('You have planned enough. Start the first thing?', { label: 'Start 1 minute', data: { action: 'follow-start', id: t.id, nudge: m.id } });
+}
+
+// One record per sitting of a minute or more: which section and how long. Housekeeping (a quiet save).
+function endVisit() {
+  if (!follow.section || follow.sitMs < 60000) return;
+  addMoment({ kind: 'visit', section: follow.section, minutes: Math.round(follow.sitMs / 60000) });
+  save(state, { quiet: true });
+}
+
+// What the games need to know about the day: is something close, is something late, how much play so far.
+function playInput() {
+  const key = todayKey();
+  const now = nowMinutes();
+  const day = state.days[key];
+  const planned = day ? sortedDayTasks(key).filter((t) => t.status === 'open' && !t.eventRef) : [];
+  const starts = [
+    ...calendarItems(key).filter((c) => !c.commute).map((c) => R.toMinutes(c.start)),
+    ...planned.map((t) => timeOn(t, key)).filter(Boolean).map(R.toMinutes),
+  ].filter((m) => m >= now).sort((a, b) => a - b);
+  const lateOpen = planned.some((t) => { const at = timeOn(t, key); return at && R.toMinutes(at) <= now; });
+  const dueNoPlan = !planned.length && state.tasks.some((t) => t.status === 'open' && !t.eventRef && t.deadline && t.deadline <= key);
+  return { nowMin: now, nextStartMin: starts.length ? starts[0] : null, lateOpen, dueNoPlan, playedMin: R.playMinutes(state.moments, key) };
+}
+
 // "Done, I started": this is the real start. Saved once, with the minutes after the planned time.
 function markBegan() {
   if (!starter) return;
@@ -1716,6 +1786,8 @@ function markBegan() {
   if (delay !== null) m.delay = delay;
   touch(m);
   save(state);
+  follow.sinceStartMs = 0; // work started: the planning clock starts over
+  follow.said = false;
 }
 
 // When a deep work block begins, the start screen opens by itself (once per block).
@@ -2056,7 +2128,7 @@ function renderGoals() {
   }).join('');
   return `
   <section class="page-head">
-    <div><h1>Goals</h1><div class="sub">Most important first. Tasks follow this order. "Keep life running" is always last.</div></div>
+    <div><h1>Life Planning</h1><div class="sub">Your goals, most important first. Tasks follow this order.</div></div>
     ${state.goals.length < S().maxGoals ? '<button class="btn btn-dark" data-action="new-goal">+ New goal</button>' : ''}
   </section>
   <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">${cards}</div>`;
@@ -2421,6 +2493,13 @@ function statsLine() {
   return `${n.starts} start${n.starts === 1 ? '' : 's'} on ${n.days} day${n.days === 1 ? '' : 's'}.${late}${open}`;
 }
 
+// One plain line about play: how much, and how often it turned into work.
+function playLineText() {
+  const p = R.playStats(state.moments);
+  if (!p.games) return 'No games yet.';
+  return `${p.minutes} min of play on ${p.days} day${p.days === 1 ? '' : 's'} (about ${p.perDay} min a day). ${p.turned} of ${p.sittings} time${p.sittings === 1 ? '' : 's'}, a task started within 10 minutes after playing.`;
+}
+
 function settingsHTML() {
   return `
   <form class="modal" data-form="settings" novalidate>
@@ -2506,6 +2585,8 @@ function settingsHTML() {
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:6px">
       <strong>Your numbers</strong>
       <span class="stats-line">${esc(statsLine())}</span>
+      <span class="stats-line">${esc(playLineText())}</span>
+      <div><button type="button" class="btn-link" data-action="copy-follower">Copy the Follower's summary</button></div>
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
@@ -2955,6 +3036,11 @@ const actions = {
     openModal(settingsHTML());
     render();
   },
+  'copy-follower': async () => {
+    const text = R.followerSummary({ moments: state.moments, days: state.days, todayKey: todayKey() });
+    try { await navigator.clipboard.writeText(text); toast('Copied. Paste it into your own AI if you want its view.'); }
+    catch { toast('Copy did not work on this device.'); }
+  },
   'copy-phone-link': async () => {
     try { await navigator.clipboard.writeText(phoneLink()); toast('Link copied. Send it to yourself and open it on the phone.'); }
     catch { toast('Copy did not work. Select the link and copy it.'); }
@@ -3085,6 +3171,11 @@ const actions = {
   },
   'busy-ok': (el) => { getDay(el.dataset.day).busyOk = true; persist(); },
   'start-task': (el) => openStarter(task(el.dataset.id), { from: el.dataset.from || 'list' }),
+  'follow-start': (el) => {
+    const m = momentById(el.dataset.nudge);
+    if (m && !m.did) { m.did = 'start'; touch(m); }
+    openStarter(task(el.dataset.id), { from: 'follower' });
+  },
   'starter-next': () => { if (!starter) return; markBegan(); starter.i += 1; showStarterStep(); },
   'starter-close': () => { stopStarterTimer(); starter = null; closeModal(); },
   'copy-task': () => {
@@ -3762,6 +3853,8 @@ window.addEventListener('storage', (e) => {
   checkBreak();
 });
 document.addEventListener('visibilitychange', () => {
+  followTick();
+  if (document.visibilityState === 'hidden') { endVisit(); follow.sitMs = 0; if (follow.section === 'play') Play.leave(); }
   if (document.visibilityState === 'visible') {
     openedAt = Date.now();
     if (G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow().then(checkBreak, checkBreak);
@@ -3769,6 +3862,18 @@ document.addEventListener('visibilitychange', () => {
   }
   if (document.visibilityState === 'hidden' && G.isConnected() && localChanged()) { clearTimeout(sync.timer); syncNow(); }
 });
+
+// The games borrow a few things from the app; their buttons join the same table of actions.
+Play.init({
+  state: () => state,
+  save: () => save(state),
+  render: () => render(),
+  addMoment, momentById, touch, todayKey, nextTask, firstMinute, esc, playInput,
+  start: (id) => { if (location.hash !== '#today') location.hash = '#today'; openStarter(task(id), { from: 'play' }); },
+  planPlay: () => actions['pause-feel']({ dataset: { feel: 'break' } }),
+});
+Object.assign(actions, Play.actions);
+setInterval(() => followTick(), 15000); // the Follower's clock
 
 const startupMessages = dailyCheck();
 render();

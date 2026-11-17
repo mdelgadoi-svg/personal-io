@@ -553,3 +553,80 @@ test('how soon: a few plain choices; This week is Friday and never repeats anoth
   assert.equal(dueKey('2026-11-27', '2026-11-16'), 'next');
   assert.equal(dueKey('2026-12-09', '2026-11-16'), 'date');
 });
+
+// ---------- v2.4: the Follower ----------
+
+test('the Follower sets how play feels: tight when something is close or it has been a lot, free otherwise', async () => {
+  const { playMode } = await import('../js/rules.js');
+  assert.deepEqual(playMode({ nowMin: 600, nextStartMin: 630 }), { mode: 'tight', why: 'soon' });      // a meeting in 30 min
+  assert.equal(playMode({ nowMin: 600, nextStartMin: 646 }).mode, 'free');                              // 46 min away
+  assert.equal(playMode({ nowMin: 600, nextStartMin: 540 }).mode, 'free');                              // it already started: not "next"
+  assert.deepEqual(playMode({ nowMin: 600, lateOpen: true }), { mode: 'tight', why: 'late' });          // a planned task's time has begun
+  assert.deepEqual(playMode({ nowMin: 600, dueNoPlan: true }), { mode: 'tight', why: 'due' });
+  assert.deepEqual(playMode({ nowMin: 600, playedMin: 30 }), { mode: 'tight', why: 'much' });
+  assert.deepEqual(playMode({ nowMin: 600, playedMin: 29 }), { mode: 'free', why: 'free' });
+  assert.deepEqual(playMode(), { mode: 'free', why: 'free' });
+});
+
+test('the chess opponent: strong when tight; easy when free, stronger after wins in a row', async () => {
+  const { chessLevel, sudokuSize, streak } = await import('../js/rules.js');
+  assert.equal(chessLevel('tight', []), 'strong');
+  assert.equal(chessLevel('free', []), 'easy');
+  assert.equal(chessLevel('free', ['loss', 'win']), 'easy');
+  assert.equal(chessLevel('free', ['win', 'win']), 'even');
+  assert.equal(chessLevel('free', ['win', 'win', 'win']), 'strong');
+  assert.equal(chessLevel('free', ['win', 'win', 'win', 'loss']), 'easy');
+  assert.equal(streak(['win', 'loss', 'loss'], 'loss'), 2);
+  assert.equal(sudokuSize('tight'), 6);
+  assert.equal(sudokuSize('free'), 9);
+});
+
+test('play minutes, the kind line at 25 and 45 minutes, and the over-planning line', async () => {
+  const { playMinutes, playResults, playLine, planLine } = await import('../js/rules.js');
+  const at = (h, m) => new Date(2026, 10, 17, h, m).toISOString();
+  const moments = [
+    { kind: 'play', game: 'chess', at: at(10, 0), endAt: at(10, 12), result: 'loss' },
+    { kind: 'play', game: 'chess', at: at(10, 13), endAt: at(10, 20), result: 'win' },
+    { kind: 'play', game: 'sudoku', at: at(15, 0), endAt: at(18, 0), result: 'left' },   // left open: counts as 60 at most
+    { kind: 'play', game: 'chess', at: at(20, 0) },                                        // still going
+    { kind: 'play', game: 'chess', at: new Date(2026, 10, 16, 9, 0).toISOString(), endAt: new Date(2026, 10, 16, 9, 30).toISOString(), result: 'win' },
+  ];
+  assert.equal(playMinutes(moments, '2026-11-17', Date.parse(at(20, 5))), 12 + 7 + 60 + 5);
+  assert.deepEqual(playResults(moments, '2026-11-17', 'chess'), ['loss', 'win']);
+  assert.equal(playLine(24, []), null);
+  assert.equal(playLine(26, []), 'play25');
+  assert.equal(playLine(26, ['play25']), null);
+  assert.equal(playLine(50, ['play25']), 'play45');
+  assert.equal(playLine(50, []), 'play45');           // one line, the later one
+  assert.equal(playLine(50, ['play25', 'play45']), null);
+  assert.equal(planLine('today', 9), null);
+  assert.equal(planLine('today', 10), 'plan');
+  assert.equal(planLine('life', 19), null);
+  assert.equal(planLine('life', 20), 'life');
+  assert.equal(planLine('play', 99), null);
+});
+
+test('play numbers: sittings, and how many were followed by a real start within 10 minutes', async () => {
+  const { playStats, followerSummary } = await import('../js/rules.js');
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).toISOString();
+  const moments = [
+    { kind: 'play', game: 'chess', at: at(16, 10, 0), endAt: at(16, 10, 10), result: 'win' },
+    { kind: 'play', game: 'chess', at: at(16, 10, 12), endAt: at(16, 10, 20), result: 'loss' },   // same sitting
+    { kind: 'start', v: 2, taskId: 'a', at: at(16, 10, 24), began: at(16, 10, 25) },                // 5 min after: turned into work
+    { kind: 'play', game: 'sudoku', at: at(16, 15, 0), endAt: at(16, 15, 8), result: 'solved' },
+    { kind: 'start', v: 2, taskId: 'b', at: at(16, 15, 9) },                                        // opened, never began: not a start
+    { kind: 'play', game: 'chess', at: at(17, 9, 0), endAt: at(17, 9, 15), result: 'loss' },
+    { kind: 'start', v: 2, taskId: 'c', at: at(17, 9, 40), began: at(17, 9, 40) },                  // 25 min later: too late
+    { kind: 'play', game: 'chess', at: at(17, 11, 0) },                                             // still going: not counted yet
+    { kind: 'nudge', which: 'play25', at: at(17, 9, 15), did: 'start' },
+    { kind: 'visit', section: 'today', at: at(17, 8, 0), minutes: 12 },
+  ];
+  assert.deepEqual(playStats(moments), { games: 4, sittings: 3, days: 2, minutes: 41, perDay: 21, turned: 1, share: 33 });
+  assert.deepEqual(playStats(moments, '2026-11-17'), { games: 1, sittings: 1, days: 1, minutes: 15, perDay: 15, turned: 0, share: 0 });
+  assert.equal(playStats([]).share, null);
+  const text = followerSummary({ moments, days: {}, todayKey: '2026-11-17', nowMs: Date.parse(at(17, 11, 5)) });
+  assert.ok(text.includes('Play: 41 min in 4 games on 2 days (20 min today).'), text);
+  assert.ok(text.includes('1 of 3 sittings were followed by a task start within 10 min (33%)'), text);
+  assert.ok(text.includes("12 min in Today's Planning"), text);
+  assert.ok(text.split(' ').length < 120, 'the summary stays small');
+});
