@@ -562,6 +562,7 @@ test('the Follower sets how play feels: tight when something is close or it has 
   assert.equal(playMode({ nowMin: 600, nextStartMin: 646 }).mode, 'free');                              // 46 min away
   assert.equal(playMode({ nowMin: 600, nextStartMin: 540 }).mode, 'free');                              // it already started: not "next"
   assert.deepEqual(playMode({ nowMin: 600, lateOpen: true }), { mode: 'tight', why: 'late' });          // a planned task's time has begun
+  assert.deepEqual(playMode({ nowMin: 600, inMeeting: true }), { mode: 'tight', why: 'now' });         // a meeting is on right now
   assert.deepEqual(playMode({ nowMin: 600, dueNoPlan: true }), { mode: 'tight', why: 'due' });
   assert.deepEqual(playMode({ nowMin: 600, playedMin: 30 }), { mode: 'tight', why: 'much' });
   assert.deepEqual(playMode({ nowMin: 600, playedMin: 29 }), { mode: 'free', why: 'free' });
@@ -576,6 +577,7 @@ test('the chess opponent: strong when tight; easy when free, stronger after wins
   assert.equal(chessLevel('free', ['win', 'win']), 'even');
   assert.equal(chessLevel('free', ['win', 'win', 'win']), 'strong');
   assert.equal(chessLevel('free', ['win', 'win', 'win', 'loss']), 'easy');
+  assert.equal(chessLevel('free', ['win', 'win', 'ended']), 'easy');   // ending a game he was in ends the streak
   assert.equal(streak(['win', 'loss', 'loss'], 'loss'), 2);
   assert.equal(sudokuSize('tight'), 6);
   assert.equal(sudokuSize('free'), 9);
@@ -586,7 +588,8 @@ test('play minutes, the kind line at 25 and 45 minutes, and the over-planning li
   const at = (h, m) => new Date(2026, 10, 17, h, m).toISOString();
   const moments = [
     { kind: 'play', game: 'chess', at: at(10, 0), endAt: at(10, 12), result: 'loss' },
-    { kind: 'play', game: 'chess', at: at(10, 13), endAt: at(10, 20), result: 'win' },
+    { kind: 'play', game: 'chess', at: at(10, 13), endAt: at(10, 16), result: 'left' },   // a pause: the phone locked
+    { kind: 'play', game: 'chess', at: at(10, 16), endAt: at(10, 20), result: 'win' },
     { kind: 'play', game: 'sudoku', at: at(15, 0), endAt: at(18, 0), result: 'left' },   // left open: counts as 60 at most
     { kind: 'play', game: 'chess', at: at(20, 0) },                                        // still going
     { kind: 'play', game: 'chess', at: new Date(2026, 10, 16, 9, 0).toISOString(), endAt: new Date(2026, 10, 16, 9, 30).toISOString(), result: 'win' },
@@ -598,6 +601,7 @@ test('play minutes, the kind line at 25 and 45 minutes, and the over-planning li
   assert.equal(playLine(26, ['play25']), null);
   assert.equal(playLine(50, ['play25']), 'play45');
   assert.equal(playLine(50, []), 'play45');           // one line, the later one
+  assert.equal(playLine(50, ['play45']), null);       // and never the earlier one after it
   assert.equal(playLine(50, ['play25', 'play45']), null);
   assert.equal(planLine('today', 9), null);
   assert.equal(planLine('today', 10), 'plan');
@@ -611,7 +615,8 @@ test('play numbers: sittings, and how many were followed by a real start within 
   const at = (d, h, m) => new Date(2026, 10, d, h, m).toISOString();
   const moments = [
     { kind: 'play', game: 'chess', at: at(16, 10, 0), endAt: at(16, 10, 10), result: 'win' },
-    { kind: 'play', game: 'chess', at: at(16, 10, 12), endAt: at(16, 10, 20), result: 'loss' },   // same sitting
+    { kind: 'play', game: 'chess', at: at(16, 10, 12), endAt: at(16, 10, 14), result: 'left' },   // a pause inside the same game
+    { kind: 'play', game: 'chess', at: at(16, 10, 14), endAt: at(16, 10, 20), result: 'loss' },   // same sitting
     { kind: 'start', v: 2, taskId: 'a', at: at(16, 10, 24), began: at(16, 10, 25) },                // 5 min after: turned into work
     { kind: 'play', game: 'sudoku', at: at(16, 15, 0), endAt: at(16, 15, 8), result: 'solved' },
     { kind: 'start', v: 2, taskId: 'b', at: at(16, 15, 9) },                                        // opened, never began: not a start

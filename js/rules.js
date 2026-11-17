@@ -698,8 +698,10 @@ export const FOLLOW = {
 
 // How the next game should feel. tight: something is close, or it has been a lot. free: nothing is close.
 // nowMin and nextStartMin are minutes since midnight; nextStartMin is the next meeting or planned task today.
-// lateOpen: a planned task's time has begun and it is still open. dueNoPlan: tasks due today and no plan yet.
-export function playMode({ nowMin = 0, nextStartMin = null, lateOpen = false, dueNoPlan = false, playedMin = 0 } = {}, f = FOLLOW) {
+// inMeeting: a calendar event is going on now. lateOpen: a planned task's time has begun and it is still open.
+// dueNoPlan: tasks due today and no plan yet.
+export function playMode({ nowMin = 0, nextStartMin = null, inMeeting = false, lateOpen = false, dueNoPlan = false, playedMin = 0 } = {}, f = FOLLOW) {
+  if (inMeeting) return { mode: 'tight', why: 'now' }; // a meeting is going on right now
   if (nextStartMin !== null && nextStartMin >= nowMin && nextStartMin - nowMin <= f.soonMinutes) return { mode: 'tight', why: 'soon' };
   if (lateOpen) return { mode: 'tight', why: 'late' };
   if (dueNoPlan) return { mode: 'tight', why: 'due' };
@@ -737,16 +739,19 @@ export function playMinutes(moments = [], dayKey, nowMs = Date.now()) {
     .reduce((sum, m) => sum + gameMinutes(m, nowMs), 0));
 }
 
-// The results of today's finished games of one kind, oldest first.
+// The results of today's finished games of one kind, oldest first. 'left' is a pause (he looked away,
+// the phone locked), not a result: it never breaks a streak.
 export function playResults(moments = [], dayKey, game = 'chess') {
-  return (moments || []).filter((m) => m.kind === 'play' && m.game === game && m.endAt && toDateKey(new Date(m.at)) === dayKey)
+  return (moments || []).filter((m) => m.kind === 'play' && m.game === game && m.endAt && m.result !== 'left' && toDateKey(new Date(m.at)) === dayKey)
     .sort((a, b) => (a.at < b.at ? -1 : 1)).map((m) => m.result);
 }
 
 // The one kind line, only when it is a lot: at 25 and 45 minutes of play in a day, each once a day.
 // said: the marks already shown today (from the saved nudges). Returns the mark to show now, or null.
 export function playLine(playedMin, said = [], f = FOLLOW) {
-  const due = f.lineAt.filter((m) => playedMin >= m && !said.includes(`play${m}`));
+  // Once a later mark was said, the earlier ones are behind him: never two lines for two games in a row.
+  const last = Math.max(0, ...f.lineAt.filter((m) => said.includes(`play${m}`)));
+  const due = f.lineAt.filter((m) => playedMin >= m && m > last);
   return due.length ? `play${due[due.length - 1]}` : null;
 }
 
@@ -773,7 +778,7 @@ export function playStats(moments = [], fromKey = null, f = FOLLOW) {
   const days = new Set(games.map((g) => toDateKey(new Date(g.at))));
   const minutes = Math.round(games.reduce((sum, g) => sum + gameMinutes(g, Date.parse(g.endAt)), 0));
   return {
-    games: games.length, sittings: sittings.length, days: days.size, minutes,
+    games: games.filter((g) => g.result !== 'left').length, sittings: sittings.length, days: days.size, minutes,
     perDay: days.size ? Math.round(minutes / days.size) : 0,
     turned, share: sittings.length ? Math.round((turned / sittings.length) * 100) : null,
   };
@@ -790,9 +795,9 @@ export function followerSummary({ moments = [], days = {}, todayKey, nowMs = Dat
   const spent = (sec) => Math.round(visits.filter((v) => v.section === sec).reduce((sum, v) => sum + (v.minutes || 0), 0));
   return [
     `Last 7 days, up to ${todayKey}.`,
-    `Play: ${p.minutes} min in ${p.games} games on ${p.days} days (${playMinutes(moments, todayKey, nowMs)} min today).`,
+    `Play: ${p.minutes} min in ${p.games} game${p.games === 1 ? '' : 's'} on ${p.days} day${p.days === 1 ? '' : 's'} (${playMinutes(moments, todayKey, nowMs)} min today).`,
     `After play: ${p.share === null ? 'no sittings yet' : `${p.turned} of ${p.sittings} sittings were followed by a task start within 10 min (${p.share}%)`}.`,
-    `Starts: ${s.starts} on ${s.days} days${s.medianDelay === null ? '' : `, usually ${s.medianDelay} min after the planned time`}.`,
+    `Starts: ${s.starts} on ${s.days} day${s.days === 1 ? '' : 's'}${s.medianDelay === null ? '' : `, usually ${s.medianDelay} min after the planned time`}.`,
     `Planning time: ${spent('today')} min in Today's Planning, ${spent('life')} min in Life Planning.`,
     `Follower lines shown: ${nudges.length} (started a task ${did('start')}, planned play ${did('plan')}, kept going ${did('keep')}, no answer ${nudges.filter((n) => !n.did).length}).`,
   ].join('\n');

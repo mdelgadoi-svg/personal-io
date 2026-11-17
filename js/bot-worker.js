@@ -3,6 +3,6 @@ import { Chess } from './vendor/chess.js';
 import { botMove } from './games.js';
 
 self.onmessage = (e) => {
-  const { fen, level } = e.data;
-  self.postMessage({ move: botMove(new Chess(fen), level) });
+  const { fen, level, id } = e.data;
+  self.postMessage({ id, move: botMove(new Chess(fen), level) }); // the id says which question this answers
 };

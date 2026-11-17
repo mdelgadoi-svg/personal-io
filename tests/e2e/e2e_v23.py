@@ -89,7 +89,7 @@ with sync_playwright() as p:
     # the header keeps every button in reach at any window width, with the Now pill and the sync pill showing
     busy = json.loads(json.dumps(st))
     busy['days'][D] = {"taskIds": ["a"], "times": {"a": "08:30"}, "slots": 3, "set": True, "reviewed": {}, "googleIds": [], "plan": {"blocks": [{"start": "08:30", "minutes": 60, "taskIds": ["a"], "color": "blue"}], "events": [], "needsTime": [], "didNotFit": []}}
-    for width in [761, 800, 960, 1100, 1201, 1281, 1341, 1366, 1441, 1621, 1920]:
+    for width in [761, 800, 831, 941, 960, 1011, 1100, 1201, 1281, 1341, 1366, 1461, 1501, 1621, 1920]:
         c = b.new_context(viewport={'width': width, 'height': 700})
         c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);localStorage.setItem('personal-io:bridge', JSON.stringify({url:'https://script.google.com/macros/s/X/exec', key:'k'}));sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(busy)))
         x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 9, 0)); x.route('https://script.google.com/**', lambda r: r.fulfill(status=500, body='no'))
@@ -99,6 +99,7 @@ with sync_playwright() as p:
         right = x.evaluate("Math.max(...[...document.querySelectorAll('.topbar a, .topbar button')].filter(e => e.offsetParent).map(e => e.getBoundingClientRect().right))")
         tall = x.evaluate("document.querySelector('.topbar').getBoundingClientRect().height")
         assert right <= width and tall < 80, (width, right, tall)
+        pill = x.locator('.now-pill').bounding_box(); assert pill and pill['width'] >= 90, (width, pill)   # the Now pill is never squeezed to a letter
         c.close()
     print('all v2.3 checks passed')
 print('PAGE ERRORS', errors)

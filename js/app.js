@@ -39,7 +39,11 @@ function persist(messages = []) {
   messages.forEach(toast);
 }
 
-function toast(text, button = null) {
+// button: { label, data } for one action on the message. ms: how long it stays.
+// (Callers also pass it to forEach, which adds an index and the list: those are ignored.)
+function toast(text, button = null, ms = null) {
+  if (!button || typeof button !== 'object' || Array.isArray(button)) button = null;
+  if (typeof ms !== 'number') ms = null;
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = text;
@@ -54,7 +58,7 @@ function toast(text, button = null) {
   }
   toasts.appendChild(el);
   while (toasts.children.length > 2) toasts.firstElementChild.remove();
-  setTimeout(() => el.remove(), button ? 8000 : 4000);
+  setTimeout(() => el.remove(), ms || (button ? 8000 : 4000));
 }
 
 function goal(id) { return state.goals.find((g) => g.id === id); }
@@ -1707,6 +1711,7 @@ let openedAt = Date.now(); // when the app was last opened or brought back to th
 function openStarter(t, { auto = false, from = null } = {}) {
   if (!t) return;
   if (R.activeBreak(state.moments)) finishBreak('start'); // starting means the break is over
+  Play.leave(); // and a game on screen stops counting minutes
   // Kept for the self-test (see CLAUDE.md): which screen the start came from, and how many seconds
   // after opening the app. It only counts as a start once he taps that he began (see starter-next).
   // An automatic start is housekeeping (quiet); maybeAutoStart saves it.
@@ -1732,6 +1737,7 @@ function followTick(section = follow.section) {
     if (visible || delta < 2000) { follow.sitMs += delta; follow.sinceStartMs += delta; }
   }
   follow.last = now;
+  Play.tick();
   if (section !== follow.section) {
     endVisit();
     if (follow.section === 'play') Play.leave({ home: true });
@@ -1739,14 +1745,15 @@ function followTick(section = follow.section) {
     follow.sitMs = 0; follow.sinceStartMs = 0; follow.said = false;
     return;
   }
-  if (!visible || follow.said || modal.open) return;
+  // Never while he types, while a window is open, or during a planned break.
+  if (!visible || follow.said || userBusy() || R.activeBreak(state.moments)) return;
   const which = R.planLine(follow.section, follow.sinceStartMs / 60000);
   const t = which ? nextTask() : null;
   if (!which || !t) return;
   follow.said = true;
   const m = addMoment({ kind: 'nudge', which, did: null });
   save(state, { quiet: true });
-  toast('You have planned enough. Start the first thing?', { label: 'Start 1 minute', data: { action: 'follow-start', id: t.id, nudge: m.id } });
+  toast('You have planned enough. Start the first thing?', { label: 'Start 1 minute', data: { action: 'follow-start', id: t.id, nudge: m.id } }, 20000);
 }
 
 // One record per sitting of a minute or more: which section and how long. Housekeeping (a quiet save).
@@ -1766,9 +1773,10 @@ function playInput() {
     ...calendarItems(key).filter((c) => !c.commute).map((c) => R.toMinutes(c.start)),
     ...planned.map((t) => timeOn(t, key)).filter(Boolean).map(R.toMinutes),
   ].filter((m) => m >= now).sort((a, b) => a - b);
+  const inMeeting = calendarItems(key).some((c) => !c.commute && R.toMinutes(c.start) <= now && now < R.toMinutes(c.start) + (c.minutes || 0));
   const lateOpen = planned.some((t) => { const at = timeOn(t, key); return at && R.toMinutes(at) <= now; });
-  const dueNoPlan = !planned.length && state.tasks.some((t) => t.status === 'open' && !t.eventRef && t.deadline && t.deadline <= key);
-  return { nowMin: now, nextStartMin: starts.length ? starts[0] : null, lateOpen, dueNoPlan, playedMin: R.playMinutes(state.moments, key) };
+  const dueNoPlan = !planned.length && !gentleOn(key) && state.tasks.some((t) => t.status === 'open' && !t.eventRef && t.deadline && t.deadline <= key);
+  return { nowMin: now, nextStartMin: starts.length ? starts[0] : null, inMeeting, lateOpen, dueNoPlan, playedMin: R.playMinutes(state.moments, key) };
 }
 
 // "Done, I started": this is the real start. Saved once, with the minutes after the planned time.
@@ -1786,8 +1794,7 @@ function markBegan() {
   if (delay !== null) m.delay = delay;
   touch(m);
   save(state);
-  follow.sinceStartMs = 0; // work started: the planning clock starts over
-  follow.said = false;
+  follow.said = true; // work started: no planning line for the rest of this sitting
 }
 
 // When a deep work block begins, the start screen opens by itself (once per block).
@@ -2911,7 +2918,11 @@ async function pushToDrive(id, expect = null) {
 function useDriveCopy(data, remote, message, driveData = data) {
   const firstTime = !getSync().base;
   const openedToday = state.lastOpenDate;
+  // Section time and the Follower's lines are saved quietly here; keep the ones the other copy does not have.
+  const mine = (state.moments || []).filter((m) => m.kind === 'visit' || m.kind === 'nudge');
   state = normalize(data);
+  const have = new Set((state.moments || []).map((m) => m.id));
+  state.moments = [...(state.moments || []), ...mine.filter((m) => !have.has(m.id))];
   state.savedAt = remote.savedAt;
   if (openedToday && (!state.lastOpenDate || openedToday > state.lastOpenDate)) state.lastOpenDate = openedToday;
   save(state, { quiet: true });
@@ -3854,7 +3865,7 @@ window.addEventListener('storage', (e) => {
 });
 document.addEventListener('visibilitychange', () => {
   followTick();
-  if (document.visibilityState === 'hidden') { endVisit(); follow.sitMs = 0; if (follow.section === 'play') Play.leave(); }
+  if (document.visibilityState === 'hidden') { endVisit(); follow.sitMs = 0; follow.sinceStartMs = 0; follow.said = false; Play.leave(); }
   if (document.visibilityState === 'visible') {
     openedAt = Date.now();
     if (G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow().then(checkBreak, checkBreak);
@@ -3867,6 +3878,7 @@ document.addEventListener('visibilitychange', () => {
 Play.init({
   state: () => state,
   save: () => save(state),
+  saveQuiet: () => save(state, { quiet: true }),
   render: () => render(),
   addMoment, momentById, touch, todayKey, nextTask, firstMinute, esc, playInput,
   start: (id) => { if (location.hash !== '#today') location.hash = '#today'; openStarter(task(id), { from: 'play' }); },

@@ -18,6 +18,7 @@ def state(events=(), moments=(), days=None, tasks=None):
 errors = []
 data = lambda pg: json.loads(pg.evaluate("localStorage.getItem('personal-io:v1')"))
 game = lambda pg: json.loads(pg.evaluate("localStorage.getItem('personal-io:game')") or 'null')
+chessg = lambda pg: game(pg)['games']['chess']
 plays = lambda pg: [m for m in data(pg).get('moments', []) if m['kind'] == 'play']
 def page(b, st, w=390, h=844, phone=True, hour=10, minute=0, install=False):
     ctx = b.new_context(viewport={'width': w, 'height': h}, has_touch=phone, is_mobile=phone)
@@ -50,29 +51,32 @@ with sync_playwright() as p:
 
     # 3. a move, and the computer answers
     pg.click('[data-sq="e2"]'); assert sorted(x.get_attribute('data-sq') for x in pg.locator('.sq.is-target').all()) == ['e3', 'e4']
-    pg.click('[data-sq="e4"]'); pg.wait_for_function("JSON.parse(localStorage.getItem('personal-io:game')).moves.length === 2", timeout=8000)
-    assert game(pg)['moves'][0] == 'e4' and pg.inner_text('.play-status') in ('Your move', 'Check. Your move')
+    pg.click('[data-sq="e4"]'); pg.wait_for_function("JSON.parse(localStorage.getItem('personal-io:game')).games.chess.moves.length === 2", timeout=8000)
+    assert chessg(pg)['moves'][0] == 'e4' and pg.inner_text('.play-status').endswith('Your move') and 'The computer played' in pg.inner_text('.play-status')
     m = plays(pg); assert len(m) == 1 and m[0]['game'] == 'chess' and m[0]['level'] == 'easy' and m[0]['mode'] == 'free' and 'endAt' not in m[0], m
     pg.click('[data-sq="e8"]'); assert pg.locator('.sq.is-sel').count() == 0, 'he cannot move the computer\'s pieces'
 
     # 4. the game survives a reload; leaving the section closes the play record and coming back opens a new one
-    pg.reload(); pg.wait_for_selector('[data-action="play-resume"]'); assert plays(pg)[0].get('result') == 'left'
-    pg.click('[data-action="play-resume"]'); pg.wait_for_selector('.board'); assert len(game(pg)['moves']) == 2 and pg.locator('.sq[data-sq="e4"][data-piece="wp"]').count() == 1
+    pg.reload(); pg.wait_for_selector('.play-game.is-going'); assert plays(pg)[0].get('result') == 'left' and 'Back to your game' in pg.inner_text('[data-action="play-chess"]')
+    pg.click('[data-action="play-chess"]'); pg.wait_for_selector('.board'); assert len(chessg(pg)['moves']) == 2 and pg.locator('.sq[data-sq="e4"][data-piece="wp"]').count() == 1
     assert len(plays(pg)) == 2 and 'endAt' not in plays(pg)[1]
     pg.goto(BASE + '#today'); pg.wait_for_selector('.today'); assert plays(pg)[1].get('result') == 'left'
 
     # 5. after a game the next task is there; Start 1 minute opens the start screen
-    pg.goto(BASE + '#play'); pg.click('[data-action="play-resume"]'); pg.click('[data-action="play-end"]'); pg.wait_for_selector('.play-after')
+    pg.goto(BASE + '#play'); pg.click('[data-action="play-sudoku"]'); pg.wait_for_selector('.sudoku')   # starting the other game keeps this one
+    pg.click('[data-action="play-home"]'); assert pg.locator('.play-game.is-going').count() == 2
+    pg.click('[data-action="play-chess"]'); pg.wait_for_selector('.board'); assert len(game(pg)['games']['chess']['moves']) == 2
+    pg.click('[data-action="play-end"]'); pg.wait_for_selector('.play-after')
     after = pg.inner_text('.play-after'); assert 'Game ended.' in after and 'Send application' in after and 'Open the draft' in after and 'Good game' not in after, after
     pg.click('.play-after [data-action="play-start"]'); pg.wait_for_selector('[data-form="starter"]')
     st = [x for x in data(pg)['moments'] if x['kind'] == 'start'][-1]; assert st['from'] == 'play' and st['taskId'] == 'a', st
-    assert pg.evaluate('location.hash') == '#today' and game(pg) is None
+    assert pg.evaluate('location.hash') == '#today' and game(pg)['games']['chess'] is None
     pg.click('[data-action="starter-close"]')
 
     # 6. Sudoku: a full grid when free; it can be solved; a repeated number is marked
     pg.goto(BASE + '#play'); pg.click('[data-action="play-sudoku"]'); pg.wait_for_selector('.sudoku')
     assert pg.inner_text('.play-level') == 'A full grid' and pg.locator('.cell').count() == 81
-    g = game(pg); empty = [i for i, d in enumerate(g['puzzle']) if d == 0]; assert len(empty) == 40
+    g = game(pg)['games']['sudoku']; empty = [i for i, d in enumerate(g['puzzle']) if d == 0]; assert len(empty) == 40
     first = empty[0]; row = first // 9; other = next(d for d in g['puzzle'][row * 9: row * 9 + 9] if d)
     pg.click(f'.cell[data-i="{first}"]'); pg.click(f'.digit[data-d="{other}"]'); assert pg.locator('.cell.is-bad').count() == 1, 'a repeated number is marked'
     assert pg.locator('.cell.is-given').first.is_disabled()
@@ -121,6 +125,30 @@ with sync_playwright() as p:
     pl.click('[data-action="starter-close"]'); pl.goto(BASE + '#play'); pl.wait_for_selector('.play')
     v = [x for x in data(pl)['moments'] if x['kind'] == 'visit']; assert len(v) == 1 and v[0]['section'] == 'today' and v[0]['minutes'] >= 10, v
     pl.context.close()
+
+    # 10b. minutes are real: hidden time and idle time do not count, and a reload on the computer's turn does not freeze the game
+    real = page(b, state(), install=True)
+    real.goto(BASE + '#play'); real.click('[data-action="play-chess"]'); real.wait_for_selector('.board')
+    real.click('[data-sq="d2"]'); real.click('[data-sq="d4"]'); real.clock.run_for('00:03'); real.wait_for_function("JSON.parse(localStorage.getItem('personal-io:game')).games.chess.moves.length === 2", timeout=8000)
+    real.clock.run_for('02:00')
+    real.evaluate("Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange'))")
+    real.clock.run_for('30:00')   # the phone is locked for half an hour
+    open_now = [m for m in plays(real) if 'endAt' not in m]; assert not open_now, 'no record is open while the app is hidden'
+    mins = real.evaluate("import('./js/rules.js').then(R => R.playMinutes(JSON.parse(localStorage.getItem('personal-io:v1')).moments, '2026-11-17', Date.now()))")
+    assert mins <= 3, f'{mins} minutes counted for about 2 of play'
+    real.evaluate("Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true }); document.dispatchEvent(new Event('visibilitychange'))")
+    real.click('[data-sq="e2"]'); assert [m for m in plays(real) if 'endAt' not in m], 'the next tap opens a new record'
+    real.clock.run_for('07:00')   # the board stays on screen, but he stopped tapping
+    assert not [m for m in plays(real) if 'endAt' not in m], 'five idle minutes close the record'
+    mins = real.evaluate("import('./js/rules.js').then(R => R.playMinutes(JSON.parse(localStorage.getItem('personal-io:v1')).moments, '2026-11-17', Date.now()))")
+    assert mins <= 5, f'{mins} minutes after idling'
+    real.context.close()
+    stuck = page(b, state())
+    stuck.add_init_script("if(!sessionStorage.getItem('g')){localStorage.setItem('personal-io:game', JSON.stringify({cur:'chess',games:{chess:{kind:'chess',mode:'free',level:'easy',moves:['e4'],sel:null,targets:[],last:null,over:null,thinking:false,momentId:null},sudoku:null}}));sessionStorage.setItem('g','1')}")
+    stuck.goto(BASE + '#play'); stuck.click('[data-action="play-chess"]'); stuck.wait_for_selector('.board')
+    stuck.wait_for_function("JSON.parse(localStorage.getItem('personal-io:game')).games.chess.moves.length === 2", timeout=8000)   # the computer plays its waiting move
+    assert stuck.inner_text('.play-status').endswith('Your move')
+    stuck.context.close()
 
     # 11. a computer: the board fits the window, the tabs read like the rest
     w = page(b, state(), 1366, 800, False)
