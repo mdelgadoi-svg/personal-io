@@ -1,6 +1,6 @@
 # Codebook: passion and obsession in founder speech
 
-Draft 1, Nov 18, 2026. For human coders and, later, for the LLM prompts (the prompts will reuse this wording). Not final until Prof. Bailey and the four coders have reviewed it.
+Draft 1, Nov 18, 2026. For human coders and, later, for the LLM prompts (the prompts will reuse this wording). Not final until Marcelo and Prof. Bailey have reviewed it and the pilot is done.
 
 ## What we are coding
 
@@ -185,16 +185,18 @@ Krautter, Büchner and Jachimowicz (2025) list seven ways people express passion
 | Self-presentation | Public talk is displayed passion, and presentation skill drives the gap from felt passion (Lucas et al., 2016) | Name the measure "expressed passion language". Do not claim inner states |
 | Transcript quality | Automatic transcripts carry errors that differ by speaker and can move scores (Miner et al., 2020; Zolnoori et al., 2024) | Record the transcript source. Hand-check a sample and report the error rate and wrong-speaker rate |
 | Selection | Founders who are interviewed differ from those who are not | Start from the list of deals, not from the list of podcasts. Report who has no appearance and compare the two groups on deal size, stage and sector |
-| Coder expectations | Knowing the hypothesis or the company's success can color coding | Coders work alone and do not see deal size, valuation or the Excel's old labels |
+| Coder expectations | Knowing the hypothesis or the company's success can color coding | The human coder codes before seeing the AI's scores, and does not look at deal size, valuation or the Excel's old labels while coding |
 
 ---
 
 ## How this codebook will be refined
 
-1. Four coders code the same transcript alone, using `human_coding/coding_sheet.csv` and `human_coding/instructions.md`.
-2. We compare codes, read every disagreement, and use the written reasons to tighten definitions and decision rules. Changes go in `decisions_log.md`.
-3. The draft examples above are replaced with real passages the coders agreed on.
-4. The agreed labels are split in two: one half to tune the LLM prompts, the other half held back to test them.
+Pilot first, on 2 or 3 interviews (see `process_map.md`).
+
+1. Marcelo codes the passages of one interview by hand, using `human_coding/coding_sheet.csv` and `human_coding/instructions.md`, before seeing any AI scores.
+2. The AI codes the same passages. Every disagreement is read, and the written reasons are used to tighten definitions and decision rules. Changes go in `decisions_log.md`.
+3. With only one human coder there is no agreement between people to report. Two ways to get a check: (a) ask one other person (Prof. Bailey, a classmate) to code 30 to 40 of the same passages, or (b) Marcelo codes a random 30 passages a second time a week later, without looking at the first answers.
+4. The draft examples above are replaced with real passages from the pilot.
 
 ## Sources for the constructs
 

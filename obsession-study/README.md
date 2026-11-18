@@ -12,9 +12,10 @@ This folder is separate from the Personal IO planner app in the same repository.
 | `research/source_notes/` | The detailed notes behind the memo: every source opened, how far it was read, and a checkable quote per claim |
 | `data/appearance_candidates.csv` | Phase 1, question 5: candidate public appearances for all 286 deals |
 | `codebook.md` | Phase 2: constructs, rules, unit of analysis, rating format, confounds |
-| `human_coding/coding_sheet.csv` | The sheet the four coders fill in (four invented example rows on top) |
-| `human_coding/instructions.md` | One page of instructions for the coders |
+| `human_coding/coding_sheet.csv` | The sheet the human coder fills in (four invented example rows on top) |
+| `human_coding/instructions.md` | One page of instructions for the human coder |
 | `decisions_log.md` | Every methodological choice and why |
+| `process_map.md` | How the method works, step by step, as a diagram |
 | `data/companies.xlsx` | The raw Excel. Local only, read-only, not on GitHub |
 | `data/transcripts/` | Where transcripts go (format in its README). Local only |
 | `papers/` | PDFs. Local only |

@@ -1,13 +1,13 @@
 # How to code the transcript (one page)
 
-Thank you for helping. Plan about 90 minutes. Please work alone and do not compare notes until everyone is done. There are no right answers yet: your reasons are what we need most.
+Plan about 90 minutes per interview. Code before looking at any AI scores. There are no right answers yet: your reasons are what improves the codebook.
 
 ## What you are doing
 You will read one founder interview, cut into short passages, and mark what kind of language the founder uses about their own work. We are coding **what is said**, not judging the person.
 
 ## Before you start
 1. Read `codebook.md` once (15 minutes). The parts that matter most: the definitions of PAS, HP and OP, and the "Decision rules for hard cases".
-2. Open `coding_sheet.csv` in Excel or Google Sheets. Save your own copy as `coding_sheet_<your initials>.csv`. The four rows marked EXAMPLE show how a filled row looks. They are invented.
+2. Open `coding_sheet.csv` in Excel or Google Sheets. Save your copy as `coding_sheet_<your initials>_<interview>.csv`. The four rows marked EXAMPLE show how a filled row looks. They are invented.
 3. Put your initials in `coder_id` on every row you code.
 
 ## For each passage
@@ -35,7 +35,10 @@ Read the host question (context only), then the passage. Fill in, left to right:
 - Code the content, not the energy. A calm sentence can be a 7.
 
 ## When you are stuck
-Put 0, set confidence to 1, and write what made it hard in `notes`. Do not skip the passage and do not ask another coder.
+Put 0, set confidence to 1, and write what made it hard in `notes`. Do not skip the passage.
 
 ## When you are done
-Send your file to Marcelo. Please also add two or three lines at the bottom of `notes` on the last row: which codes were hardest to tell apart, and anything in the interview that felt important but had no code.
+Save the file in `human_coding/`. In `notes` on the last row, add two or three lines: which codes were hardest to tell apart, and anything in the interview that felt important but had no code.
+
+## If someone else helps
+The same page works for a second person. They code alone, without seeing your answers.

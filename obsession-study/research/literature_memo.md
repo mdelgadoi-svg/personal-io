@@ -96,7 +96,7 @@ Saved in `data/appearance_candidates.csv` (all 286 deals).
 4. **Which obsession** is the construct of interest: Vallerand's OP, the investors' lay idea, or the gap between them?
 5. **Rigidity.** In the model, rigid persistence means not letting go of the activity. Is "does not pivot" a fair reading, given Patel et al. 2015?
 6. **Extraversion.** Without Big Five inference, is controlling for talk time and positive-emotion rate enough?
-7. **Validation.** Is one transcript with four coders enough for a first check? Resolve disagreements by majority, discussion or mean?
+7. **Validation.** There is one human coder (Marcelo). Is a pilot on 2 or 3 interviews, checked against his coding plus either a second coder on 30 to 40 passages or his own recoding a week later, enough for a first check?
 8. **Unit.** Founder or company, when several founders exist and one appears?
 9. **Ground truth.** Is it worth asking a few founders to fill in the 12-item Passion Scale?
 10. **PEBS in text.** The PEBS is a self-report of behavior. Is coding founders' descriptions of those behaviors a fair use?
