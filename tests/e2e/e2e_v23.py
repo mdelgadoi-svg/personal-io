@@ -31,7 +31,7 @@ with sync_playwright() as p:
     view = pg.inner_text('#view')
     for gone in ['slot', 'Slot', 'Use this plan', 'Set plan', 'Important + urgent', '★', '🤔', 'Goals 1/10']: assert gone not in view, gone
     assert pg.evaluate('document.documentElement.scrollWidth') <= 390
-    assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == 'Plan'
+    assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == "Today's Planning"
 
     # one star: it moves up; the star again: it moves back
     pg.fill('#cap-text', 'half typed')   # what he typed must survive the taps below
@@ -70,16 +70,16 @@ with sync_playwright() as p:
     # the day builder and the old full list are still there, behind Plan
     pg.click('.pl-foot [data-action="go-plan-today"]'); pg.wait_for_selector('.col-day')
     name = pg.locator('.col-day .slot-title').first.bounding_box() if pg.locator('.col-day .slot-title').count() else None
-    assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == 'Plan'
+    assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == "Today's Planning"
     pg.goto(BASE + '#plan'); pg.click('.pl-foot a[href="#backlog"]'); pg.wait_for_selector('.group')
-    assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == 'Plan'
+    assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == "Today's Planning"
     pg.context.close()
 
     # on a computer: the same list, centered; the tabs like the head of the invitation; small pill buttons
     w = page(b, 1366, 800, False)
     w.goto(BASE + '#plan'); w.wait_for_selector('.plan')
     box = w.locator('.plan').bounding_box(); assert 600 <= box['width'] <= 660 and abs((box['x'] + box['width'] / 2) - 683) < 12, box
-    assert [t.strip().upper() for t in w.locator('.tabs a').all_inner_texts()] == ['TODAY', 'PLAN', 'CALENDAR', 'GOALS']
+    assert [t.strip().upper() for t in w.locator('.tabs a').all_inner_texts()] == ['PROCRASTINATION', "TODAY'S PLANNING", 'LIFE PLANNING', 'CALENDAR']
     assert w.evaluate("getComputedStyle(document.querySelector('.tabs a')).textTransform") == 'uppercase'
     w.goto(BASE + '#today'); w.wait_for_selector('.proposal')
     use = w.locator('[data-action="accept-proposal"]'); r = w.evaluate("e => getComputedStyle(e).borderRadius", use.element_handle())
@@ -89,7 +89,7 @@ with sync_playwright() as p:
     # the header keeps every button in reach at any window width, with the Now pill and the sync pill showing
     busy = json.loads(json.dumps(st))
     busy['days'][D] = {"taskIds": ["a"], "times": {"a": "08:30"}, "slots": 3, "set": True, "reviewed": {}, "googleIds": [], "plan": {"blocks": [{"start": "08:30", "minutes": 60, "taskIds": ["a"], "color": "blue"}], "events": [], "needsTime": [], "didNotFit": []}}
-    for width in [761, 800, 960, 1100, 1201, 1281, 1366]:
+    for width in [761, 800, 831, 941, 960, 1011, 1100, 1201, 1281, 1341, 1366, 1461, 1501, 1621, 1920]:
         c = b.new_context(viewport={'width': width, 'height': 700})
         c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);localStorage.setItem('personal-io:bridge', JSON.stringify({url:'https://script.google.com/macros/s/X/exec', key:'k'}));sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(busy)))
         x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 9, 0)); x.route('https://script.google.com/**', lambda r: r.fulfill(status=500, body='no'))
@@ -99,6 +99,7 @@ with sync_playwright() as p:
         right = x.evaluate("Math.max(...[...document.querySelectorAll('.topbar a, .topbar button')].filter(e => e.offsetParent).map(e => e.getBoundingClientRect().right))")
         tall = x.evaluate("document.querySelector('.topbar').getBoundingClientRect().height")
         assert right <= width and tall < 80, (width, right, tall)
+        pill = x.locator('.now-pill').bounding_box(); assert pill and pill['width'] >= 90, (width, pill)   # the Now pill is never squeezed to a letter
         c.close()
     print('all v2.3 checks passed')
 print('PAGE ERRORS', errors)

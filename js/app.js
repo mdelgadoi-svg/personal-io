@@ -5,6 +5,7 @@ import * as R from './rules.js';
 import { load, save, newId, exportBackup, readBackup, normalize, onSave, getSync, setSync, keepOtherCopy, getBaseCopy, setBaseCopy, loadFailed } from './store.js';
 import * as AI from './ai.js';
 import * as G from './google.js';
+import * as Play from './play.js';
 
 let state = load();
 const ui = { planDay: null, goalFilter: null, showDone: false, open: { both: true, urgent: true, important: false, nice: false } };
@@ -38,7 +39,11 @@ function persist(messages = []) {
   messages.forEach(toast);
 }
 
-function toast(text, button = null) {
+// button: { label, data } for one action on the message. ms: how long it stays.
+// (Callers also pass it to forEach, which adds an index and the list: those are ignored.)
+function toast(text, button = null, ms = null) {
+  if (!button || typeof button !== 'object' || Array.isArray(button)) button = null;
+  if (typeof ms !== 'number') ms = null;
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = text;
@@ -53,7 +58,7 @@ function toast(text, button = null) {
   }
   toasts.appendChild(el);
   while (toasts.children.length > 2) toasts.firstElementChild.remove();
-  setTimeout(() => el.remove(), button ? 8000 : 4000);
+  setTimeout(() => el.remove(), ms || (button ? 8000 : 4000));
 }
 
 function goal(id) { return state.goals.find((g) => g.id === id); }
@@ -219,6 +224,19 @@ function itemTitle(item) {
 
 // ---------- rendering ----------
 
+function sectionOf(tab) {
+  if (tab === 'play') return 'play';
+  if (tab === 'goals') return 'life';
+  if (tab === 'calendar') return 'calendar';
+  return 'today';
+}
+
+// The two screens of Today's Planning, as a small quiet switch on top of both.
+function planNavHTML(here) {
+  const link = (hash, word) => `<a href="#${hash}"${here === hash ? ' aria-current="page"' : ''}>${word}</a>`;
+  return `<nav class="subnav" aria-label="Today's Planning">${link('today', 'Today')}${link('plan', 'What matters')}</nav>`;
+}
+
 function currentTab() {
   const hash = location.hash.slice(1);
   if (hash) return hash;
@@ -229,12 +247,13 @@ function render() {
   relevel();
   if (state.days[todayKey()]) ensureTimes(todayKey());
   const tab = currentTab();
-  // The day builder (#start) and the old full list (#backlog) sit behind Plan now.
-  const shown = tab === 'start' || tab === 'backlog' ? 'plan' : tab;
+  // Three sections and the calendar. Today's Planning holds Today, What matters, and what sits behind it.
+  const shown = sectionOf(tab);
   document.querySelectorAll('[data-tab]').forEach((a) => {
     if (a.dataset.tab === shown) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   document.body.dataset.tab = tab;
+  followTick(shown);
   renderNowPill();
   renderSyncPill();
   if (tab !== 'goals') loadGoogleAhead();
@@ -253,6 +272,7 @@ function render() {
   else if (tab === 'goals') view.innerHTML = renderGoals();
   else if (tab === 'backlog') view.innerHTML = renderBacklog();
   else if (tab === 'plan') view.innerHTML = renderPlan();
+  else if (tab === 'play') view.innerHTML = Play.render();
   else view.innerHTML = renderStart();
   afterRender.forEach((fn) => fn());
 }
@@ -337,7 +357,8 @@ function calendarLegendHTML() {
 }
 
 const commuteItem = (start) => ({ start, minutes: S().commuteMinutes, cls: 'ev-commute', title: `Commute ${S().commuteMinutes} min` });
-const markText = (t) => (t ? `${R.PRIORITIES[t.priority].mark} ` : '');
+let plainCal = false; // Today's calendar shows names only, no level symbols
+const markText = (t) => (t && !plainCal ? `${R.PRIORITIES[t.priority].mark} ` : '');
 
 // Things made in Personal IO for one day.
 function ioItems(key) {
@@ -390,19 +411,26 @@ function googleItems(key, list) {
 function calendarBlockHTML(id, key, opts = {}) {
   afterRender.push(() => fillCalendar(id, key, opts));
   const cached = G.isConfigured() ? G.cachedDay(key) : null;
-  return `<div id="${id}" class="cal-slot">${calendarLegendHTML()}${timelineHTML([...ioItems(key), ...(cached ? googleItems(key, cached) : [])], opts)}</div>`;
+  plainCal = !!opts.plain;
+  const items = [...ioItems(key), ...(cached ? googleItems(key, cached) : [])];
+  plainCal = false;
+  return `<div id="${id}" class="cal-slot">${opts.plain ? '' : calendarLegendHTML()}${timelineHTML(items, opts)}</div>`;
 }
 
 async function fillCalendar(id, key, opts = {}) {
   const el = document.getElementById(id);
   if (!el) return;
   el.dataset.want = key;
+  const legendHTML = () => (opts.plain ? '' : calendarLegendHTML());
+  const gItems = (list) => { plainCal = !!opts.plain; const out = googleItems(key, list); plainCal = false; return out; };
+  plainCal = !!opts.plain;
   const io = [...ioItems(key), ...(opts.extra || [])];
-  if (!G.isConfigured()) { el.innerHTML = calendarLegendHTML() + timelineHTML(io, opts); return; }
+  plainCal = false;
+  if (!G.isConfigured()) { el.innerHTML = legendHTML() + timelineHTML(io, opts); return; }
   if (!G.isConnected()) {
     const last = G.cachedDay(key);
     el.innerHTML = `<div class="note note-info" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
-      <span>${last ? 'Google events from the last time you connected.' : 'Show your Google Calendar here.'}</span><button class="btn btn-small" data-action="connect-google">${last ? 'Connect again' : 'Connect Google'}</button></div>${calendarLegendHTML()}${timelineHTML([...io, ...(last ? googleItems(key, last) : [])], opts)}`;
+      <span>${last ? 'Google events from the last time you connected.' : 'Show your Google Calendar here.'}</span><button class="btn btn-small" data-action="connect-google">${last ? 'Connect again' : 'Connect Google'}</button></div>${legendHTML()}${timelineHTML([...io, ...(last ? gItems(last) : [])], opts)}`;
     return;
   }
   try {
@@ -410,10 +438,10 @@ async function fillCalendar(id, key, opts = {}) {
     const allDay = events.filter((e) => e.allDay).map((e) => esc(e.title));
     const still = document.getElementById(id);
     if (!still || still.dataset.want !== key) return; // you moved to another day meanwhile
-    still.innerHTML = `${allDay.length ? `<div class="hint all-day" style="margin-bottom:6px">All day: ${allDay.slice(0, 2).join(', ')}${allDay.length > 2 ? ` and ${allDay.length - 2} more` : ''}</div>` : ''}${calendarLegendHTML()}${timelineHTML([...io, ...googleItems(key, events)], opts)}`;
+    still.innerHTML = `${allDay.length ? `<div class="hint all-day" style="margin-bottom:6px">All day: ${allDay.slice(0, 2).join(', ')}${allDay.length > 2 ? ` and ${allDay.length - 2} more` : ''}</div>` : ''}${legendHTML()}${timelineHTML([...io, ...gItems(events)], opts)}`;
   } catch (err) {
     const still = document.getElementById(id);
-    if (still && still.dataset.want === key) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${calendarLegendHTML()}${timelineHTML(io, opts)}`;
+    if (still && still.dataset.want === key) still.innerHTML = `<div class="note note-warn">${err.message === 'not-connected' ? 'Google sign-in expired.' : esc(err.message)} <button class="btn-link" data-action="connect-google">Connect again</button></div>${legendHTML()}${timelineHTML(io, opts)}`;
   }
 }
 
@@ -575,6 +603,7 @@ function renderPlan() {
   const { matters, rest } = R.planList(state.tasks, state.goals);
   const list = (tasks) => `<ul class="pl-list">${tasks.map(mattersRowHTML).join('')}</ul>`;
   return `<div class="plan">
+    ${planNavHTML('plan')}
     <h1 class="plan-title">What matters</h1>
     ${captureHTML()}
     ${matters.length ? list(matters) : `<p class="pl-empty">${rest.length ? 'Star the one or two things that matter most.' : 'Nothing here yet. Add the first thing above.'}</p>`}
@@ -1121,38 +1150,44 @@ function allDayHTML(key) {
   return names.length ? `<p class="today-allday">All day: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` and ${names.length - 2} more` : ''}</p>` : '';
 }
 
+// The hours Today's calendar shows: 7 AM to 9 PM, wider if something on the day is earlier or later.
+function dayHours(key) {
+  const items = [...ioItems(key), ...((G.isConfigured() && G.cachedDay(key)) ? googleItems(key, G.cachedDay(key)) : [])];
+  const first = Math.min(7 * 60, ...items.map((i) => i.start));
+  const last = Math.max(21 * 60, ...items.map((i) => i.start + i.minutes));
+  return { startHour: Math.max(0, Math.floor(first / 60)), endHour: Math.min(24, Math.ceil(last / 60)) };
+}
+
 function renderToday() {
   const key = todayKey();
   if (state.days[key]) ensureTimes(key);
   const day = state.days[key];
-  const page = (main) => `<div class="today"><h1 class="today-date">${esc(longDay(key))}</h1>${main}</div>`;
+  // top: the proposal or the band. rest: the day's list and the add line, with the day's calendar beside it.
+  const page = (top, rest) => `<div class="today">${planNavHTML('today')}<h1 class="today-date">${esc(longDay(key))}</h1>${top}
+    <div class="today-body"><div class="today-main">${rest}</div>
+    <section class="today-cal" aria-label="Your day">${calendarBlockHTML('cal-today', key, { nowLine: true, px: 44, plain: true, ...dayHours(key) })}</section></div></div>`;
   const listHTML = (rows) => `${allDayHTML(key)}${rows.length ? `<ul class="dayline" id="day-list">${rows.map((r) => dayRowHTML(r, key)).join('')}</ul>` : ''}`;
 
   const onlyCalendar = day && !day.set && day.taskIds.every((id) => task(id)?.eventRef);
   const evening = new Date().getHours() >= 20;
   if ((!day || !day.taskIds.length) && evening) {
-    return page(`<div class="today-quiet"><p>Evening. Plan tomorrow instead.</p><button class="btn btn-dark" data-action="go-plan-tomorrow">Plan tomorrow</button></div>
-    ${listHTML(todayRows(key))}
-    ${captureHTML()}`);
+    return page('<div class="today-quiet"><p>Evening. Plan tomorrow instead.</p><button class="btn btn-dark" data-action="go-plan-tomorrow">Plan tomorrow</button></div>',
+      `${listHTML(todayRows(key))}${captureHTML()}`);
   }
   if (!day || !day.taskIds.length || (onlyCalendar && proposalHTML(key))) {
     // No plan yet: the proposal is the first thing to see in the morning.
     const proposal = proposalHTML(key);
     const inProposal = proposal ? proposalFor(key).calendar : [];
-    return page(`${proposal || '<div class="today-quiet"><p>Nothing planned yet. Add a task and it shows up here.</p></div>'}
-    ${listHTML(todayRows(key, inProposal))}
-    ${captureHTML()}`);
+    return page(proposal || '<div class="today-quiet"><p>Nothing planned yet. Add a task and it shows up here.</p></div>',
+      `${listHTML(todayRows(key, inProposal))}${captureHTML()}`);
   }
 
   const rows = todayRows(key);
   const next = rows.find((r) => r.next);
   const notes = `${!day.set ? '<div class="today-note"><span>Plan not set yet.</span><a class="btn-link" href="#start">Set it</a></div>' : ''}
   ${day.set && day.planStale && G.isConfigured() ? `<div class="today-note"><span>Your plan changed.</span><button class="btn btn-small" data-action="set-plan" data-day="${key}">Update Google Calendar</button></div>` : ''}`;
-  return page(`${notes}
-  ${proposalHTML(key)}
-  ${next ? nextCardHTML(next.item, key) : doneWordHTML(rows)}
-  ${listHTML(rows.filter((r) => !r.next))}
-  ${captureHTML()}`);
+  return page(`${notes}${proposalHTML(key)}${next ? nextCardHTML(next.item, key) : doneWordHTML(rows)}`,
+    `${listHTML(rows.filter((r) => !r.next))}${captureHTML()}`);
 }
 
 // ----- welcome back: a short fresh start after time away -----
@@ -1676,6 +1711,7 @@ let openedAt = Date.now(); // when the app was last opened or brought back to th
 function openStarter(t, { auto = false, from = null } = {}) {
   if (!t) return;
   if (R.activeBreak(state.moments)) finishBreak('start'); // starting means the break is over
+  Play.leave(); // and a game on screen stops counting minutes
   // Kept for the self-test (see CLAUDE.md): which screen the start came from, and how many seconds
   // after opening the app. It only counts as a start once he taps that he began (see starter-next).
   // An automatic start is housekeeping (quiet); maybeAutoStart saves it.
@@ -1685,6 +1721,62 @@ function openStarter(t, { auto = false, from = null } = {}) {
   stopStarterTimer();
   starter = { taskId: t.id, steps, i: 0, left: 60, timer: null, momentId: m.id, moment: { ...m } };
   showStarterStep();
+}
+
+// ----- the Follower: one agent that watches the whole day (rules in rules.js, no AI) -----
+// It counts the time in each section while the app is on screen, keeps one "visit" record per sitting,
+// and says one kind line when planning goes on without a start. The games ask it how to play.
+
+const follow = { section: null, last: 0, sitMs: 0, sinceStartMs: 0, said: false };
+
+function followTick(section = follow.section) {
+  const now = Date.now();
+  const visible = document.visibilityState === 'visible';
+  if (follow.section && follow.last) {
+    const delta = Math.min(Math.max(now - follow.last, 0), 90000); // a sleeping phone does not count
+    if (visible || delta < 2000) { follow.sitMs += delta; follow.sinceStartMs += delta; }
+  }
+  follow.last = now;
+  Play.tick();
+  if (section !== follow.section) {
+    endVisit();
+    if (follow.section === 'play') Play.leave({ home: true });
+    follow.section = section;
+    follow.sitMs = 0; follow.sinceStartMs = 0; follow.said = false;
+    return;
+  }
+  // Never while he types, while a window is open, or during a planned break.
+  if (!visible || follow.said || userBusy() || R.activeBreak(state.moments)) return;
+  const which = R.planLine(follow.section, follow.sinceStartMs / 60000);
+  const t = which ? nextTask() : null;
+  if (!which || !t) return;
+  follow.said = true;
+  const m = addMoment({ kind: 'nudge', which, did: null });
+  save(state, { quiet: true });
+  toast('You have planned enough. Start the first thing?', { label: 'Start 1 minute', data: { action: 'follow-start', id: t.id, nudge: m.id } }, 20000);
+}
+
+// One record per sitting of a minute or more: which section and how long. Housekeeping (a quiet save).
+function endVisit() {
+  if (!follow.section || follow.sitMs < 60000) return;
+  addMoment({ kind: 'visit', section: follow.section, minutes: Math.round(follow.sitMs / 60000) });
+  save(state, { quiet: true });
+}
+
+// What the games need to know about the day: is something close, is something late, how much play so far.
+function playInput() {
+  const key = todayKey();
+  const now = nowMinutes();
+  const day = state.days[key];
+  const planned = day ? sortedDayTasks(key).filter((t) => t.status === 'open' && !t.eventRef) : [];
+  const starts = [
+    ...calendarItems(key).filter((c) => !c.commute).map((c) => R.toMinutes(c.start)),
+    ...planned.map((t) => timeOn(t, key)).filter(Boolean).map(R.toMinutes),
+  ].filter((m) => m >= now).sort((a, b) => a - b);
+  const inMeeting = calendarItems(key).some((c) => !c.commute && R.toMinutes(c.start) <= now && now < R.toMinutes(c.start) + (c.minutes || 0));
+  const lateOpen = planned.some((t) => { const at = timeOn(t, key); return at && R.toMinutes(at) <= now; });
+  const dueNoPlan = !planned.length && !gentleOn(key) && state.tasks.some((t) => t.status === 'open' && !t.eventRef && t.deadline && t.deadline <= key);
+  return { nowMin: now, nextStartMin: starts.length ? starts[0] : null, inMeeting, lateOpen, dueNoPlan, playedMin: R.playMinutes(state.moments, key) };
 }
 
 // "Done, I started": this is the real start. Saved once, with the minutes after the planned time.
@@ -1702,6 +1794,7 @@ function markBegan() {
   if (delay !== null) m.delay = delay;
   touch(m);
   save(state);
+  follow.said = true; // work started: no planning line for the rest of this sitting
 }
 
 // When a deep work block begins, the start screen opens by itself (once per block).
@@ -2042,7 +2135,7 @@ function renderGoals() {
   }).join('');
   return `
   <section class="page-head">
-    <div><h1>Goals</h1><div class="sub">Most important first. Tasks follow this order. "Keep life running" is always last.</div></div>
+    <div><h1>Life Planning</h1><div class="sub">Your goals, most important first. Tasks follow this order.</div></div>
     ${state.goals.length < S().maxGoals ? '<button class="btn btn-dark" data-action="new-goal">+ New goal</button>' : ''}
   </section>
   <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">${cards}</div>`;
@@ -2407,6 +2500,13 @@ function statsLine() {
   return `${n.starts} start${n.starts === 1 ? '' : 's'} on ${n.days} day${n.days === 1 ? '' : 's'}.${late}${open}`;
 }
 
+// One plain line about play: how much, and how often it turned into work.
+function playLineText() {
+  const p = R.playStats(state.moments);
+  if (!p.games) return 'No games yet.';
+  return `${p.minutes} min of play on ${p.days} day${p.days === 1 ? '' : 's'} (about ${p.perDay} min a day). ${p.turned} of ${p.sittings} time${p.sittings === 1 ? '' : 's'}, a task started within 10 minutes after playing.`;
+}
+
 function settingsHTML() {
   return `
   <form class="modal" data-form="settings" novalidate>
@@ -2492,6 +2592,8 @@ function settingsHTML() {
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:6px">
       <strong>Your numbers</strong>
       <span class="stats-line">${esc(statsLine())}</span>
+      <span class="stats-line">${esc(playLineText())}</span>
+      <div><button type="button" class="btn-link" data-action="copy-follower">Copy the Follower's summary</button></div>
     </div>
 
     <div class="card card-pad" style="display:flex; flex-direction:column; gap:10px">
@@ -2816,7 +2918,11 @@ async function pushToDrive(id, expect = null) {
 function useDriveCopy(data, remote, message, driveData = data) {
   const firstTime = !getSync().base;
   const openedToday = state.lastOpenDate;
+  // Section time and the Follower's lines are saved quietly here; keep the ones the other copy does not have.
+  const mine = (state.moments || []).filter((m) => m.kind === 'visit' || m.kind === 'nudge');
   state = normalize(data);
+  const have = new Set((state.moments || []).map((m) => m.id));
+  state.moments = [...(state.moments || []), ...mine.filter((m) => !have.has(m.id))];
   state.savedAt = remote.savedAt;
   if (openedToday && (!state.lastOpenDate || openedToday > state.lastOpenDate)) state.lastOpenDate = openedToday;
   save(state, { quiet: true });
@@ -2940,6 +3046,11 @@ const actions = {
     setSync({});
     openModal(settingsHTML());
     render();
+  },
+  'copy-follower': async () => {
+    const text = R.followerSummary({ moments: state.moments, days: state.days, todayKey: todayKey() });
+    try { await navigator.clipboard.writeText(text); toast('Copied. Paste it into your own AI if you want its view.'); }
+    catch { toast('Copy did not work on this device.'); }
   },
   'copy-phone-link': async () => {
     try { await navigator.clipboard.writeText(phoneLink()); toast('Link copied. Send it to yourself and open it on the phone.'); }
@@ -3071,6 +3182,11 @@ const actions = {
   },
   'busy-ok': (el) => { getDay(el.dataset.day).busyOk = true; persist(); },
   'start-task': (el) => openStarter(task(el.dataset.id), { from: el.dataset.from || 'list' }),
+  'follow-start': (el) => {
+    const m = momentById(el.dataset.nudge);
+    if (m && !m.did) { m.did = 'start'; touch(m); }
+    openStarter(task(el.dataset.id), { from: 'follower' });
+  },
   'starter-next': () => { if (!starter) return; markBegan(); starter.i += 1; showStarterStep(); },
   'starter-close': () => { stopStarterTimer(); starter = null; closeModal(); },
   'copy-task': () => {
@@ -3748,6 +3864,8 @@ window.addEventListener('storage', (e) => {
   checkBreak();
 });
 document.addEventListener('visibilitychange', () => {
+  followTick();
+  if (document.visibilityState === 'hidden') { endVisit(); follow.sitMs = 0; follow.sinceStartMs = 0; follow.said = false; Play.leave(); }
   if (document.visibilityState === 'visible') {
     openedAt = Date.now();
     if (G.isConnected() && Date.now() - sync.lastCheck > 15000) syncNow().then(checkBreak, checkBreak);
@@ -3755,6 +3873,19 @@ document.addEventListener('visibilitychange', () => {
   }
   if (document.visibilityState === 'hidden' && G.isConnected() && localChanged()) { clearTimeout(sync.timer); syncNow(); }
 });
+
+// The games borrow a few things from the app; their buttons join the same table of actions.
+Play.init({
+  state: () => state,
+  save: () => save(state),
+  saveQuiet: () => save(state, { quiet: true }),
+  render: () => render(),
+  addMoment, momentById, touch, todayKey, nextTask, firstMinute, esc, playInput,
+  start: (id) => { if (location.hash !== '#today') location.hash = '#today'; openStarter(task(id), { from: 'play' }); },
+  planPlay: () => actions['pause-feel']({ dataset: { feel: 'break' } }),
+});
+Object.assign(actions, Play.actions);
+setInterval(() => followTick(), 15000); // the Follower's clock
 
 const startupMessages = dailyCheck();
 render();
