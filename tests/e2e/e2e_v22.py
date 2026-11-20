@@ -28,7 +28,7 @@ with sync_playwright() as p:
     go = pg.locator('.next [data-action="start-task"]').bounding_box(); assert go['y'] + go['height'] < 500 and go['height'] >= 44 and go['width'] < 260, go  # a small button in its place, not a full-width one
     assert pg.evaluate('document.documentElement.scrollWidth') <= 390, 'no sideways scroll'
     words = len(pg.evaluate("(() => { const v = document.getElementById('view').cloneNode(true); v.querySelector('.today-cal')?.remove(); document.body.appendChild(v); const t = v.innerText; v.remove(); return t; })()").split()); assert words <= 60, f'{words} words on Today (not counting the calendar hours)'
-    assert pg.locator('#view button:visible, #view a:visible, #view input:visible').count() - pg.locator('#cal-today button:visible').count() <= 16
+    assert pg.locator('#view button:visible, #view a:visible, #view input:visible').count() - pg.locator('#cal-today button:visible').count() - pg.locator('#view .goal-oval:visible').count() <= 16  # v2.5 adds one goal oval per task, by his choice
     for old in ['.summary-line', '.goal-today', '.chip', '#view .eyebrow']: assert pg.locator(old).count() == 0, old
 
     # the rest of the day in time order, with the calendar event in its place; no symbol code

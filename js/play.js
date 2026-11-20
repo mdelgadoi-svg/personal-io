@@ -17,6 +17,10 @@ let worker = null;
 let thinkId = 0;
 let showing = false;            // true while a game is on the screen (not the section's first screen)
 let lastTap = 0;
+let picking = false;            // v2.5: the chess time picker is on screen (before a new game)
+let lastEach = 10;              // the clock he picked last time, offered first next time
+let chatOpen = !window.matchMedia('(max-width: 760px)').matches; // the Follower box: open on a computer, one line on a phone
+let chatHTML = '';
 
 const game = () => (cur ? games[cur] : null);
 const PIECE = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
@@ -32,6 +36,9 @@ export function init(h) {
   // A record left open by a closed tab is never continued: the minutes stop where they were.
   Object.values(games).forEach((g) => { if (g) { g.momentId = null; g.thinking = false; g.sel = null; g.targets = []; } });
   if (games.chess) rebuildChess();
+  // A clock left running by a closed tab waits: the time since its last move is not taken from him.
+  if (games.chess && games.chess.clock) { games.chess.clock.since = null; lastEach = games.chess.clock.each; }
+  setInterval(everySecond, 1000);
   // No game is running when the app loads: a record still open (the tab was closed mid-game) ends one minute in.
   const stale = (host.state().moments || []).filter((m) => m.kind === 'play' && !m.endAt);
   stale.forEach((m) => { m.endAt = new Date(Date.parse(m.at) + 60000).toISOString(); m.result = 'left'; host.touch(m); });
@@ -85,8 +92,40 @@ function closeMoment(result, endMs = Date.now()) {
 // or a start screen opens. 'left' only means "paused": it is not a result.
 export function leave({ home = false } = {}) {
   const g = game();
-  if (g && !g.over) { closeMoment('left'); keep(); }
-  if (home) showing = false;
+  if (g && !g.over) { closeMoment('left'); pauseClock(); keep(); }
+  if (home) { showing = false; picking = false; }
+}
+
+// ----- the chess clock (v2.5) -----
+const clockOn = () => games.chess && games.chess.clock && !games.chess.over;
+function pauseClock() { if (clockOn()) games.chess.clock = R.clockPause(games.chess.clock, Date.now()); }
+function resumeClock() { if (clockOn() && cur === 'chess' && showing && !picking) games.chess.clock = R.clockResume(games.chess.clock, Date.now()); }
+function switchClock() { if (clockOn()) games.chess.clock = R.clockSwitch(games.chess.clock, Date.now()); }
+
+// Once a second, only while a game is on screen: the clocks, the time of day, a fallen flag,
+// and the Follower's words when they change.
+function everySecond() {
+  if (!host || document.visibilityState !== 'visible' || !showing) return;
+  const box = document.querySelector('.follower');
+  if (box) { const html = followerHTML(); if (html !== chatHTML && !box.contains(document.activeElement)) { box.outerHTML = html; chatHTML = html; } }
+  const now = document.querySelector('.play-now');
+  if (now) now.textContent = timeOfDay();
+  const g = games.chess;
+  if (cur !== 'chess' || picking || !clockOn() || !g.clock.since) return;
+  const flag = R.clockFlag(g.clock, Date.now());
+  if (flag) {
+    thinkId += 1; // a move still on its way does not count
+    finish(flag === 'w' ? 'loss' : 'win', flag === 'w' ? "Time's up. The computer won." : 'The computer ran out of time. You won.');
+    host.render();
+    return;
+  }
+  const left = R.clockLeft(g.clock, Date.now());
+  ['w', 'b'].forEach((side) => { const el = document.querySelector(`.clock-${side} .clock-time`); if (el) el.textContent = R.clockText(left[side]); });
+}
+
+function timeOfDay() {
+  const d = new Date();
+  return R.to12h(R.toHHMM(d.getHours() * 60 + d.getMinutes()));
 }
 
 // Called by the Follower's clock: with no tap for five minutes the minutes stop at the last tap.
@@ -96,12 +135,14 @@ export function tick() {
   if (g && !g.over && m && !m.endAt && Date.now() - lastTap > IDLE_MS) { closeMoment('left', lastTap + 60000); keep(); }
 }
 
-function start(kind) {
+function start(kind, each = lastEach) {
   leave();
+  picking = false;
   const mode = R.playMode(host.playInput()).mode;
   if (kind === 'chess') {
     const level = R.chessLevel(mode, R.playResults(host.state().moments, host.todayKey(), 'chess'));
-    games.chess = { kind: 'chess', mode, level, moves: [], sel: null, targets: [], last: null, over: null, thinking: false, momentId: null };
+    lastEach = each;
+    games.chess = { kind: 'chess', mode, level, moves: [], sel: null, targets: [], last: null, over: null, thinking: false, momentId: null, clock: R.newClock(each) };
     chess = new Chess();
     thinkId += 1; // an answer still on its way belongs to the old game
   } else {
@@ -112,6 +153,7 @@ function start(kind) {
   cur = kind;
   showing = true;
   openMoment();
+  resumeClock();
   keep();
 }
 
@@ -121,14 +163,17 @@ function open(kind) {
     leave();
     cur = kind;
     showing = true;
+    picking = false;
     openMoment();
-    if (kind === 'chess') wake();
+    if (kind === 'chess') { resumeClock(); wake(); }
     keep();
-  } else start(kind);
+  } else if (kind === 'chess') { leave(); cur = 'chess'; showing = true; picking = true; } // he picks the time first
+  else start(kind);
 }
 
 function finish(result, text) {
   const g = game();
+  if (g.kind === 'chess') pauseClock();
   closeMoment(result);
   const played = R.playMinutes(host.state().moments, host.todayKey());
   const said = (host.state().moments || []).filter((m) => m.kind === 'nudge' && R.toDateKey(new Date(m.at)) === host.todayKey()).map((m) => m.which);
@@ -171,7 +216,7 @@ function think() {
       if (!live()) return;
       const done = move ? chess.move(move) : null;
       g.thinking = false;
-      if (done) { g.moves.push(done.san); g.last = { from: done.from, to: done.to }; g.said = done.san; }
+      if (done) { g.moves.push(done.san); g.last = { from: done.from, to: done.to }; g.said = done.san; if (g.clock && !g.over) g.clock = R.clockSwitch(g.clock, Date.now()); }
       if (cur === 'chess' && showing) chessOverCheck(); else if (chess.isGameOver()) g.pendingOver = true; // he will see the result when he comes back
       keep();
       host.render();
@@ -199,9 +244,11 @@ function tapSquare(sq) {
   const g = games.chess;
   if (!g || cur !== 'chess' || g.over || g.thinking || chess.turn() !== 'w') return;
   openMoment();
+  resumeClock();
   const piece = chess.get(sq);
   if (g.sel && g.targets.includes(sq)) {
     const done = chess.move({ from: g.sel, to: sq, promotion: 'q' });
+    switchClock();
     g.moves.push(done.san);
     g.last = { from: done.from, to: done.to };
     g.sel = null; g.targets = []; g.said = null;
@@ -237,11 +284,72 @@ function boardHTML(g) {
 
 const footLinks = '<span class="play-links"><button type="button" class="play-link" data-action="play-home">Leave it for later</button><button type="button" class="play-link" data-action="play-end">End game</button></span>';
 
+// The pieces taken so far, from the moves: what he took (black pieces) and what he lost (white pieces).
+function captured() {
+  const took = [];
+  const lost = [];
+  chess.history({ verbose: true }).forEach((m) => { if (m.captured) (m.color === 'w' ? took : lost).push(m.captured); });
+  const order = 'qrbnp';
+  const sort = (list) => list.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return { took: sort(took), lost: sort(lost) };
+}
+
+function capsHTML(list, color, label) {
+  if (!list.length) return `<span class="caps" aria-label="${label}: none"></span>`;
+  return `<span class="caps" aria-label="${label}: ${list.map((p) => PIECE[p]).join(', ')}">${list.map((p) => `<svg viewBox="0 0 40 40" aria-hidden="true"><use href="icons/chess-pieces.svg#${color}${p}"></use></svg>`).join('')}</span>`;
+}
+
+// Above the board: the time of day, then each player's clock with the pieces they took.
+function chessTopHTML(g) {
+  const caps = captured();
+  if (!g.clock) return `<div class="chess-top"><div class="play-now">${timeOfDay()}</div></div>`;
+  const left = R.clockLeft(g.clock, Date.now());
+  const run = (side) => (!g.over && g.clock.since !== null && g.clock.side === side ? ' is-running' : '');
+  return `<div class="chess-top">
+    <div class="play-now" aria-label="Time now">${timeOfDay()}</div>
+    <div class="clocks">
+      <div class="clock clock-b${run('b')}"><span class="clock-who">Computer</span><span class="clock-time" role="timer">${R.clockText(left.b)}</span>${capsHTML(caps.lost, 'w', 'The computer took')}</div>
+      <div class="clock clock-w${run('w')}"><span class="clock-who">You</span><span class="clock-time" role="timer">${R.clockText(left.w)}</span>${capsHTML(caps.took, 'b', 'You took')}</div>
+    </div>
+  </div>`;
+}
+
+// Before a new game: how long each player has.
+function setupHTML() {
+  return `<div class="play">
+    ${followerHTML()}
+    <div class="play-head"><h1 class="play-title">Chess</h1></div>
+    <div class="chess-top"><div class="play-now">${timeOfDay()}</div></div>
+    <p class="play-ask">How long for each player?</p>
+    <div class="play-clock-pick">${R.CLOCK_CHOICES.map((m) => `<button type="button" class="pl-pill${m === lastEach ? ' is-on' : ''}" data-action="chess-clock" data-min="${m}">${m} min</button>`).join('')}</div>
+    <p class="play-foot"><button type="button" class="play-link" data-action="play-home">Back</button></p>
+  </div>`;
+}
+
+// The Follower beside the games: kind lines about time and what is next, and one small action.
+function followerHTML() {
+  const input = host.playInput();
+  const pm = R.playMode(input);
+  const t = host.nextTask();
+  const at = t ? host.timeToday(t) : null;
+  const lines = R.followerChat({ playedMin: input.playedMin, nowMin: input.nowMin, next: t ? { title: t.title, startMin: at ? R.toMinutes(at) : null } : null, mode: pm.mode, why: pm.why });
+  if (!chatOpen) {
+    return `<aside class="follower is-closed" aria-label="The Follower"><button type="button" class="follower-open" data-action="follower-toggle" aria-expanded="false"><span class="follower-dot" aria-hidden="true"></span>The Follower${input.playedMin >= 1 ? ` · ${R.formatMinutes(input.playedMin)} played` : ''}</button></aside>`;
+  }
+  return `<aside class="follower" aria-label="The Follower">
+    <div class="follower-head"><span class="follower-name"><span class="follower-dot" aria-hidden="true"></span>The Follower</span><button type="button" class="follower-hide" data-action="follower-toggle" aria-expanded="true" aria-label="Hide the Follower">Hide</button></div>
+    ${lines.map((l) => `<p class="follower-line">${host.esc(l)}</p>`).join('')}
+    <div class="follower-actions">${t ? `<button type="button" class="pl-pill is-on" data-action="play-start" data-id="${t.id}">Start 1 minute</button>` : ''}<button type="button" class="pl-pill" data-action="play-plan">Plan my play</button></div>
+  </aside>`;
+}
+
 function chessHTML(g) {
   const turn = chess.isCheck() ? 'Check. Your move' : 'Your move';
   const status = g.thinking ? 'The computer is thinking' : g.said ? `The computer played ${g.said}. ${turn}` : turn;
   return `<div class="play">
+    ${followerHTML()}
     <div class="play-head"><h1 class="play-title">Chess</h1><span class="play-level">${LEVEL_WORD[g.level]}</span></div>
+    ${chessTopHTML(g)}
     ${boardHTML(g)}
     ${g.over ? afterHTML(g) : `<div class="play-foot"><span class="play-status" aria-live="polite">${status}</span>${footLinks}</div>`}
   </div>`;
@@ -280,6 +388,7 @@ function sudokuHTML(g) {
   const off = g.sel === null ? ' disabled' : '';
   const pad = Array.from({ length: size }, (_, k) => `<button type="button" class="digit" data-action="sudoku-digit" data-d="${k + 1}"${off}>${k + 1}</button>`).join('');
   return `<div class="play">
+    ${followerHTML()}
     <div class="play-head"><h1 class="play-title">Sudoku</h1><span class="play-level">${size === 9 ? 'A full grid' : 'A quick one'}</span></div>
     <div class="sudoku size-${size}" style="--n:${size}" role="group" aria-label="Sudoku grid">${cells}</div>
     ${g.over ? afterHTML(g) : `<div class="digits" role="group" aria-label="Numbers">${pad}<button type="button" class="digit digit-clear" data-action="sudoku-digit" data-d="0"${off} aria-label="Clear the cell">Clear</button></div>
@@ -324,6 +433,7 @@ function homeHTML() {
   const going = (kind) => games[kind] && !games[kind].over;
   const tile = (kind, icon, name, sub) => `<button type="button" class="play-game${going(kind) ? ' is-going' : ''}" data-action="play-${kind}">${icon}<span class="play-game-name">${name}</span><span class="play-game-sub">${going(kind) ? 'Back to your game' : sub}</span></button>`;
   return `<div class="play">
+    ${followerHTML()}
     <h1 class="plan-title">Procrastination</h1>
     ${t ? nextHTML(t, { primary: false }) : ''}
     <div class="play-games">
@@ -335,6 +445,7 @@ function homeHTML() {
 
 export function render() {
   const g = game();
+  if (showing && picking && cur === 'chess') return setupHTML();
   if (!g || !showing) return homeHTML();
   return g.kind === 'chess' ? chessHTML(g) : sudokuHTML(g);
 }
@@ -355,9 +466,11 @@ export const actions = {
   },
   'play-again': (el) => {
     if (el && el.dataset.keep) answer('keep');
-    start(cur);
+    if (cur === 'chess') { leave(); showing = true; picking = true; } else start(cur); // a new chess game: he picks the time
     host.render();
   },
+  'chess-clock': (el) => { start('chess', Number(el.dataset.min) || 10); host.render(); },
+  'follower-toggle': () => { chatOpen = !chatOpen; chatHTML = ''; host.render(); document.querySelector('.follower button')?.focus({ preventScroll: true }); },
   // Ending a game is his choice, not a pause: it counts as a finished game (and ends a winning streak).
   'play-end': () => { const g = game(); if (g && !g.over) { finish('ended', g.kind === 'chess' ? 'Game ended.' : 'Grid closed.'); host.render(); } },
   'play-start': (el) => {
