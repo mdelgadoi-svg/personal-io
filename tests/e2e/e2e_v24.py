@@ -27,6 +27,10 @@ def page(b, st, w=390, h=844, phone=True, hour=10, minute=0, install=False):
     pg.clock.install(time=when) if install else pg.clock.set_fixed_time(when)
     pg.on('pageerror', lambda e: errors.append(str(e))); pg.on('console', lambda m: errors.append('console: ' + m.text) if m.type == 'error' else None)
     return pg
+# v2.5: a new chess game asks for the clock first (he picks 5, 10 or 15 minutes).
+def open_chess(pg, sel='[data-action="play-chess"]'):
+    pg.click(sel); pg.wait_for_selector('.board, .play-clock-pick')
+    if pg.locator('.play-clock-pick').count(): pg.click('[data-action="chess-clock"][data-min="15"]'); pg.wait_for_selector('.board')
 iso = lambda h, m: datetime.datetime(2026, 11, 17, h, m).astimezone().isoformat()
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -41,10 +45,10 @@ with sync_playwright() as p:
     assert pg.evaluate('document.documentElement.scrollWidth') <= 390
     pg.goto(BASE + '#goals'); pg.wait_for_selector('h1'); assert cur() == 'Life Planning' and pg.inner_text('#view h1') == 'Life Planning'
     pg.goto(BASE + '#today'); pg.wait_for_selector('.subnav'); assert cur() == "Today's Planning"
-    pg.click('.subnav a[href="#plan"]'); pg.wait_for_selector('.plan'); assert cur() == "Today's Planning" and pg.locator('.subnav a[aria-current="page"]').inner_text() == 'What matters'
+    pg.click('.subnav a[href="#plan"]'); pg.wait_for_selector('.plan'); assert cur() == "Today's Planning" and pg.locator('.subnav a[aria-current="page"]').inner_text() == 'Plan my day'
 
     # 2. free: nothing close, so an easy opponent and a full grid
-    pg.goto(BASE + '#play'); pg.click('[data-action="play-chess"]'); pg.wait_for_selector('.board')
+    pg.goto(BASE + '#play'); open_chess(pg)
     assert pg.inner_text('.play-level') == 'An easy opponent', pg.inner_text('.play-level')
     assert pg.locator('.sq').count() == 64 and pg.locator('.sq[data-piece]').count() == 32
     sq = pg.locator('.sq').first.bounding_box(); assert sq['width'] >= 44 and abs(sq['width'] - sq['height']) < 1, sq
@@ -58,14 +62,14 @@ with sync_playwright() as p:
 
     # 4. the game survives a reload; leaving the section closes the play record and coming back opens a new one
     pg.reload(); pg.wait_for_selector('.play-game.is-going'); assert plays(pg)[0].get('result') == 'left' and 'Back to your game' in pg.inner_text('[data-action="play-chess"]')
-    pg.click('[data-action="play-chess"]'); pg.wait_for_selector('.board'); assert len(chessg(pg)['moves']) == 2 and pg.locator('.sq[data-sq="e4"][data-piece="wp"]').count() == 1
+    open_chess(pg); assert len(chessg(pg)['moves']) == 2 and pg.locator('.sq[data-sq="e4"][data-piece="wp"]').count() == 1
     assert len(plays(pg)) == 2 and 'endAt' not in plays(pg)[1]
     pg.goto(BASE + '#today'); pg.wait_for_selector('.today'); assert plays(pg)[1].get('result') == 'left'
 
     # 5. after a game the next task is there; Start 1 minute opens the start screen
     pg.goto(BASE + '#play'); pg.click('[data-action="play-sudoku"]'); pg.wait_for_selector('.sudoku')   # starting the other game keeps this one
     pg.click('[data-action="play-home"]'); assert pg.locator('.play-game.is-going').count() == 2
-    pg.click('[data-action="play-chess"]'); pg.wait_for_selector('.board'); assert len(game(pg)['games']['chess']['moves']) == 2
+    open_chess(pg); assert len(game(pg)['games']['chess']['moves']) == 2
     pg.click('[data-action="play-end"]'); pg.wait_for_selector('.play-after')
     after = pg.inner_text('.play-after'); assert 'Game ended.' in after and 'Send application' in after and 'Open the draft' in after and 'Good game' not in after, after
     pg.click('.play-after [data-action="play-start"]'); pg.wait_for_selector('[data-form="starter"]')
@@ -89,7 +93,7 @@ with sync_playwright() as p:
 
     # 7. tight: a meeting in 30 minutes means a strong opponent and a quick grid
     soon = page(b, state(events=[{"id": "e1", "title": "Class", "date": D, "start": "10:30", "minutes": 60, "repeat": "none"}]))
-    soon.goto(BASE + '#play'); soon.click('[data-action="play-chess"]'); soon.wait_for_selector('.board')
+    soon.goto(BASE + '#play'); open_chess(soon)
     assert soon.inner_text('.play-level') == 'A strong opponent' and plays(soon)[0]['mode'] == 'tight'
     soon.click('[data-action="play-home"]'); soon.click('[data-action="play-sudoku"]'); soon.wait_for_selector('.sudoku')
     assert soon.inner_text('.play-level') == 'A quick one' and soon.locator('.cell').count() == 36
@@ -98,18 +102,18 @@ with sync_playwright() as p:
     # 8. two wins in a row when free: the opponent gets stronger, so a streak does not pull him in
     wins = [{"id": f"w{i}", "kind": "play", "game": "chess", "level": "easy", "mode": "free", "at": iso(9, i * 5), "endAt": iso(9, i * 5 + 3), "result": "win"} for i in range(2)]
     won = page(b, state(moments=wins))
-    won.goto(BASE + '#play'); won.click('[data-action="play-chess"]'); won.wait_for_selector('.board'); assert won.inner_text('.play-level') == 'An even opponent'
+    won.goto(BASE + '#play'); open_chess(won); assert won.inner_text('.play-level') == 'An even opponent'
     won.context.close()
 
     # 9. the one kind line, only after a lot of play (25 minutes), with the task's name; each answer is kept
     much = [{"id": "m1", "kind": "play", "game": "chess", "level": "easy", "mode": "free", "at": iso(9, 0), "endAt": iso(9, 26), "result": "loss"}]
     lot = page(b, state(moments=much))
-    lot.goto(BASE + '#play'); lot.click('[data-action="play-chess"]'); lot.wait_for_selector('.board'); lot.click('[data-action="play-end"]'); lot.wait_for_selector('.play-after')
+    lot.goto(BASE + '#play'); open_chess(lot); lot.click('[data-action="play-end"]'); lot.wait_for_selector('.play-after')
     line = lot.inner_text('.play-after'); assert 'Good game, happy you are having a good time.' in line and 'Send application' in line and 'Want to plan when to play?' in line, line
     n = [x for x in data(lot)['moments'] if x['kind'] == 'nudge']; assert len(n) == 1 and n[0]['which'] == 'play25' and n[0]['did'] is None, n
     lot.click('[data-action="play-plan"]'); lot.wait_for_selector('[data-form="pause"]'); assert 'call you back' in lot.inner_text('[data-form="pause"]').lower() or 'how long' in lot.inner_text('[data-form="pause"]').lower(), lot.inner_text('[data-form="pause"]')
     assert [x for x in data(lot)['moments'] if x['kind'] == 'nudge'][0]['did'] == 'plan'
-    lot.keyboard.press('Escape'); lot.click('[data-action="play-again"]'); lot.wait_for_selector('.board'); lot.click('[data-action="play-end"]'); lot.wait_for_selector('.play-after')
+    lot.keyboard.press('Escape'); open_chess(lot, '[data-action="play-again"]'); lot.click('[data-action="play-end"]'); lot.wait_for_selector('.play-after')
     assert 'Good game' not in lot.inner_text('.play-after'), 'the line is said once'
     lot.context.close()
 
@@ -128,7 +132,7 @@ with sync_playwright() as p:
 
     # 10b. minutes are real: hidden time and idle time do not count, and a reload on the computer's turn does not freeze the game
     real = page(b, state(), install=True)
-    real.goto(BASE + '#play'); real.click('[data-action="play-chess"]'); real.wait_for_selector('.board')
+    real.goto(BASE + '#play'); open_chess(real)
     real.click('[data-sq="d2"]'); real.click('[data-sq="d4"]'); real.clock.run_for('00:03'); real.wait_for_function("JSON.parse(localStorage.getItem('personal-io:game')).games.chess.moves.length === 2", timeout=8000)
     real.clock.run_for('02:00')
     real.evaluate("Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange'))")
@@ -145,14 +149,14 @@ with sync_playwright() as p:
     real.context.close()
     stuck = page(b, state())
     stuck.add_init_script("if(!sessionStorage.getItem('g')){localStorage.setItem('personal-io:game', JSON.stringify({cur:'chess',games:{chess:{kind:'chess',mode:'free',level:'easy',moves:['e4'],sel:null,targets:[],last:null,over:null,thinking:false,momentId:null},sudoku:null}}));sessionStorage.setItem('g','1')}")
-    stuck.goto(BASE + '#play'); stuck.click('[data-action="play-chess"]'); stuck.wait_for_selector('.board')
+    stuck.goto(BASE + '#play'); open_chess(stuck)
     stuck.wait_for_function("JSON.parse(localStorage.getItem('personal-io:game')).games.chess.moves.length === 2", timeout=8000)   # the computer plays its waiting move
     assert stuck.inner_text('.play-status').endswith('Your move')
     stuck.context.close()
 
     # 11. a computer: the board fits the window, the tabs read like the rest
     w = page(b, state(), 1366, 800, False)
-    w.goto(BASE + '#play'); w.click('[data-action="play-chess"]'); w.wait_for_selector('.board')
+    w.goto(BASE + '#play'); open_chess(w)
     assert w.evaluate('document.documentElement.scrollHeight') <= 800 and w.locator('.tabs a[aria-current="page"]').inner_text().strip().upper() == 'PROCRASTINATION'
     for width in [761, 900, 1100, 1366]:
         w.set_viewport_size({'width': width, 'height': 800}); w.wait_for_timeout(100)

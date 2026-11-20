@@ -650,6 +650,28 @@ export function dayLine(tasks = [], events = [], now = null) {
 
 // ---------- Plan: not a day to build, only what matters and how soon ----------
 
+// ---------- the goal on each task (v2.5) ----------
+// goalBy: 'me' (he picked it), 'ai' (Claude picked it) or null (nobody yet). Tasks from before v2.5
+// have no goalBy: a goal other than "Keep life running" counts as his pick.
+export function goalPickedBy(task) {
+  if (task.goalBy !== undefined) return task.goalBy;
+  return task.goalId && task.goalId !== 'life' ? 'me' : null;
+}
+
+// What the small oval says: the goal's number in his order (1 = first), 'life', or '?' when unclear.
+export function goalTag(task, goals = []) {
+  if (!goalPickedBy(task)) return '?';
+  if (task.goalId === 'life') return 'life';
+  const order = goals.filter((g) => g.id !== 'life');
+  const i = order.findIndex((g) => g.id === task.goalId);
+  return i === -1 ? '?' : String(i + 1);
+}
+
+// Open tasks the AI should look at: nobody picked their goal yet.
+export function tasksNeedingGoal(tasks = []) {
+  return tasks.filter((t) => t.status === 'open' && !goalPickedBy(t) && !t.eventRef);
+}
+
 // One list for the Plan page: matters = starred, rest = everything else, both in the order the app
 // would do them (rankTasks). Starred meetings are left out: they live on the calendar.
 export function planList(tasks = [], goals = []) {
@@ -950,4 +972,67 @@ export function mergeData(base, local, remote) {
     lastOpenDate: later(local.lastOpenDate, remote.lastOpenDate),
     lastDailyCheck: later(local.lastDailyCheck, remote.lastDailyCheck),
   };
+}
+
+// ---------- v2.5: the chess clock ----------
+// Each side has its own time. "since" is when the side to move started using its time (null = paused:
+// he left the game, the app went to the background). Times are in milliseconds.
+export const CLOCK_CHOICES = [5, 10, 15];
+
+export function newClock(each) {
+  const ms = each * 60000;
+  return { each, w: ms, b: ms, side: 'w', since: null };
+}
+
+export function clockLeft(clock, nowMs) {
+  const run = clock.since !== null && clock.since !== undefined ? Math.max(0, nowMs - clock.since) : 0;
+  return {
+    w: Math.max(0, clock.w - (clock.side === 'w' ? run : 0)),
+    b: Math.max(0, clock.b - (clock.side === 'b' ? run : 0)),
+  };
+}
+
+// A move was made: the time used is taken off, and the other side's time starts.
+export function clockSwitch(clock, nowMs) {
+  const left = clockLeft(clock, nowMs);
+  return { ...clock, ...left, side: clock.side === 'w' ? 'b' : 'w', since: nowMs };
+}
+
+export function clockPause(clock, nowMs) {
+  return clock.since === null || clock.since === undefined ? clock : { ...clock, ...clockLeft(clock, nowMs), since: null };
+}
+
+export function clockResume(clock, nowMs) {
+  return clock.since === null || clock.since === undefined ? { ...clock, since: nowMs } : clock;
+}
+
+// Whose time ran out: 'w', 'b' or null.
+export function clockFlag(clock, nowMs) {
+  const left = clockLeft(clock, nowMs);
+  if (left.w <= 0) return 'w';
+  if (left.b <= 0) return 'b';
+  return null;
+}
+
+// 4:05, or 0:09 in the last ten seconds.
+export function clockText(ms) {
+  const s = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// ---------- v2.5: what the Follower says beside the games ----------
+// Two or three short, kind lines: how long he has played today, what is next and when.
+// No judging; the buttons under the lines are the one small action (Start 1 minute, Plan my play).
+export function followerChat({ playedMin = 0, nowMin = 0, next = null, mode = 'free', why = 'free' } = {}) {
+  const lines = [playedMin < 1 ? "Hi. I'm keeping an eye on the time for you." : `You have played ${formatMinutes(playedMin)} today.`];
+  if (!next) lines.push('Nothing is waiting. Enjoy the game.');
+  else if (next.startMin === null || next.startMin === undefined) lines.push(`Next: ${next.title}.`);
+  else if (next.startMin > nowMin) lines.push(`Next: ${next.title} at ${to12h(toHHMM(next.startMin))}, in ${formatMinutes(next.startMin - nowMin)}.`);
+  else lines.push(`${next.title} was planned for ${to12h(toHHMM(next.startMin))}. It is still waiting for you.`);
+  if (mode === 'tight') {
+    lines.push(why === 'now' ? 'You have a meeting right now.'
+      : why === 'much' ? "That's a good amount of play today. One more quick game, then the next thing?"
+        : 'Something is close. One quick game, then the next thing?');
+  }
+  return lines;
 }

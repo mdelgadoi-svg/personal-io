@@ -21,12 +21,12 @@ def page(b, w, h, phone):
     ctx.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(st)))
     pg = ctx.new_page(); pg.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 9, 0)); pg.on('pageerror', lambda e: errors.append(str(e)))
     return pg
-titles = lambda pg, i=0: [x.strip() for x in pg.locator('.pl-list').nth(i).locator('.pl-title').all_inner_texts()]
+titles = lambda pg, i=0: [x.strip() for x in pg.locator('.pl-list:not(.pl-day)').nth(i).locator('.pl-title').all_inner_texts()]  # v2.5: the day list sits above
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = page(b, 390, 844, True)
     pg.goto(BASE + '#plan'); pg.wait_for_selector('.plan')
-    assert pg.inner_text('.plan h1') == 'What matters'
+    assert pg.inner_text('.plan h1') == 'Plan my day'  # v2.5: What matters became Plan my day
     assert titles(pg, 0) == ['Send application'] and titles(pg, 1) == ['Pay rent', 'Call the dentist', 'Read the report'], (titles(pg, 0), titles(pg, 1))
     view = pg.inner_text('#view')
     for gone in ['slot', 'Slot', 'Use this plan', 'Set plan', 'Important + urgent', '★', '🤔', 'Goals 1/10']: assert gone not in view, gone
@@ -43,20 +43,20 @@ with sync_playwright() as p:
     assert task(pg, 'c')['important'] is False and 'Read the report' in titles(pg, 1)
     assert pg.input_value('#cap-text') == 'half typed'; pg.fill('#cap-text', '')
 
-    # how soon: plain choices set the deadline and the order follows
-    assert pg.locator('#due-d').evaluate('e => e.options[e.selectedIndex].text') == 'Dec 9'
-    pg.select_option('#due-c', 'tomorrow'); pg.wait_for_timeout(200)
-    assert task(pg, 'c')['deadline'] == '2026-11-17' and titles(pg, 1)[:2] == ['Pay rent', 'Read the report'], titles(pg, 1)
+    # how soon (v2.5): the due date shows under the name; Tomorrow puts it in tomorrow's day; Later sets a date
+    assert 'Due Dec 9' in pg.inner_text('.pl-toplace:has-text("Call the dentist")') or 'Dec 9' in pg.inner_text('#view')
+    pg.click('.pl-toplace:has-text("Read the report") [data-action="place-day"][data-day="tomorrow"]'); pg.wait_for_timeout(300)
+    assert task(pg, 'c')['deadline'] == '2026-11-17' and 'c' in data(pg)['days']['2026-11-17']['taskIds']
     pg.select_option('#due-c', 'week'); pg.wait_for_timeout(200); assert task(pg, 'c')['deadline'] == '2026-11-20'
     pg.select_option('#due-b', 'none'); pg.wait_for_timeout(200); assert task(pg, 'b')['deadline'] == '' and titles(pg, 1)[-1] == 'Pay rent', titles(pg, 1)
     pg.select_option('#due-d', 'pick'); pg.wait_for_selector('form[data-form="task"]'); pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
-    assert pg.locator('#due-d').evaluate('e => e.options[e.selectedIndex].text') == 'Dec 9', 'the pill shows the real date again'
+    assert pg.locator('#due-d').evaluate('e => e.options[e.selectedIndex].text') == 'Later', 'the pill reads Later again'
 
     # adding from Plan shows the new thing at once; a meeting on the calendar can be starred here
     pg.fill('#cap-text', 'Buy stamps tomorrow'); pg.press('#cap-text', 'Enter'); pg.wait_for_timeout(200)
     assert 'Buy stamps' in titles(pg, 1)
     pg.evaluate("document.activeElement.blur()")
-    assert 'on your calendar today' in pg.inner_text('#view').lower()
+    assert 'Class' in pg.inner_text('.pl-day')  # v2.5: the calendar sits in the day list
     pg.click('.pl-row:has-text("Class") .pl-star'); pg.wait_for_timeout(300)
     assert any(t.get('eventRef') and t['title'] == 'Class' and t['important'] for t in data(pg)['tasks']), 'the starred class is kept'
     assert 'Class' not in titles(pg, 0) + titles(pg, 1), 'a meeting stays on the calendar part of the list'
@@ -68,7 +68,7 @@ with sync_playwright() as p:
     assert not small, small
 
     # the day builder and the old full list are still there, behind Plan
-    pg.click('.pl-foot [data-action="go-plan-today"]'); pg.wait_for_selector('.col-day')
+    pg.goto(BASE + '#start'); pg.wait_for_selector('.col-day')  # v2.5: no link to it any more, the address still works
     name = pg.locator('.col-day .slot-title').first.bounding_box() if pg.locator('.col-day .slot-title').count() else None
     assert pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip() == "Today's Planning"
     pg.goto(BASE + '#plan'); pg.click('.pl-foot a[href="#backlog"]'); pg.wait_for_selector('.group')
