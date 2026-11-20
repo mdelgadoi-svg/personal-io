@@ -1,0 +1,28 @@
+flowchart TD
+    A["1. Pick 2 or 3 interviews<br/>(you choose)"] --> B["2. Get the transcript<br/>text from the show or YouTube,<br/>or audio turned into text"]
+    B --> C["3. Keep only the founder's words<br/>host questions kept as context"]
+    C --> D["4. Cut into passages<br/>about 200 words each"]
+
+    D --> H["You code one interview by hand<br/>with the codebook,<br/>before seeing the AI's scores"]
+    D --> E{"5. Is the founder talking about<br/>their own relationship to the work?"}
+
+    E -- "No (most passages)" --> F["All codes = 0"]
+    E -- "Yes" --> G["6. AI scores the passage,<br/>one question per code"]
+
+    G --> G1["Passion in general<br/>yes/no + strength 1 to 7"]
+    G --> G2["Harmonious passion<br/>yes/no + strength 1 to 7"]
+    G --> G3["Obsessive passion<br/>yes/no + strength 1 to 7"]
+    G --> G4["Says 'obsessed'?<br/>yes/no + about what"]
+    G --> G5["5 expression flags<br/>excited, stressed, care,<br/>long hours, total focus"]
+
+    G1 & G2 & G3 & G4 & G5 --> Q["Each answer comes with<br/>a quote from the founder<br/>and a one-line reason"]
+    F --> R
+    Q --> R["7. Run everything a second time<br/>Same answers?"]
+
+    R --> V{"8. Compare the AI with<br/>your hand coding"}
+    H --> V
+
+    V -- "Too many disagreements" --> W["Read the disagreements,<br/>fix the codebook wording"]
+    W --> G
+    V -- "Agrees well enough" --> S["9. Founder summary<br/>share of passages that are<br/>harmonious vs obsessive,<br/>per 1,000 words, with controls"]
+    S --> T["10. Decide: run on more founders?"]
