@@ -549,7 +549,7 @@ function goalOvalHTML(t) {
   const tag = R.goalTag(t, state.goals);
   const g = goal(t.goalId);
   const label = tag === '?' ? `Goal not clear yet: pick one for ${t.title}` : `Goal ${tag}: ${g ? g.title : ''}. Change it`;
-  return `<button type="button" class="goal-oval${tag === '?' ? ' is-unknown' : ''}" data-action="pick-goal" data-id="${t.id}" aria-label="${esc(label)}" title="${esc(label)}"><span class="goal-pill">goal: ${tag}</span></button>`;
+  return `<button type="button" class="goal-oval${tag === '?' ? ' is-unknown' : ''}" data-action="pick-goal" data-id="${t.id}" aria-label="${esc(label)}" title="${esc(label)}"><span class="goal-tag">goal: ${tag}</span></button>`;
 }
 
 // Asks Claude (only with his key) for the goals nobody picked yet. Each task is asked once per name:
@@ -557,7 +557,8 @@ function goalOvalHTML(t) {
 let goalAsk = null;
 function fillGoals() {
   if (goalAsk || !AI.hasKey() || !navigator.onLine) return;
-  const todo = R.tasksNeedingGoal(state.tasks).filter((t) => t.goalAsked !== t.title).slice(0, 20);
+  if (ui.goalsOffUntil && Date.now() < ui.goalsOffUntil) return;
+  const todo = R.tasksNeedingGoal(state.tasks, state.goals).filter((t) => t.goalAsked !== `${t.title}|${t.goalId}`).slice(0, 20);
   const goals = state.goals.map((g) => ({ id: g.id, title: g.title, why: g.why || '' }));
   if (!todo.length || goals.length < 2) return;
   goalAsk = AI.pickGoals(todo.map((t) => ({ id: t.id, title: t.title })), goals)
@@ -565,15 +566,19 @@ function fillGoals() {
       let changed = 0;
       todo.forEach((sent) => {
         const t = task(sent.id); // the newest copy, in case a sync replaced the data meanwhile
-        if (!t || t.title !== sent.title || R.goalPickedBy(t)) return;
-        t.goalAsked = t.title;
+        if (!t || t.title !== sent.title || (R.goalPickedBy(t) && goal(t.goalId))) return;
+        t.goalAsked = `${t.title}|${t.goalId}`;
         if (picks[t.id]) { Object.assign(t, { goalId: picks[t.id], goalBy: 'ai' }); changed += 1; }
       });
       save(state);
       renderWhenFree();
       return changed;
     })
-    .catch(() => { /* offline or no answer: try again on a later redraw */ })
+    .catch((err) => {
+      // A key Claude refuses: say so once and stop until the key changes. Anything else: wait 15 minutes.
+      if (err && err.code === 401) { ui.goalsOffUntil = Infinity; toast('Claude did not accept your key, so goals stay "?". Check it in Settings.'); }
+      else ui.goalsOffUntil = Date.now() + 15 * 60000;
+    })
     .finally(() => { setTimeout(() => { goalAsk = null; }, 60000); }); // at most one ask a minute
 }
 
@@ -619,7 +624,8 @@ function dueWord(deadline) {
 
 // The day Plan my day shows: today, or tomorrow from 8 PM (or when he picked it).
 function planKey() {
-  if (!ui.planDay) ui.planDay = new Date().getHours() >= 20 ? 'tomorrow' : 'today';
+  // A day he picked (See tomorrow, Plan tomorrow) holds for 20 minutes; otherwise the clock decides.
+  if (!ui.planDay || !ui.planDayAt || Date.now() - ui.planDayAt > 20 * 60000) ui.planDay = new Date().getHours() >= 20 ? 'tomorrow' : 'today';
   return ui.planDay === 'tomorrow' ? tomorrowKey() : todayKey();
 }
 
@@ -657,6 +663,7 @@ function mattersRowHTML(t) {
   const meta = [inTomorrow ? `Tomorrow${timeOn(t, tomorrowKey()) ? ` at ${t12(timeOn(t, tomorrowKey()))}` : ''}` : due].filter(Boolean).join(' · ');
   const on = R.isImportant(t);
   return `<li class="pl-row pl-toplace">
+    ${tickHTML(t)}
     <button type="button" class="pl-star" data-action="toggle-important" data-id="${t.id}" aria-pressed="${on}" aria-label="Matters: ${esc(t.title)}">${ICON.star(on)}</button>
     <button type="button" class="pl-main" data-action="edit-task" data-id="${t.id}">
       <span class="pl-title">${esc(t.title)}</span>
@@ -696,7 +703,8 @@ function renderPlan() {
     ...placed.map((t) => ({ at: timeOn(t, key) || '99:99', html: placedRowHTML(t, key) })),
     ...events.map((c) => ({ at: c.start, html: planEventRowHTML(c, key) })),
   ].sort((a, b) => a.at.localeCompare(b.at));
-  const { matters, rest } = R.planList(state.tasks.filter((t) => !placedIds.includes(t.id)), state.goals);
+  const inToday = (state.days[todayKey()] || {}).taskIds || [];
+  const { matters, rest } = R.planList(state.tasks.filter((t) => !placedIds.includes(t.id) && !inToday.includes(t.id)), state.goals);
   const list = (tasks) => `<ul class="pl-list">${tasks.map(mattersRowHTML).join('')}</ul>`;
   const google = G.isConfigured() && (placed.some((t) => t.status === 'open') || events.some((c) => c.task && c.task.status === 'open')) && day && (!day.set || day.planStale)
     ? `<div class="pl-google"><button type="button" class="btn btn-small btn-dark" data-action="set-plan" data-day="${key}">Send to Google Calendar</button></div>` : '';
@@ -1292,7 +1300,7 @@ function renderToday() {
 
   const rows = todayRows(key);
   const next = rows.find((r) => r.next);
-  const notes = `${!day.set ? '<div class="today-note"><span>Plan not set yet.</span><a class="btn-link" href="#plan">Set it</a></div>' : ''}
+  const notes = `${!day.set && G.isConfigured() ? `<div class="today-note"><span>Not in Google Calendar yet.</span><button class="btn btn-small" data-action="set-plan" data-day="${key}">Send it</button></div>` : ''}
   ${day.set && day.planStale && G.isConfigured() ? `<div class="today-note"><span>Your plan changed.</span><button class="btn btn-small" data-action="set-plan" data-day="${key}">Update Google Calendar</button></div>` : ''}`;
   return page(`${notes}${proposalHTML(key)}${next ? nextCardHTML(next.item, key) : doneWordHTML(rows)}`,
     `${listHTML(rows.filter((r) => !r.next))}${captureHTML()}`);
@@ -2307,7 +2315,7 @@ function taskFormHTML(t, opts) {
   const computer = draft.computer !== undefined ? !!draft.computer : draft.place !== 'commute';
   const calDay = draft.fixedDate || opts.dayKey || draft.deadline || todayKey();
   return `
-  <form class="modal" data-form="task" data-id="${t ? t.id : ''}" data-day="${esc(opts.dayKey || '')}" data-event-ref="${esc(draft.eventRef && !t ? JSON.stringify(draft.eventRef) : '')}" novalidate>
+  <form class="modal" data-form="task" data-goal0="${esc(draft.goalId || '')}" data-id="${t ? t.id : ''}" data-day="${esc(opts.dayKey || '')}" data-event-ref="${esc(draft.eventRef && !t ? JSON.stringify(draft.eventRef) : '')}" novalidate>
     <div class="modal-head"><h2 id="modal-title">${t ? 'Edit task' : 'New task'}</h2>
       <button type="button" class="btn btn-ghost icon-btn" data-action="close-modal" aria-label="Close">✕</button></div>
     <div class="errors" hidden></div>
@@ -2461,7 +2469,7 @@ function autoSteps(form, { force = false } = {}) {
 // A second part of the same task, for buffer time: same goal, length and steps, no fixed time.
 function openCopyOf(t) {
   const prefill = {
-    title: R.nextPartTitle(t.title, state.tasks), goalId: t.goalId, priority: t.priority, deadline: t.deadline,
+    title: R.nextPartTitle(t.title, state.tasks), goalId: t.goalId, goalBy: t.goalBy, priority: t.priority, deadline: t.deadline,
     minutes: t.minutes, place: t.place, destination: t.destination, computer: t.computer,
     firstSteps: [...(t.firstSteps || [])], stepsBy: t.stepsBy, needs: (t.needs || []).map((n) => ({ ...n, done: false })),
   };
@@ -3166,14 +3174,17 @@ const actions = {
     catch { toast('Copy did not work. Select the link and copy it.'); }
   },
   'plan-day': (el) => { ui.planDay = el.dataset.day; render(); },
-  'go-plan-today': () => { ui.planDay = 'today'; if (location.hash === '#plan') render(); else location.hash = '#plan'; },
-  'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; if (location.hash === '#plan') render(); else location.hash = '#plan'; },
+  'go-plan-today': () => { ui.planDay = 'today'; ui.planDayAt = Date.now(); if (location.hash === '#plan') render(); else location.hash = '#plan'; },
+  'go-plan-tomorrow': () => { ui.planDay = 'tomorrow'; ui.planDayAt = Date.now(); if (location.hash === '#plan') render(); else location.hash = '#plan'; },
   'filter-goal': (el) => { ui.goalFilter = ui.goalFilter === el.dataset.id ? null : el.dataset.id; render(); },
   'clear-filter': () => { ui.goalFilter = null; render(); },
   'toggle-group': (el) => { const g = el.dataset.groupName; ui.open[g] = !ui.open[g]; render(); },
   'toggle-done': () => { ui.showDone = !ui.showDone; render(); },
   'add-to-day': (el) => addToDay(el.dataset.id, el.dataset.day),
   'place-day': async (el) => {
+    // The row moves away under the finger: a second quick tap must not place the next task too.
+    if (performance.now() - (ui.placeTap || -1000) < 700) return;
+    ui.placeTap = performance.now();
     const t = task(el.dataset.id);
     if (!t) return;
     const key = el.dataset.day === 'tomorrow' ? tomorrowKey() : todayKey();
@@ -3181,11 +3192,15 @@ const actions = {
     if (day.taskIds.includes(t.id)) { toast(`${t.title} is already in ${el.dataset.day}.`); return; }
     if (day.taskIds.length >= S().daySlotsMax) { toast(`${S().daySlotsMax} tasks is the most for one day. Take one out first.`); return; }
     day.slots = Math.max(day.slots || S().daySlots, day.taskIds.length + 1); // no full-slots message here
-    if (el.dataset.day === 'tomorrow') { t.deadline = tomorrowKey(); Object.assign(t, R.levelFields(t, todayKey(), S())); }
-    else { const tom = state.days[tomorrowKey()]; if (tom && tom.taskIds.includes(t.id)) { tom.taskIds = tom.taskIds.filter((id) => id !== t.id); syncPlan(tomorrowKey()); } }
+    if (el.dataset.day === 'tomorrow') {
+      // Only a later (or missing) deadline moves to tomorrow; a real earlier one stays what it was.
+      if (!t.deadline || t.deadline > tomorrowKey()) { t.deadline = tomorrowKey(); Object.assign(t, R.levelFields(t, todayKey(), S())); }
+      const today = state.days[todayKey()];
+      if (today && today.taskIds.includes(t.id) && t.status === 'open') { today.taskIds = today.taskIds.filter((id) => id !== t.id); if (today.times) delete today.times[t.id]; syncPlan(todayKey()); }
+    } else { const tom = state.days[tomorrowKey()]; if (tom && tom.taskIds.includes(t.id)) { tom.taskIds = tom.taskIds.filter((id) => id !== t.id); syncPlan(tomorrowKey()); } }
     await addToDay(t.id, key, { short: true });
   },
-  'plan-switch': (el) => { ui.planDay = el.dataset.day; render(); },
+  'plan-switch': (el) => { ui.planDay = el.dataset.day; ui.planDayAt = Date.now(); render(); },
   'change-time': (el) => { if (task(el.dataset.id)) openModal(timeFormHTML(el.dataset.id, el.dataset.day)); },
   'remove-from-day': (el) => {
     const day = getDay(el.dataset.day);
@@ -3452,6 +3467,7 @@ const actions = {
     const key = el.dataset.day;
     await applyProposal(key);
     ui.planDay = key === todayKey() ? 'today' : 'tomorrow';
+    ui.planDayAt = Date.now();
     persist(['Change anything here: tap a time to move it, or x to take a task out.']);
     if (location.hash !== '#plan') location.hash = '#plan';
   },
@@ -3572,6 +3588,14 @@ document.addEventListener('change', async (e) => {
     if (!choice) return;
     t.deadline = choice.deadline;
     t.lastTouchedAt = new Date().toISOString();
+    // Later means not tomorrow: if it was planned there, it leaves that day.
+    const tom = state.days[tomorrowKey()];
+    if (tom && tom.taskIds.includes(t.id) && (!t.deadline || t.deadline > tomorrowKey())) {
+      tom.taskIds = tom.taskIds.filter((id) => id !== t.id);
+      if (tom.times) delete tom.times[t.id];
+      syncPlan(tomorrowKey());
+      toast(`${t.title}: taken out of tomorrow.`);
+    }
     Object.assign(t, R.levelFields(t, todayKey(), S()));
     Object.entries(state.days).forEach(([key, d]) => {
       if (key >= todayKey() && d.taskIds.length && d.proposed) d.prioChanged = !samePlan(proposalFor(key), d);
@@ -3662,7 +3686,7 @@ modal.addEventListener('submit', (e) => {
       title: data.get('title').trim(),
       goalId: data.get('goalId'),
       // Saving the form is his pick, unless the goal stayed what the AI or nobody had chosen.
-      goalBy: existing && existing.goalId === data.get('goalId') ? R.goalPickedBy(existing) : 'me',
+      goalBy: data.get('goalId') !== form.dataset.goal0 ? 'me' : existing ? R.goalPickedBy(existing) : null,
       important: pressedValue(form, 'important') === 'yes',
       deadline: data.get('deadline') || '',
       minutes: Number(data.get('minutes')) || 30,
@@ -3790,6 +3814,7 @@ modal.addEventListener('submit', (e) => {
     const calId = String(data.get('googleCalendarId') || '').trim();
     if (calId !== G.getCalendarId()) G.setCalendarId(calId);
     AI.setKey(String(data.get('claudeKey') || ''));
+    ui.goalsOffUntil = 0; // a new key: try the goals again
     closeModal();
     persist(['Settings saved.']);
   }

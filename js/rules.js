@@ -668,8 +668,10 @@ export function goalTag(task, goals = []) {
 }
 
 // Open tasks the AI should look at: nobody picked their goal yet.
-export function tasksNeedingGoal(tasks = []) {
-  return tasks.filter((t) => t.status === 'open' && !goalPickedBy(t) && !t.eventRef);
+// Also tasks whose goal was deleted.
+export function tasksNeedingGoal(tasks = [], goals = null) {
+  const known = goals ? new Set(goals.map((g) => g.id)) : null;
+  return tasks.filter((t) => t.status === 'open' && !t.eventRef && (!goalPickedBy(t) || (known && !known.has(t.goalId))));
 }
 
 // One list for the Plan page: matters = starred, rest = everything else, both in the order the app
@@ -992,10 +994,12 @@ export function clockLeft(clock, nowMs) {
   };
 }
 
-// A move was made: the time used is taken off, and the other side's time starts.
+// A move was made: the time used is taken off, and the other side's time starts. If the clock was
+// paused (he left while the computer was thinking), it stays paused: his time waits for him.
 export function clockSwitch(clock, nowMs) {
   const left = clockLeft(clock, nowMs);
-  return { ...clock, ...left, side: clock.side === 'w' ? 'b' : 'w', since: nowMs };
+  const running = clock.since !== null && clock.since !== undefined;
+  return { ...clock, ...left, side: clock.side === 'w' ? 'b' : 'w', since: running ? nowMs : null };
 }
 
 export function clockPause(clock, nowMs) {

@@ -216,47 +216,51 @@ ${goals.map((g) => `- id "${g.id}": ${g.title}${g.why ? ` (why: ${g.why})` : ''}
 
 Tasks:
 ${tasks.map((t) => `- id "${t.id}": ${t.title}`).join('\n')}`;
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const body = {
+    model: MODEL,
+    max_tokens: 4000,
+    output_config: {
+      effort: 'low',
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            picks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { id: { type: 'string' }, goal: { type: 'string', enum: [...goalIds, 'none'] } },
+                required: ['id', 'goal'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['picks'],
+          additionalProperties: false,
+        },
+      },
+    },
+    messages: [{ role: 'user', content: prompt }],
+  };
+  const send = (withFallback) => fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'x-api-key': key,
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
-      'anthropic-beta': 'server-side-fallback-2026-07-01',
+      ...(withFallback ? { 'anthropic-beta': 'server-side-fallback-2026-07-01' } : {}),
     },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 4000,
-      fallbacks: 'default', // if the model declines, the API retries on its fallback model
-      output_config: {
-        effort: 'low',
-        format: {
-          type: 'json_schema',
-          schema: {
-            type: 'object',
-            properties: {
-              picks: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: { id: { type: 'string' }, goal: { type: 'string', enum: [...goalIds, 'none'] } },
-                  required: ['id', 'goal'],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ['picks'],
-            additionalProperties: false,
-          },
-        },
-      },
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    // If the model declines, the API retries on its fallback model in the same call.
+    body: JSON.stringify(withFallback ? { ...body, fallbacks: 'default' } : body),
   });
+  let res = await send(true);
+  if (res.status === 400) res = await send(false); // an account without the fallback option: ask plainly
   if (!res.ok) {
-    if (res.status === 401) throw new Error('Claude did not accept the API key. Check it in Settings.');
-    throw new Error('Claude could not answer right now.');
+    const err = new Error(res.status === 401 ? 'Claude did not accept the API key. Check it in Settings.' : 'Claude could not answer right now.');
+    err.code = res.status;
+    throw err;
   }
   const data = await res.json();
   if (data.stop_reason === 'refusal' || data.stop_reason === 'max_tokens') return {};

@@ -683,3 +683,13 @@ test('the Follower says time played, what is next and when, and stays kind', () 
   assert.match(followerChat({ nowMin: 700, next: { title: 'Rent', startMin: 650 } })[1], /was planned for 10:50 AM/);
   followerChat({ playedMin: 50, nowMin: 0, next: { title: 'x' }, mode: 'tight', why: 'much' }).forEach((l) => assert.ok(!/—/.test(l)));
 });
+
+test('v2.5 fixes: a paused clock stays paused when the computer answers; a deleted goal is asked again', () => {
+  let c = clockResume(newClock(5), 0);
+  c = clockSwitch(c, 10000);      // he moved
+  c = clockPause(c, 11000);       // and left while the computer thinks
+  c = clockSwitch(c, 12000);      // the computer's answer lands while he is away
+  assert.equal(c.since, null);
+  assert.deepEqual(clockLeft(c, 9999999), { w: 290000, b: 299000 });
+  assert.deepEqual(tasksNeedingGoal([{ id: 'x', status: 'open', goalId: 'gone', goalBy: 'me' }], [{ id: 'job' }]).map((t) => t.id), ['x']);
+});

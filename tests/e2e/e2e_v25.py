@@ -85,6 +85,7 @@ with sync_playwright() as p:
         assert pg.locator('.pl-toplace:has-text("Essay draft")').count() == 0, 'it moved up to the day'
         assert pg.locator('.toast').last.inner_text().startswith('Placed at')
         pg.click('.pl-placed:has-text("Essay draft") .pl-time'); pg.wait_for_selector('[data-form="time"]'); pg.keyboard.press('Escape')
+        pg.wait_for_timeout(800)  # a second tap within 0.7 s is ignored on purpose
         pg.click('.pl-toplace:has-text("Read the report") [data-day="tomorrow"]'); pg.wait_for_timeout(400)
         tom = (datetime.date(2026, 11, 20) + datetime.timedelta(days=1)).isoformat()
         assert 'b' in data(pg)['days'][tom]['taskIds'] and tk(pg, 'b')['deadline'] == tom
@@ -164,6 +165,42 @@ with sync_playwright() as p:
     assert 'You took: pawn' in pg.get_attribute('.clock-w .caps', 'aria-label')
     assert pg.inner_text('.clock-w .clock-time') == '8:20'
     pg.screenshot(path='tests/e2e/out/v25_caps.png'); pg.context.close()
+    # 7. review fixes
+    # the clock waits while he is away, even when the computer's answer lands meanwhile
+    st = state([T('a', 'Essay draft', 'school', 'me', True)])
+    pg = page(b, st, w=1280, install=True)
+    pg.goto(BASE + '#play'); pg.click('[data-action="play-chess"]'); pg.click('[data-action="chess-clock"][data-min="5"]'); pg.wait_for_selector('.board')
+    pg.click('.sq[data-sq="e2"]'); pg.click('.sq[data-sq="e4"]'); pg.click('[data-action="play-home"]')
+    pg.clock.run_for(6 * 60000)  # away six minutes; the computer answers in the meantime
+    pg.click('[data-action="play-chess"]'); pg.wait_for_selector('.board'); pg.clock.run_for(1500)
+    assert pg.locator('.play-after').count() == 0, 'no loss for a game he was not playing'
+    assert pg.inner_text('.clock-w .clock-time') in ('5:00', '4:59', '4:58'), pg.inner_text('.clock-w .clock-time')
+    pg.context.close()
+    # a double tap on Today places one task; Tomorrow keeps a real due date and never leaves it in two days
+    st = state([T('a', 'Essay draft', 'school', 'me', True, D), T('b', 'Read the report'), T('c', 'Book flight')])
+    pg = page(b, st, w=390); pg.goto(BASE + '#plan'); pg.wait_for_selector('.plan')
+    pg.dblclick('.pl-toplace:has-text("Read the report") [data-action="place-day"][data-day="today"]'); pg.wait_for_timeout(400)
+    assert data(pg)['days'][D]['taskIds'] == ['b'], data(pg)['days'][D]['taskIds']
+    assert pg.locator('.pl-toplace .tick').count() == 2, 'a check on every row to place'
+    pg.wait_for_timeout(800); pg.click('.pl-toplace:has-text("Essay draft") [data-day="tomorrow"]'); pg.wait_for_timeout(400)
+    assert tk(pg, 'a')['deadline'] == D, 'due today stays due today'
+    pg.context.close()
+    # a new task from the full form is nobody's pick yet (Claude or he picks it later)
+    pg = page(b, state([]), w=1280); pg.goto(BASE + '#today'); pg.wait_for_selector('.today')
+    pg.click('.topbar [data-action="new-task"]'); pg.wait_for_selector('form[data-form="task"]')
+    pg.fill('#f-title', 'Buy milk'); pg.click('form[data-form="task"] button[type="submit"]'); pg.wait_for_timeout(300)
+    t = next(x for x in data(pg)['tasks'] if x['title'] == 'Buy milk'); assert t.get('goalBy') is None, t
+    pg.context.close()
+    # a key Claude refuses: one message, no retries every minute
+    calls.clear()
+    def refuse(route):
+        calls.append(1); route.fulfill(status=401, content_type='application/json', headers={'access-control-allow-origin': '*'}, body='{"type":"error"}')
+    pg = page(b, state([T('m', 'Buy milk')]), w=1280, key=True, install=True); pg.route('https://api.anthropic.com/**', refuse)
+    pg.goto(BASE + '#plan'); pg.wait_for_timeout(800)
+    assert 'did not accept your key' in pg.inner_text('#toasts')
+    pg.clock.run_for(10 * 60000); pg.goto(BASE + '#today'); pg.wait_for_timeout(500)
+    assert len(calls) == 1, len(calls)
+    pg.context.close()
     print('all v2.5 checks passed')
 print('PAGE ERRORS', errors)
 assert not errors, errors

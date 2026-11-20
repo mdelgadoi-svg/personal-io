@@ -794,9 +794,9 @@ dialog:not(.wide) .modal-side { display: none; }
 .dl-check.tick { width: 44px; height: 56px; }
 /* the button is a 44px tap area; the small oval inside is what he sees */
 .goal-oval { font: inherit; background: none; border: none; padding: 0 2px; min-height: 44px; min-width: 44px; cursor: pointer; display: inline-grid; place-items: center; border-radius: 999px; }
-.goal-pill { font-size: 12.5px; white-space: nowrap; color: var(--primary-ink); background: var(--primary-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
-.goal-oval:hover .goal-pill { border-color: var(--primary); }
-.goal-oval.is-unknown .goal-pill { background: var(--card); color: var(--ink-2); border-style: dashed; }
+.goal-tag { font-size: 12.5px; line-height: 1.3; white-space: nowrap; color: var(--primary-ink); background: var(--primary-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+.goal-oval:hover .goal-tag { border-color: var(--primary); }
+.goal-oval.is-unknown .goal-tag { background: var(--card); color: var(--ink-2); border-style: dashed; }
 .goal-oval:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .gp-list { display: flex; flex-direction: column; gap: 6px; }
 .gp-row { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
@@ -821,7 +821,9 @@ dialog:not(.wide) .modal-side { display: none; }
 .pl-out:hover { color: var(--clay); }
 .pl-row.is-done .pl-title, .pl-row.is-done .pl-time, .pl-row.is-done .pl-meta { text-decoration: line-through; color: var(--ink-2); }
 .pl-row.is-done .goal-oval { opacity: .55; }
-.pl-row.pl-toplace { grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "star main oval" ". pills pills"; row-gap: 0; padding-bottom: 8px; }
+.pl-row.pl-toplace { grid-template-columns: 40px 40px minmax(0, 1fr) auto; grid-template-areas: "tick star main oval" ". . pills pills"; row-gap: 0; padding-bottom: 8px; }
+.pl-toplace .tick { grid-area: tick; }
+.pl-toplace .pl-star { width: 40px; }
 .pl-toplace .pl-star { grid-area: star; }
 .pl-toplace .pl-main { grid-area: main; }
 .pl-toplace .goal-oval { grid-area: oval; }
@@ -848,21 +850,33 @@ select.pl-pill { appearance: none; -webkit-appearance: none; padding-right: 12px
 }
 
 /* v2.5: chess clock, time of day, captured pieces */
-.chess-top { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.chess-top { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0; }
+@media (max-width: 760px) {
+  /* a phone: the board and his own pieces stay above the bottom bar */
+  .play { gap: 10px; }
+  .follower.is-closed .follower-open { padding: 4px 12px; min-height: 40px; }
+  .clocks { gap: 6px; }
+  .clock-who { font-size: 12px; }
+}
 .play-now { font-size: 14px; color: var(--ink-2); letter-spacing: .04em; }
 .clocks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 480px; }
-.clock { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "who time" "caps caps"; align-items: center; gap: 2px 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.clock { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "who caps time"; align-items: center; gap: 2px 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 .clock-who { grid-area: who; font-size: 13px; color: var(--ink-2); }
 .clock-time { grid-area: time; justify-self: end; font-size: 22px; font-variant-numeric: tabular-nums; color: var(--ink); }
 .clock.is-running { border-color: var(--primary); background: var(--primary-soft); }
-.caps { grid-area: caps; display: flex; flex-wrap: wrap; gap: 0; min-height: 20px; }
-.caps svg { width: 20px; height: 20px; }
+.caps { grid-area: caps; display: flex; flex-wrap: wrap; gap: 0; justify-content: flex-start; }
+.caps svg { width: 16px; height: 16px; }
+.clock-time { font-size: 20px; }
 .play-ask { text-align: center; margin: 18px 0 10px; font-size: 17px; }
 .play-clock-pick { display: flex; justify-content: center; gap: 10px; }
 .play-clock-pick .pl-pill { font-size: 16px; min-height: 44px; padding: 6px 20px; }
-.next .goal-pill, .next .goal-oval.is-unknown .goal-pill { background: transparent; color: var(--on-band-2); border-color: var(--on-band-line); }
+.next .goal-tag, .next .goal-oval.is-unknown .goal-tag { background: transparent; color: var(--on-band-2); border-color: var(--on-band-line); }
 @media (min-width: 761px) {
   /* v2.5: on a computer the clocks are one line each, so the board still fits the window */
   .clock { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "who caps time"; padding: 6px 12px; }
   .chess-top { margin: 0; gap: 6px; }
+}
+@media (max-width: 760px) and (max-height: 760px) {
+  /* a short phone: a slightly smaller board so his own pieces stay above the bottom bar */
+  .board { max-width: min(100%, calc(100vh - 355px)); margin: 0 auto; }
 }

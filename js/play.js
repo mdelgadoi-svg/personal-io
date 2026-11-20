@@ -334,7 +334,7 @@ function followerHTML() {
   const at = t ? host.timeToday(t) : null;
   const lines = R.followerChat({ playedMin: input.playedMin, nowMin: input.nowMin, next: t ? { title: t.title, startMin: at ? R.toMinutes(at) : null } : null, mode: pm.mode, why: pm.why });
   if (!chatOpen) {
-    return `<aside class="follower is-closed" aria-label="The Follower"><button type="button" class="follower-open" data-action="follower-toggle" aria-expanded="false"><span class="follower-dot" aria-hidden="true"></span>The Follower · ${R.formatMinutes(input.playedMin || 0)} played</button></aside>`;
+    return `<aside class="follower is-closed" aria-label="The Follower"><button type="button" class="follower-open" data-action="follower-toggle" aria-expanded="false"><span class="follower-dot" aria-hidden="true"></span>The Follower${input.playedMin >= 1 ? ` · ${R.formatMinutes(input.playedMin)} played` : ''}</button></aside>`;
   }
   return `<aside class="follower" aria-label="The Follower">
     <div class="follower-head"><span class="follower-name"><span class="follower-dot" aria-hidden="true"></span>The Follower</span><button type="button" class="follower-hide" data-action="follower-toggle" aria-expanded="true" aria-label="Hide the Follower">Hide</button></div>
