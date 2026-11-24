@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+.cards{display:grid;grid-template-columns:1.25fr 1fr;gap:22px}
+.card{border-radius:18px;padding:18px 22px;background:#FBF9F4;border:2px solid #DDD8CB}
+.card.rules{background:#FBF9F4;border-color:#4B6B4F}.card.ai{background:#FBF9F4;border-color:#C9A64A}
+.card h2{margin:0;font-size:22px;font-weight:600}
+.tag{display:inline-block;font-size:12.5px;padding:3px 10px;border-radius:999px;margin:6px 0 10px}
+.t-rules{background:#E4EBDF;color:#2F4A33}.t-ai{background:#F6EFD9;color:#6B5418}
+table{border-collapse:collapse;width:100%}
+td{vertical-align:top;padding:7px 0;border-top:1px solid #E8E3D8;font-size:14.5px;line-height:1.42}
+td.k{width:128px;font-weight:600;color:#55624A;padding-right:12px}
+.f{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#55624A}
+.q{background:#F1EEE6;border-radius:8px;padding:6px 9px;display:block;margin-top:4px;font-size:13.5px}
+.side{display:flex;flex-direction:column;gap:22px}
+.mini td.k{width:110px}
+.steps{margin:0;padding-left:22px;font-size:14.5px;line-height:1.45}.steps li{margin:5px 0}</style></head><body><div class="wrap">
+<h1>The agents: what each one sees, remembers and does</h1>
+<div class="sub">Personal IO v2.5 · only two parts act on their own: the Follower and the goal picker. The rest are single helpers.</div>
+<div class="cards">
+
+<div class="card rules"><h2>The Follower</h2><span class="tag t-rules">The main agent · plain rules · no AI · free</span>
+<table>
+<tr><td class="k">Its job</td><td>Watch your whole day, and walk you from play back to the plan, kindly, before play turns into hours. It does not tell you to go away: it changes how the game plays.</td></tr>
+<tr><td class="k">What it watches</td><td>Which section you are in and for how long · minutes played today and your last results · the next task and its time · meetings now or within 45 min · a planned task whose time already began · whether you started something.</td></tr>
+<tr><td class="k">Its memory</td><td>The <b>moments</b> list: one record per game, start, break, Pause answer, nudge and visit. Saved in this browser and in your Google Drive copy, so phone and computer share it.</td></tr>
+<tr><td class="k">Harness<br>(what wakes it)</td><td>A timer every 15 seconds while the app is on screen <span class="f">followTick, app.js</span> · every second on the game screens <span class="f">play.js</span> · after every game. It sleeps when the app is hidden.</td></tr>
+<tr><td class="k">Its instructions</td><td>Fixed rules in <span class="f">js/rules.js</span> (tested): <span class="f">playMode, chessLevel, sudokuSize, playLine, planLine, followerChat, playStats, followerSummary</span>. The numbers: <b>tight</b> = meeting now, something starts within 45 min, a planned task is late, tasks due with no plan, or 30+ min of play today. Otherwise <b>free</b>.</td></tr>
+<tr><td class="k">What it does</td><td><b>Tight:</b> strong chess opponent (fast game), quick 6x6 Sudoku. <b>Free:</b> easy opponent, full 9x9 grid; 2 wins in a row make it even, 3 make it strong. · The Follower box: time played, "Next: X at 3:00 PM, in 40 min", Start 1 minute, Plan my play. · One kind line at 25 and 45 min of play. · "You have planned enough" after 10 min planning (20 in Life Planning). · Logs what you did after each line. · A short weekly summary you can copy for an AI (Settings, Your numbers).</td></tr>
+<tr><td class="k">What it does NOT do</td><td>Block anything · send phone notifications · read email · use AI · see anything outside the app (Instagram time you note by hand) · learn by itself (the numbers only change when we change them).</td></tr>
+</table>
+<h3 style="margin:16px 0 8px;font-size:17px;font-weight:600">How it decides, step by step</h3>
+<ol class="steps">
+<li><b>Every 15 seconds</b> it reads your day: the calendar, today's plan, the clock and today's moments.</li>
+<li>It calls the day <b>tight</b> or <b>free</b> (the rule above).</li>
+<li>You open <b>Procrastination</b>: the Follower box shows time played and what is next, and the game you start gets its level from tight or free (and your win streak).</li>
+<li>While you play, every second it updates the box and the chess clock; after 5 minutes without a tap it stops counting your minutes.</li>
+<li>A game ends: it saves the result, then shows your next task with <b>Start 1 minute</b>. At 25 and 45 minutes of play today it adds one kind line (once each).</li>
+<li>You tap <b>Start 1 minute</b>, <b>Plan my play</b> or <b>Keep playing</b>: it saves which one, for your 2-week test.</li>
+<li>In Today's Planning, 10 minutes without starting anything: one line, "You have planned enough. Start the first thing?", for 20 seconds.</li>
+</ol>
+<div class="box" style="margin-top:12px;background:#F1EEE6;border-style:dashed"><b>Where it could grow</b> (not built): read the weekly summary with Claude for a short personal note; learn your own numbers (when you usually come back); a phone notification when a planned break ends without the app open (today Google Calendar rings instead).</div>
+</div>
+
+<div class="side">
+<div class="card ai"><h2>The goal picker</h2><span class="tag t-ai">AI agent · Claude, your key · small cost per call</span>
+<table class="mini">
+<tr><td class="k">Its job</td><td>Give each task its "goal: #" when you did not pick one.</td></tr>
+<tr><td class="k">Watches</td><td>Open tasks with no goal picked (or a deleted goal).</td></tr>
+<tr><td class="k">Sends to Claude</td><td>Only task names and goal names with their "why". Nothing else. <span class="f">ai.js pickGoals · model claude-sonnet-5-5 · low effort</span></td></tr>
+<tr><td class="k">Instructions</td><td><span class="q">"Sort a person's tasks into his goals. For each task, pick the one goal it clearly serves. If a task could fit two goals equally, or none, answer none. Do not guess."</span> The answer must be a strict list: task id + one of your goal ids or "none".</td></tr>
+<tr><td class="k">Harness</td><td><span class="f">fillGoals()</span> after the screen redraws: at most once a minute, only online and with your key, up to 20 tasks per call, each task asked once per name. A refused key: one message, then it stops.</td></tr>
+<tr><td class="k">Memory</td><td>On each task: <span class="f">goalBy</span> (me / ai / none) and <span class="f">goalAsked</span>. Key stays on this device.</td></tr>
+<tr><td class="k">Does NOT</td><td>Override your own pick · change anything else · run without a key (then tasks show "?").</td></tr>
+</table></div>
+
+<div class="card ai"><h2>Other Claude helpers</h2><span class="tag t-ai">Single calls, not agents · only with your key</span>
+<table class="mini">
+<tr><td class="k">First steps</td><td>3 one-minute steps for a task (without key: templates).</td></tr>
+<tr><td class="k">Talk it out</td><td>Reads a note; a task only when you say "task"; may suggest 3, unticked.</td></tr>
+<tr><td class="k">Email</td><td>Tasks from Gmail, only when you tap "Read my last 2 weeks".</td></tr>
+</table></div>
+
+<div class="card rules"><h2>Rule helpers</h2><span class="tag t-rules">Not agents · plain rules · no AI</span>
+<table class="mini">
+<tr><td class="k">Proposal</td><td>Your morning day from stars, deadlines, goal order <span class="f">proposeDay</span></td></tr>
+<tr><td class="k">Calm return</td><td>After 2+ days away: one small thing <span class="f">gentlePick</span></td></tr>
+<tr><td class="k">Pause</td><td>Written kind answers, each ending in one step <span class="f">R.PAUSE</span></td></tr>
+<tr><td class="k">Break watcher</td><td>Rings at the end, "Back already?", closes old breaks <span class="f">checkBreak</span></td></tr>
+<tr><td class="k">Auto start</td><td>Opens the start screen when a task's time begins</td></tr>
+</table></div>
+
+<div class="card"><h2>Builder agents (not in the app)</h2><span class="tag" style="background:#ECEAE4">Used only when we build</span>
+<table class="mini">
+<tr><td class="k">Reviewer</td><td>A Claude Code agent that clicks through every change in a real browser and reports bugs before it ships <span class="f">.claude/agents/personal-io-reviewer.md</span></td></tr>
+<tr><td class="k">Impeccable</td><td>Open-source design skill for the look <span class="f">.claude/skills/impeccable</span></td></tr>
+</table></div>
+</div>
+</div></div></body></html>

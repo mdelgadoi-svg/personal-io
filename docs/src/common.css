@@ -1,0 +1,17 @@
+body{margin:0;background:#F1EEE6;font-family:Roboto,Arial,sans-serif;color:#33372F}
+.wrap{width:1600px;padding:34px 40px 30px;box-sizing:border-box;position:relative}
+h1{margin:0;text-align:center;font-weight:400;font-size:34px}
+.sub{text-align:center;color:#63675B;margin:6px 0 16px;font-size:16px}
+.legend{display:flex;justify-content:center;gap:22px;margin-bottom:22px;font-size:15px;flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:8px}
+.dot{width:16px;height:16px;border-radius:5px;display:inline-block}
+.rules{background:#E4EBDF;border:2px solid #4B6B4F}
+.ai{background:#F6EFD9;border:2px solid #C9A64A}
+.vendor{background:#ECEAE4;border:2px solid #8E8F86}
+.data{background:#E3E9F2;border:2px solid #5B7398}
+.box{border-radius:16px;padding:14px 18px;box-sizing:border-box;background:#FBF9F4;border:1.5px solid #DDD8CB}
+.box h2{margin:0 0 2px;font-size:20px;font-weight:600}
+.box .kind{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:#63675B;margin-bottom:8px}
+.item{border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px;line-height:1.38}
+.item b{font-weight:600}
+.item .f{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#55624A}

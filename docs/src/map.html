@@ -1,0 +1,90 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:34px 30px;position:relative;z-index:1}
+.center{background:#5F6A4F;color:#FBF9F4;border:none;display:flex;flex-direction:column;justify-content:center;text-align:center}
+.center h2{font-size:30px;font-weight:400}
+.center p{margin:6px 0 0;font-size:15px;line-height:1.45;color:#E4E6D8}
+svg.lines{position:absolute;left:0;top:0;z-index:0;overflow:visible}
+.flow{margin-top:30px;background:#FBF9F4;border:1.5px solid #DDD8CB;border-radius:16px;padding:14px 20px}
+.flow h2{margin:0 0 8px;font-size:19px;font-weight:600}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14.5px;margin:7px 0}
+.chain .n{background:#F1EEE6;border:1px solid #DDD8CB;border-radius:999px;padding:3px 11px}
+.chain .a{color:#8A4034;font-weight:700}
+</style></head><body><div class="wrap" id="wrap">
+<h1>Personal IO: how everything connects</h1>
+<div class="sub">Live version v2.5 · November 24, 2026 · everything runs in your browser: JavaScript, HTML and CSS (no server)</div>
+<div class="legend">
+<span><i class="dot rules"></i>Plain rules, our own code (no AI, free)</span>
+<span><i class="dot ai"></i>Uses Claude AI (your key, small cost)</span>
+<span><i class="dot vendor"></i>Outside code we copied in (credited)</span>
+<span><i class="dot data"></i>Where your data lives</span>
+</div>
+<div class="grid">
+
+<div class="box" id="b1"><h2>1. Procrastination</h2><div class="kind">#play · js/play.js + js/games.js</div>
+<div class="item vendor"><b>Chess rules:</b> chess.js 1.4.0 by Jeff Hlywa, open source (BSD), JavaScript. <span class="f">js/vendor/chess.js</span></div>
+<div class="item vendor"><b>Piece drawings:</b> Wikimedia Commons (CC BY-SA)</div>
+<div class="item rules"><b>Computer player:</b> ours. Looks a few moves ahead (classic search, not AI). Easy / even / strong. Runs in the background so the screen never freezes. <span class="f">botMove, bot-worker.js</span></div>
+<div class="item rules"><b>Clock, captured pieces, time of day:</b> ours (v2.5)</div>
+<div class="item rules"><b>Sudoku:</b> ours. Builds a grid with one solution. Full 9x9 or quick 6x6. <span class="f">sudokuNew</span></div>
+<div class="item rules"><b>Follower box</b> top left: time played, what is next</div></div>
+
+<div class="box" id="b2"><h2>2. Today's Planning</h2><div class="kind">#today, #plan · js/app.js</div>
+<div class="item rules"><b>Today:</b> green band with the next task, the day's list (check, goal oval), the day's calendar, the add line</div>
+<div class="item rules"><b>Morning proposal:</b> picks your day from stars and deadlines. <span class="f">proposeDay</span></div>
+<div class="item rules"><b>Plan my day:</b> the day with times; Today / Tomorrow / Later finds the first free time. <span class="f">findFreeSlot</span></div>
+<div class="item rules"><b>Start screen:</b> 1-minute first steps</div>
+<div class="item rules"><b>Pause + breaks with an end</b> (written answers)</div>
+<div class="item rules"><b>Calm return</b> after 2+ days away: one small thing</div></div>
+
+<div class="box" id="b3"><h2>3. Life Planning</h2><div class="kind">#goals · js/app.js</div>
+<div class="item rules"><b>Goals:</b> up to 10, in your order, each with a "why". Their order ranks every task, and gives the number in the "goal: #" oval.</div>
+<div class="item" style="border:2px dashed #8A4034;background:#fff"><b>Not built yet:</b> the 90-day plan with your triangle (strengths, what you love, context), the scorecard. Phase C of PLAN.md.</div></div>
+
+<div class="box" id="b4"><h2>The "brains"</h2><div class="kind">who decides things (see the agents picture)</div>
+<div class="item rules"><b>The Follower (agent):</b> watches your day and your play; sets game difficulty, the Follower box, kind lines. <span class="f">rules.js + followTick</span></div>
+<div class="item ai"><b>Goal picker:</b> Claude reads task names and picks the goal (or "?"). <span class="f">ai.js pickGoals</span></div>
+<div class="item ai"><b>Other Claude helpers</b> (only with key): first steps, notes, email</div>
+<div class="item rules"><b>Rule helpers:</b> proposal, calm return, Pause answers, break watcher, automatic start</div></div>
+
+<div class="box center" id="c"><h2>Personal IO</h2><p>Your planner for ADHD days:<br><b>procrastinate without guilt</b>,<br><b>find the path back to work</b>,<br>and (later) information and advice.</p><p style="margin-top:10px;font-size:13px">Files: index.html · css/app.css · js/app.js (4,080 lines) · js/rules.js · js/play.js · js/games.js · js/store.js · js/google.js · js/ai.js · sw.js</p></div>
+
+<div class="box" id="b5"><h2>4. Calendar</h2><div class="kind">#calendar · js/app.js + js/google.js</div>
+<div class="item rules"><b>Week view:</b> your Google Calendar events plus your planned tasks</div>
+<div class="item rules"><b>One star</b> on a meeting makes it matter (it joins your day)</div>
+<div class="item rules"><b>Writes back:</b> planned tasks with reminders 10 min before and at the start; the end of a break (your phone rings)</div></div>
+
+<div class="box" id="b6"><h2>Where your data lives</h2><div class="kind">js/store.js · JSON</div>
+<div class="item data"><b>This browser first</b> (localStorage): tasks, goals, days, notes, and "moments" (starts, breaks, play, nudges)</div>
+<div class="item data"><b>Real copy:</b> Google Drive, file personal-io-data.json, folder "Personal IO"</div>
+<div class="item data"><b>Sync:</b> phone and computer joined item by item; never older data over newer</div>
+<div class="item data"><b>Only on this device:</b> Claude key, the game in progress, start picture</div></div>
+
+<div class="box" id="b7"><h2>Connections</h2><div class="kind">nothing else is allowed</div>
+<div class="item vendor"><b>Google bridge:</b> a small Google Apps Script (Google's JavaScript) in your Berkeley account, with a secret key. Reads and writes Drive and Calendar. <span class="f">bridge/Code.gs</span></div>
+<div class="item ai"><b>Claude API:</b> your own key, from the browser. Optional: everything works without it.</div>
+<div class="item vendor"><b>Gmail:</b> read-only, only when you tap "Read my last 2 weeks"</div>
+<div class="item rules"><b>Offline:</b> sw.js keeps a copy so the app opens without internet</div></div>
+
+<div class="box" id="b8"><h2>Builder tools</h2><div class="kind">help build the app; you never see them in it</div>
+<div class="item ai"><b>personal-io-reviewer:</b> a Claude Code agent that tests every change in a real browser before it ships. <span class="f">.claude/agents/</span></div>
+<div class="item vendor"><b>Impeccable:</b> open-source design skill (Apache 2.0) for the look. <span class="f">.claude/skills/</span></div>
+<div class="item rules"><b>Tests:</b> 70 logic tests (JavaScript) + 18 browser tests (Python, Playwright). Python is only here, never in the app.</div></div>
+
+</div>
+<div class="flow"><h2>How the parts feed each other</h2>
+<div class="chain"><span class="n">Google Calendar</span><span class="a">→</span><span class="n">Today, Plan my day, Calendar</span><span class="a">→</span><span class="n">the Follower knows what starts soon</span></div>
+<div class="chain"><span class="n">Tasks + stars + deadlines + goal order</span><span class="a">→</span><span class="n">morning proposal / Plan my day</span><span class="a">→</span><span class="n">Today's green band</span><span class="a">→</span><span class="n">Start 1 minute</span><span class="a">→</span><span class="n">a "start" moment is saved</span></div>
+<div class="chain"><span class="n">You play chess or Sudoku</span><span class="a">→</span><span class="n">"play" moments saved</span><span class="a">→</span><span class="n">the Follower</span><span class="a">→</span><span class="n">next game's difficulty + Follower box + kind line</span><span class="a">→</span><span class="n">Start 1 minute</span></div>
+<div class="chain"><span class="n">A task nobody gave a goal</span><span class="a">→</span><span class="n">Claude goal picker (your key)</span><span class="a">→</span><span class="n">"goal: #" oval</span><span class="a">→</span><span class="n">ranking by goal order</span></div>
+<div class="chain"><span class="n">Every change</span><span class="a">→</span><span class="n">this browser</span><span class="a">→</span><span class="n">Google bridge</span><span class="a">→</span><span class="n">Drive copy</span><span class="a">→</span><span class="n">your other device</span></div>
+</div>
+<svg class="lines" id="lines"></svg>
+</div>
+<script>
+const w=document.getElementById('wrap'),c=document.getElementById('c').getBoundingClientRect(),o=w.getBoundingClientRect();
+const svg=document.getElementById('lines');svg.setAttribute('width',o.width);svg.setAttribute('height',o.height);
+const cx=c.left+c.width/2-o.left,cy=c.top+c.height/2-o.top;
+['b1','b2','b3','b4','b5','b6','b7','b8'].forEach(id=>{const r=document.getElementById(id).getBoundingClientRect();
+const x=r.left+r.width/2-o.left,y=r.top+r.height/2-o.top;
+svg.insertAdjacentHTML('beforeend',`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#A9B19A" stroke-width="3" stroke-dasharray="7 6"/>`);});
+</script></body></html>
