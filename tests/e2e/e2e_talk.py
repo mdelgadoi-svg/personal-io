@@ -21,13 +21,14 @@ def setup(p, key=None, w=1280, h=900):
 with sync_playwright() as p:
     # 1. no key: venting + one named task, tick one done
     pg=setup(p)
-    pg.goto(BASE); pg.wait_for_selector('[data-form="welcome"]')
-    txt=pg.inner_text('[data-form="welcome"]'); print('WELCOME:\n', txt[:900])
-    pg.screenshot(path=OUT+'/welcome.png', full_page=True)
-    pg.click('details.welcome-more summary')  # v2.1: after days away the list is folded away
-    pg.check('input[name="wb-done"][value="t1"]')
-    pg.fill('#wb-text','So tired today. Task: email the professor about the paper. I hate mondays.')
-    pg.click('[data-action="welcome-start-task"]')
+    # v2.6: the first open of the day asks one question, with no list of old work
+    pg.goto(BASE); pg.wait_for_selector('[data-form="morning"]')
+    txt=pg.inner_text('[data-form="morning"]'); print('MORNING:\n', txt[:300])
+    assert 'review your calendar today' in txt and 'Did you already' not in txt
+    pg.click('[data-action="morning-close"]'); pg.wait_for_timeout(200)
+    pg.click('[data-action="open-dump"]')
+    pg.fill('#talk-text','So tired today. Task: email the professor about the paper. I hate mondays.')
+    pg.click('[data-action="talk-save"]')
     pg.wait_for_selector('[data-form="talk-review"]'); print('REVIEW:\n', pg.inner_text('[data-form="talk-review"]'))
     pg.screenshot(path=OUT+'/review.png', full_page=True)
     pg.check('.talk-row [data-talk="important"]'); pg.select_option('.talk-row [data-talk="goal"]','vc')
@@ -50,10 +51,13 @@ with sync_playwright() as p:
         body={"content":[{"type":"text","text":json.dumps({"suggestions":[{"title":"Book the dentist","goalId":"life","minutes":15}],"namedGoals":[]})}]}
         route.fulfill(status=200, content_type='application/json', body=json.dumps(body), headers={'access-control-allow-origin':'*'})
     pg2.route('https://api.anthropic.com/**', handle)
-    pg2.goto(BASE); pg2.wait_for_selector('[data-form="welcome"]')
-    pg2.screenshot(path=OUT+'/welcome_phone.png', full_page=True)
-    pg2.fill('#wb-text','My tooth hurts, I should probably see the dentist this week.')
-    pg2.click('[data-action="welcome-start-task"]'); pg2.wait_for_selector('[data-form="talk-review"]')
+    pg2.goto(BASE); pg2.wait_for_selector('[data-form="morning"]')
+    pg2.screenshot(path=OUT+'/morning_phone.png', full_page=True)
+    pg2.click('[data-action="morning-close"]'); pg2.wait_for_timeout(200)
+    pg2.click('.bottom-nav a[href="#today"]'); pg2.wait_for_timeout(300)
+    pg2.click('#cap-text'); pg2.click('.cap-opt[data-action="open-dump"]')
+    pg2.fill('#talk-text','My tooth hurts, I should probably see the dentist this week.')
+    pg2.click('[data-action="talk-save"]'); pg2.wait_for_selector('[data-form="talk-review"]')
     print('REVIEW3:\n', pg2.inner_text('[data-form="talk-review"]'), '| checked:', pg2.is_checked('[data-talk="pick"]'))
     pg2.screenshot(path=OUT+'/review_phone.png', full_page=True)
     pg2.click('[data-action="talk-add"]'); print('err shown:', pg2.inner_text('.form-errors'))

@@ -2,7 +2,7 @@
   "name": "Personal IO",
   "short_name": "Personal IO",
   "description": "Your day, already laid out. Start in one minute.",
-  "start_url": "./#today",
+  "start_url": "./#goals",
   "scope": "./",
   "display": "standalone",
   "background_color": "#F1EEE6",

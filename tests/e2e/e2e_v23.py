@@ -79,7 +79,7 @@ with sync_playwright() as p:
     w = page(b, 1366, 800, False)
     w.goto(BASE + '#plan'); w.wait_for_selector('.plan')
     box = w.locator('.plan').bounding_box(); assert 600 <= box['width'] <= 660 and abs((box['x'] + box['width'] / 2) - 683) < 12, box
-    assert [t.strip().upper() for t in w.locator('.tabs a').all_inner_texts()] == ['PROCRASTINATION', "TODAY'S PLANNING", 'LIFE PLANNING', 'CALENDAR']
+    assert [t.strip().upper() for t in w.locator('.tabs a').all_inner_texts()] == ['LIFE PLANNING', "TODAY'S PLANNING", 'PROCRASTINATION', 'CALENDAR']
     assert w.evaluate("getComputedStyle(document.querySelector('.tabs a')).textTransform") == 'uppercase'
     w.goto(BASE + '#today'); w.wait_for_selector('.proposal')
     use = w.locator('[data-action="accept-proposal"]'); r = w.evaluate("e => getComputedStyle(e).borderRadius", use.element_handle())

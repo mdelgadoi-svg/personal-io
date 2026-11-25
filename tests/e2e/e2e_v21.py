@@ -46,18 +46,15 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     # 1. Back after 4 days: one small thing, no counts, the list folded away
     pg = page(b, away, {'width': 1400, 'height': 1000})
-    pg.goto(BASE + '#today'); pg.wait_for_selector('[data-form="welcome"]')
-    w = pg.inner_text('[data-form="welcome"]'); print('WELCOME:', w.replace('\n', ' | ')[:300])
-    assert 'Welcome back' in w and 'No catching up needed' in w, w
-    assert 'Where things stand' not in w and 'Last time' not in w, w
-    assert 'Email the professor' in w and 'Open Gmail' in w, 'the shortest of the top 3 is offered'
-    assert pg.get_attribute('details.welcome-more', 'open') is None, 'list starts folded'
-    pg.click('[data-action="welcome-start-task"]'); pg.wait_for_selector('[data-form="starter"]')
-    st = pg.inner_text('[data-form="starter"]'); assert 'Open Gmail' in st, st
-    assert pg.locator('[data-form="starter"] svg[aria-label="A calm cat, here with you"]').count() == 1, 'calm cat'
+    # v2.6: one question, no tasks, no counts; the day stays small after days away
+    pg.goto(BASE + '#today'); pg.wait_for_selector('[data-form="morning"]')
+    w = pg.inner_text('[data-form="morning"]'); print('MORNING:', w.replace('\n', ' | ')[:300])
+    assert 'review your calendar today' in w and 'Email the professor' not in w and 'Did you already' not in w, w
+    pg.click('[data-action="morning-close"]'); pg.wait_for_timeout(300)
+    s = data(pg); assert s['moments'][-1]['kind'] == 'morning' and s['moments'][-1]['chose'] is None, s['moments']
+    pg.goto(BASE + '#today'); pg.wait_for_selector('.proposal')
+    assert 'Email the professor' in pg.inner_text('.proposal'), 'the shortest of the top 3 is the one small thing'
     s = data(pg); assert s['returns'][-1]['gapDays'] == 4, s['returns']
-    assert any(m['kind'] == 'start' and m['taskId'] == 'b' for m in s['moments']), s.get('moments')
-    pg.click('[data-action="starter-close"]'); pg.wait_for_timeout(300)
     # 2. The day proposal is small: one thing
     prop = pg.inner_text('.proposal'); print('PROPOSAL:', prop.replace('\n', ' | '))
     assert 'One small thing for today' in prop and pg.locator('.proposal li').count() == 1, prop
@@ -135,8 +132,8 @@ with sync_playwright() as p:
             "days": {D: {"taskIds": ["c"], "times": {"c": "08:00"}, "set": True, "slots": 3}},
             "log": [{"at": "2026-11-10T16:30:00Z", "date": D, "taskId": "c", "title": "Pay rent", "result": "not_started", "reason": "Low energy"}]}
     ph = page(b, near, {'width': 390, 'height': 844}, bridge_on=False)
-    ph.goto(BASE + '#today'); ph.wait_for_selector('[data-form="welcome"]')
-    w = ph.inner_text('[data-form="welcome"]'); assert 'Good morning' in w and 'Where things stand' not in w, w
+    ph.goto(BASE + '#today'); ph.wait_for_selector('[data-form="morning"]')
+    w = ph.inner_text('[data-form="morning"]'); assert 'Good morning' in w and 'Pay rent' not in w, w
     ph.keyboard.press('Escape'); ph.wait_for_timeout(300)
     assert ph.locator('[data-form="back"]').count() == 0, 'no greeting for a break from last night'
     ob = next(m for m in data(ph)['moments'] if m['id'] == 'ob'); assert ob['back'] == 'closed', ob
@@ -145,19 +142,19 @@ with sync_playwright() as p:
     ph.click('[data-action="open-pause"]'); ph.click('[data-action="pause-feel"][data-feel="break"]')
     assert 'Keep the app open' in ph.inner_text('[data-form="pause"]')
     ph.screenshot(path='tests/e2e/out/v21_phone.png')
-    # 10. Esc on the welcome still makes the day small; so does a reload with the welcome open
+    # 10. Esc on the morning question, or a reload with it open, still keeps the return and makes the day small
     pg.context.close()  # the first page is still open and would keep saving its copy into the fresh Drive below
     for how in ['esc', 'reload']:
         fake.update(text=None, calls=[], held=[])  # a fresh Drive copy for each run
         q = page(b, away, {'width': 1400, 'height': 1000})
-        q.goto(BASE + '#start'); q.wait_for_selector('[data-form="welcome"]')
+        q.goto(BASE + '#start'); q.wait_for_selector('[data-form="morning"]')
         if how == 'esc':
-            q.click('details.welcome-more summary'); q.check('input[name="wb-done"][value="a"]'); q.keyboard.press('Escape'); q.wait_for_timeout(400)
-            assert q.evaluate('location.hash') == '#today', 'lands on the small day'
-            assert next(x for x in data(q)['tasks'] if x['id'] == 'a')['status'] == 'done', 'tick kept'
+            q.keyboard.press('Escape'); q.wait_for_timeout(400)
+            assert q.locator('[data-form="morning"]').count() == 0
         else:
-            q.reload(); q.wait_for_timeout(1000); q.goto(BASE + '#today'); q.wait_for_timeout(300)
-            assert q.locator('[data-form="welcome"]').count() == 0
+            q.reload(); q.wait_for_timeout(1000)
+            assert q.locator('[data-form="morning"]').count() == 0, 'asked once a day'
+        q.goto(BASE + '#today'); q.wait_for_timeout(300)
         r = data(q)['returns']; assert len(r) == 1 and r[0]['gapDays'] == 4, r
         prop = q.inner_text('.proposal'); assert 'One small thing for today' in prop and 'overdue' not in prop, (how, prop)
         q.context.close()

@@ -240,7 +240,7 @@ function planNavHTML(here) {
 function currentTab() {
   const hash = location.hash.slice(1);
   if (hash) return hash;
-  return 'today'; // the day, or its proposal, is the first thing to see
+  return 'goals'; // v2.6: Life Planning comes first; the day follows from its goals
 }
 
 function render() {
@@ -1306,139 +1306,56 @@ function renderToday() {
     `${listHTML(rows.filter((r) => !r.next))}${captureHTML()}`);
 }
 
-// ----- welcome back: a short fresh start after time away -----
+// ----- the morning question (v2.6): one question, never a list of old work -----
 
-function welcomeInfo() {
-  const today = todayKey();
-  const last = R.lastActiveDay(today, { lastOpen: state.lastOpenDate, days: state.days, log: state.log });
-  if (!last) return null;
-  const open = R.openTasks(state.tasks);
-  // Things you may have done without marking them: what was planned that day, then ★! and !.
-  const planned = (state.days[last]?.taskIds || []).map(task).filter((t) => t && t.status === 'open');
-  const pressing = R.sortForPlanning(open.filter((t) => t.priority === 'both' || t.priority === 'urgent'));
-  const check = [...new Set([...planned, ...pressing])].slice(0, 6);
-  // Skip calendar events that already happened.
-  const next = R.sortForPlanning(open.filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today) && !check.includes(t)))[0]
-    || R.sortForPlanning(open.filter((t) => t.priority !== 'nice' && !(t.eventRef && t.eventRef.date < today)))[0] || null;
-  const gap = R.daysUntil(today, last);
-  // After time away: one small thing, the shortest of the most pressing (no calendar items).
-  const small = gap >= S().gentleGapDays ? R.gentlePick(open.filter((t) => !t.eventRef), state.goals, today) : null;
-  return { last, gap, sum: R.daySummary(last, state), check, next: small || next };
-}
-
-// Shown once, on the first open of each day.
-// The return is kept as the window opens, not when it closes, so Esc, a reload or a sync never lose it.
-// After days away it is a real change (it makes the day small, on every device).
+// Shown once, on the first open of each day. It never shows tasks, counts or dates.
+// The return is still kept (quietly, or as a real change after days away) so a gentle day stays small.
 function maybeWelcome() {
   const today = todayKey();
   if (state.lastOpenDate === today) return;
-  const info = welcomeInfo();
+  const last = R.lastActiveDay(today, { lastOpen: state.lastOpenDate, days: state.days, log: state.log });
   state.lastOpenDate = today;
-  if (!info) { save(state, { quiet: true }); return; }
-  state.returns = state.returns || [];
-  state.returns.push({ date: today, lastActive: info.last, gapDays: info.gap, hour: new Date().getHours(), noted: false, ticked: 0, plannedAfter: false });
-  save(state, { quiet: info.gap < S().gentleGapDays });
-  ui.welcome = info;
-  openModal(welcomeHTML(info));
-}
-
-function welcomeHTML({ last, gap, sum, check, next }) {
-  const gentle = gap >= S().gentleGapDays;
-  const when = gap <= 1 ? 'yesterday' : esc(fmtDay(last, { weekday: 'long', month: 'long', day: 'numeric' }));
-  const first = next ? stepsOf(next)[0] || R.templateSteps(next.title, next.place, next.computer !== false)[0] : '';
-  const checkBox = check.length ? `<fieldset class="welcome-box welcome-check"><legend>Did you already do any of these? Tick them and I'll mark them done.</legend>
-      ${check.map((t) => `<label class="check-row"><input type="checkbox" name="wb-done" value="${t.id}"> ${markHTML(t.priority)} <span>${esc(t.title)}</span></label>`).join('')}
-    </fieldset>` : '';
-  const one = next ? `<div class="welcome-box welcome-next"><span class="eyebrow">${gentle ? 'One small thing' : 'One small place to start'}</span>
-      <strong>${markHTML(next.priority)} ${esc(next.title)}</strong>
-      ${first ? `<span>First minute: ${esc(first)}</span>` : ''}</div>` : '';
-  const head = (title) => `<div class="modal-head"><div><div class="date-line">${esc(longDay(todayKey()))}</div><div class="big" id="modal-title">${title}</div></div>
-      <button type="button" class="btn btn-ghost icon-btn" data-action="welcome-close" aria-label="Close">✕</button></div>`;
-  if (gentle) {
-    // Back after days away: no list, no counts, no dates. One small thing and a way to start it.
-    return `
-  <div class="modal welcome" data-form="welcome">
-    ${head('Welcome back')}
-    <div style="font-size:16px">No catching up needed. Let's start with one small thing.</div>
-    ${one}
-    ${checkBox ? `<details class="welcome-more"><summary>Already did some?</summary>${checkBox}</details>` : ''}
-    ${talkFieldHTML('wb', 'Anything on your mind? (optional)', 'Typing is fine too...', 90)}
-    <div class="modal-foot">
-      <button type="button" class="btn-link" data-action="welcome-close">Not now</button>
-      ${next ? `<button type="button" class="btn btn-dark" data-action="welcome-start-task" data-id="${next.id}">Start 1 minute</button>`
-        : '<button type="button" class="btn btn-dark" data-action="welcome-close">Okay</button>'}
-    </div>
-  </div>`;
-  }
-  return `
-  <div class="modal welcome" data-form="welcome">
-    ${head('Good morning')}
-    <div style="font-size:16px">Last time you were here was ${when}.${sum.done.length ? ` You marked ${sum.done.length} thing${sum.done.length === 1 ? '' : 's'} done that day.` : ''}</div>
-    ${checkBox}
-    ${one}
-    ${talkFieldHTML('wb', 'Anything on your mind? (optional)', 'Typing is fine too...', 90)}
-    <div class="modal-foot">
-      <button type="button" class="btn-link" data-action="welcome-close">Close</button>
-      <button type="button" class="btn btn-dark" data-action="welcome-start">Start fresh</button>
-    </div>
-  </div>`;
-}
-
-// Marks ticked tasks done, saves the note, and records the return so patterns can be looked at later.
-function finishWelcome() {
-  const info = ui.welcome;
-  const text = (modal.querySelector('#wb-text')?.value || '').trim();
-  const ticked = [...modal.querySelectorAll('input[name="wb-done"]:checked')].map((i) => task(i.value)).filter(Boolean);
-  stopMic();
-  const at = new Date().toISOString();
-  ticked.forEach((t) => {
-    Object.assign(t, { status: 'done', doneAt: at, lastTouchedAt: at });
-    state.log.push({ at, date: info ? info.last : todayKey(), taskId: t.id, title: t.title, result: 'done', reason: null, late: true });
-  });
-  if (info) {
+  if (last) {
+    const gap = R.daysUntil(today, last);
     state.returns = state.returns || [];
-    const r = state.returns.find((x) => x.date === todayKey() && x.lastActive === info.last);
-    if (r) Object.assign(r, { noted: !!text, ticked: ticked.length });
-    else state.returns.push({ date: todayKey(), lastActive: info.last, gapDays: info.gap, hour: new Date().getHours(), noted: !!text, ticked: ticked.length, plannedAfter: false });
-  }
-  ui.welcome = null;
-  save(state, { quiet: !text && !ticked.length }); // just closing it is not an edit
-  return { text, ticked: ticked.length, about: info ? info.last : null };
+    state.returns.push({ date: today, lastActive: last, gapDays: gap, hour: new Date().getHours(), noted: false, ticked: 0, plannedAfter: false });
+    save(state, { quiet: gap < S().gentleGapDays });
+  } else save(state, { quiet: true });
+  // A brand-new start (no goals of his own, no tasks) has nothing to review: Life Planning is already the page.
+  if (!state.tasks.length && !state.goals.some((g) => g.id !== 'life')) return;
+  ui.morning = { id: newId(), at: new Date().toISOString() };
+  openModal(morningHTML());
 }
 
-// The welcome closed without a button: keep the ticks and the note, and land on the small day.
-function escWelcome() {
-  const { text, about } = finishWelcome();
-  if (text) {
-    state.journal = state.journal || [];
-    state.journal.push({ id: newId(), date: todayKey(), about, text, source: 'welcome', at: new Date().toISOString() });
-    save(state);
-  }
-  if (gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
-  else renderWhenFree();
+function morningHTML() {
+  const h = new Date().getHours();
+  const hello = h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.';
+  return `
+  <div class="modal welcome morning" data-form="morning">
+    <div class="modal-head"><h2 id="modal-title">${hello}</h2>
+      <button type="button" class="btn btn-ghost icon-btn" data-action="morning-close" aria-label="Close">✕</button></div>
+    <p class="morning-q">Want me to help you review your calendar today, or see how your plan is going?</p>
+    <div class="modal-foot morning-foot">
+      <button type="button" class="btn-link" data-action="morning-close">Not now</button>
+      <button type="button" class="btn" data-action="morning-plan">How my plan is going</button>
+      <button type="button" class="btn btn-dark" data-action="morning-calendar">Review today</button>
+    </div>
+  </div>`;
 }
 
-async function closeWelcome(goPlan, startId = null) {
-  const btn = modal.querySelector('[data-action="welcome-start"], [data-action="welcome-start-task"]');
-  const { text, ticked, about } = finishWelcome();
-  const done = ticked ? `${ticked} marked done. ` : '';
-  const after = () => {
-    if (!goPlan && gentleOn(todayKey()) && location.hash !== '#today') location.hash = '#today';
-    const t = startId && task(startId);
-    if (t && t.status === 'open') { openStarter(t, { from: 'welcome' }); return; }
-    if (!goPlan) return;
-    ui.planDay = 'today';
-    if (location.hash === '#start') render(); else location.hash = '#start';
-  };
-  if (!text) {
-    closeModal();
-    after();
-    render();
-    if (goPlan) toast(`${done}Fresh start: pick a few things for today.`);
-    else if (done) toast(done.trim());
-    return;
+// What he chose is kept for the self-test (a quiet moment, synced like the others).
+function closeMorning(chose) {
+  const m = ui.morning;
+  ui.morning = null;
+  if (m) {
+    state.moments = state.moments || [];
+    state.moments.push({ id: m.id, at: m.at, upd: new Date().toISOString(), kind: 'morning', chose });
+    save(state, { quiet: true });
   }
-  await handleTalk(text, { about, source: 'welcome', button: btn, prefix: done, after });
+  if (modal.open) closeModal();
+  if (chose === 'calendar') { ui.planDay = 'today'; ui.planDayAt = Date.now(); if (location.hash === '#plan') render(); else location.hash = '#plan'; return; }
+  if (chose === 'plan') { if (location.hash === '#goals') render(); else location.hash = '#goals'; return; }
+  renderWhenFree();
 }
 
 // ----- calendar -----
@@ -2232,29 +2149,54 @@ function reviewPasted() {
 
 // ----- goals -----
 
+// Life Planning (v2.6): where he is going (the goals, in order, each with its why),
+// what he is doing for each this week (the measure on the map), and the two connections.
 function renderGoals() {
-  const shown = [...state.goals.filter((g) => g.id !== 'life'), ...state.goals.filter((g) => g.id === 'life')];
-  const cards = shown.map((g, i) => {
+  const key = todayKey();
+  const real = state.goals.filter((g) => g.id !== 'life');
+  const life = state.goals.find((g) => g.id === 'life');
+  const goalCard = (g, i) => {
+    const w = R.goalWeek(g.id, state.tasks, state.moments, key);
     const open = state.tasks.filter((t) => t.goalId === g.id && t.status === 'open');
-    const done = state.tasks.filter((t) => t.goalId === g.id && t.status === 'done').length;
-    return `
-    <article class="card card-pad" style="display:flex; flex-direction:column; gap:8px">
-      <div style="display:flex; justify-content:space-between; gap:8px; align-items:center">
-        <h2 style="font-size:18px">${g.id === 'life' ? '' : `${i + 1}. `}${esc(g.title)}</h2>
-        <span style="display:flex; gap:6px">${i > 0 && g.id !== 'life' ? `<button class="btn btn-small" data-action="goal-up" data-id="${g.id}" aria-label="Move ${esc(g.title)} up">↑</button>` : ''}<button class="btn btn-small" data-action="edit-goal" data-id="${g.id}">Edit</button></span>
+    const isLife = g.id === 'life';
+    const measure = [`${w.started} started this week`, `${w.done} done`, `${w.open} waiting`].join(' · ');
+    return `<li class="lp-goal">
+      <div class="lp-goal-top">
+        <span class="lp-num" aria-hidden="true">${isLife ? '' : i + 1}</span>
+        <div class="lp-goal-text">
+          <h3>${esc(g.title)}</h3>
+          ${g.why ? `<p class="lp-why">${esc(g.why)}</p>` : isLife ? '' : '<p class="lp-why lp-why-empty">Why does it matter to you? Tap Edit to say it.</p>'}
+        </div>
       </div>
-      ${g.why ? `<div style="color: var(--ink-2)">Why: ${esc(g.why)}</div>` : ''}
-      <div class="item-meta"><span>${open.length} open</span><span>${done} done</span></div>
-      ${open.slice(0, 4).map((t) => `<div style="display:flex; gap:8px; align-items:center; font-size:14px">${markHTML(t.priority)} ${esc(t.title)}</div>`).join('')}
-      <div><button class="btn-link" data-action="new-task" data-goal="${g.id}">+ Task for this goal</button></div>
-    </article>`;
-  }).join('');
-  return `
-  <section class="page-head">
-    <div><h1>Life Planning</h1><div class="sub">Your goals, most important first. Tasks follow this order.</div></div>
-    ${state.goals.length < S().maxGoals ? '<button class="btn btn-dark" data-action="new-goal">+ New goal</button>' : ''}
-  </section>
-  <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">${cards}</div>`;
+      <p class="lp-measure">${measure}</p>
+      ${open.length ? `<ul class="lp-tasks">${R.sortForPlanning(open).slice(0, 3).map((t) => `<li><button type="button" class="lp-task" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></li>`).join('')}</ul>` : ''}
+      <div class="lp-actions">
+        <button type="button" class="btn-link" data-action="new-task" data-goal="${g.id}">+ Task</button>
+        ${!isLife && i > 0 ? `<button type="button" class="btn-link" data-action="goal-up" data-id="${g.id}" aria-label="Move ${esc(g.title)} up">Move up</button>` : ''}
+        <button type="button" class="btn-link" data-action="edit-goal" data-id="${g.id}">Edit</button>
+      </div>
+    </li>`;
+  };
+  const calOn = G.usingBridge() || G.isConfigured();
+  const connect = `<ul class="lp-connect">
+      <li><span class="lp-c-name">Calendar</span>
+        <span class="lp-c-state">${calOn ? 'Connected' : 'Not yet'}</span>
+        ${calOn ? '' : '<button type="button" class="btn btn-small" data-action="open-settings">Connect</button>'}</li>
+      <li><span class="lp-c-name">Email</span>
+        <span class="lp-c-state">Through your Claude</span>
+        <button type="button" class="btn btn-small" data-action="copy-life-prompt">Copy the prompt</button></li>
+    </ul>
+    <p class="lp-help">Paste it into Claude with Gmail and Google Calendar on. It reads your week, suggests 1 to 3 actions for your goals, and puts the ones you choose on your calendar. They show up in Today.</p>`;
+  return `<div class="plan life">
+    <h1 class="plan-title">Life Planning</h1>
+    <h2 class="pl-head">Where I'm going</h2>
+    ${real.length ? `<ol class="lp-goals">${real.map(goalCard).join('')}</ol>`
+      : '<p class="pl-empty">Start with one goal you can reach in 1 to 3 years, and why it matters to you.</p>'}
+    ${state.goals.length < S().maxGoals ? `<div class="lp-new"><button type="button" class="btn btn-small btn-dark" data-action="new-goal">+ New goal</button></div>` : ''}
+    <h2 class="pl-head">Connect</h2>
+    ${connect}
+    ${life ? `<h2 class="pl-head">Everyday things</h2><ul class="lp-goals">${goalCard(life, 0)}</ul>` : ''}
+  </div>`;
 }
 
 // ----- backlog -----
@@ -3369,8 +3311,8 @@ const actions = {
   'email-paste': () => reviewPasted(),
   'quick-add': () => quickCapture(false),
   'quick-done': () => quickCapture(true),
-  'welcome-start': () => closeWelcome(true),
-  'welcome-start-task': (el) => closeWelcome(false, el.dataset.id),
+  'morning-calendar': () => closeMorning('calendar'),
+  'morning-plan': () => closeMorning('plan'),
   'open-pause': () => { pause = { view: 'pick' }; showPause(); },
   'pause-home': () => { pause = { view: 'pick' }; showPause(); },
   'pause-feel': (el) => {
@@ -3397,7 +3339,11 @@ const actions = {
   'back-start': (el) => { finishBreak('start', backWindowId()); const t = task(el.dataset.id); closeModal(); openStarter(t, { from: 'break' }); },
   'back-not-now': () => { finishBreak('not_now', backWindowId()); closeModal(); },
   'back-more': () => { const ok = extendBreak(5, backWindowId()); closeModal(); if (ok) toast('5 more minutes.'); },
-  'welcome-close': () => closeWelcome(false),
+  'morning-close': () => closeMorning(null),
+  'copy-life-prompt': async () => {
+    try { await navigator.clipboard.writeText(R.lifePrompt(state.goals, todayKey())); toast('Copied. Paste it into Claude.'); }
+    catch { toast('Could not copy here. Try on the computer.'); }
+  },
   'event-to-task': (el) => {
     const c = calendarItems(el.dataset.date).find((x) => x.src === el.dataset.src && x.id === el.dataset.id);
     if (!c) { toast('That event is no longer on your calendar.'); return; }
@@ -3826,7 +3772,7 @@ modal.addEventListener('close', () => {
   // Closed with Esc after the break ended: same as "Not now". Before the end, the break goes on.
   if (modal.querySelector('[data-form="back"]') && R.breakState(R.activeBreak(state.moments), Date.now()) === 'over') finishBreak('not_now');
   if (modal.querySelector('[data-form="pause"]')) pause = null;
-  if (modal.querySelector('[data-form="welcome"]') && ui.welcome) escWelcome(); // closed with Esc or the back gesture
+  if (modal.querySelector('[data-form="morning"]') && ui.morning) closeMorning(null); // closed with Esc or the back gesture
   stopMic(); stopStarterTimer(); modal.innerHTML = ''; modal.classList.remove('wide');
   if (ui.backWaiting) { ui.backWaiting = false; setTimeout(checkBreak, 300); }
 });

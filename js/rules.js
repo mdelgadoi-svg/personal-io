@@ -1040,3 +1040,48 @@ export function followerChat({ playedMin = 0, nowMin = 0, next = null, mode = 'f
   }
   return lines;
 }
+
+// ----- Life Planning (v2.6) -----
+
+// Monday of the week that holds dayKey (the week restarts every Monday).
+export function weekStartKey(dayKey) {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  const wd = (new Date(y, m - 1, d).getDay() + 6) % 7; // Monday 0 ... Sunday 6
+  return addDays(dayKey, -wd);
+}
+
+// One goal's measure for the map: what is open, and what was started and done since Monday.
+// A task counts once as started (its first start this week), however many times it was opened.
+export function goalWeek(goalId, tasks, moments, dayKey) {
+  const from = weekStartKey(dayKey);
+  const mine = (tasks || []).filter((t) => t.goalId === goalId);
+  const ids = new Set(mine.map((t) => t.id));
+  const started = new Set((moments || []).filter((m) => m && m.kind === 'start' && ids.has(m.taskId)
+    && (m.began || (!m.v && !m.auto)) && toDateKey(new Date(m.began || m.at)) >= from).map((m) => m.taskId));
+  const done = mine.filter((t) => t.status === 'done' && t.doneAt && toDateKey(new Date(t.doneAt)) >= from);
+  done.forEach((t) => started.add(t.id));
+  return { open: mine.filter((t) => t.status === 'open').length, started: started.size, done: done.length };
+}
+
+// The prompt he pastes into his own Claude (connected to Gmail and Google Calendar).
+// It carries only his goals and their why; Claude reads the mail and the calendar itself.
+export function lifePrompt(goals, dayKey) {
+  const list = (goals || []).filter((g) => g.id !== 'life');
+  const lines = list.length
+    ? list.map((g, i) => `${i + 1}. ${g.title}${g.why ? ` (why: ${g.why})` : ''}`).join('\n')
+    : '(none yet: help me choose one goal I can reach in 1 to 3 years first)';
+  return `Help me plan my week around my goals. Today is ${dayKey}.
+
+My goals, most important first:
+${lines}
+
+Please:
+1. Read my Google Calendar for the next 7 days and my email from the last 2 weeks.
+2. For each goal, tell me in one or two lines what I am already doing for it, and anything in my mail or calendar that belongs to it.
+3. Suggest 1 to 3 actions for this week, at most. Each one is something I control (not a result that depends on other people), sits under one goal only, and has a first small step and an if-then plan ("If it is Tuesday after class, then I send 2 messages").
+4. Name one obstacle for each action and how I will handle it. Do not just agree with me.
+5. Wait for me to choose. Then put only the actions I chose on my Google Calendar as blocks, with the goal number at the start of the title (for example "Goal 1: send 2 outreach messages").
+6. Never send, reply to or delete any email.
+
+Keep it short, warm and plain. No guilt, no lists of what I did not do.`;
+}

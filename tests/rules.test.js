@@ -693,3 +693,29 @@ test('v2.5 fixes: a paused clock stays paused when the computer answers; a delet
   assert.deepEqual(clockLeft(c, 9999999), { w: 290000, b: 299000 });
   assert.deepEqual(tasksNeedingGoal([{ id: 'x', status: 'open', goalId: 'gone', goalBy: 'me' }], [{ id: 'job' }]).map((t) => t.id), ['x']);
 });
+
+test('v2.6 Life Planning: the week starts Monday, each goal counts its week, the Claude prompt carries the goals', async () => {
+  const { weekStartKey, goalWeek, lifePrompt } = await import('../js/rules.js');
+  assert.equal(weekStartKey('2026-11-25'), '2026-11-23'); // a Wednesday
+  assert.equal(weekStartKey('2026-11-23'), '2026-11-23'); // Monday itself
+  assert.equal(weekStartKey('2026-11-29'), '2026-11-23'); // Sunday belongs to the week before
+  const tasks = [
+    { id: 'a', goalId: 'job', status: 'open' },
+    { id: 'b', goalId: 'job', status: 'done', doneAt: '2026-11-24T18:00:00' },
+    { id: 'c', goalId: 'job', status: 'done', doneAt: '2026-11-20T18:00:00' }, // last week
+    { id: 'd', goalId: 'school', status: 'open' },
+  ];
+  const moments = [
+    { kind: 'start', v: 2, taskId: 'a', at: '2026-11-24T10:00:00', began: '2026-11-24T10:02:00' },
+    { kind: 'start', v: 2, taskId: 'a', at: '2026-11-25T10:00:00', began: '2026-11-25T10:01:00' }, // same task twice
+    { kind: 'start', v: 2, taskId: 'd', at: '2026-11-24T10:00:00' }, // opened, never began
+  ];
+  assert.deepEqual(goalWeek('job', tasks, moments, '2026-11-25'), { open: 1, started: 2, done: 1 });
+  assert.deepEqual(goalWeek('school', tasks, moments, '2026-11-25'), { open: 1, started: 0, done: 0 });
+  const p = lifePrompt([{ id: 'job', title: 'Job in the Bay Area', why: 'stay 3 years' }, { id: 'life', title: 'Keep life running' }], '2026-11-25');
+  assert.match(p, /1\. Job in the Bay Area \(why: stay 3 years\)/);
+  assert.ok(!/Keep life running/.test(p));
+  assert.match(p, /Never send, reply to or delete any email/);
+  assert.ok(!/—/.test(p));
+  assert.match(lifePrompt([{ id: 'life', title: 'Keep life running' }], '2026-11-25'), /none yet/);
+});

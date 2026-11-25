@@ -121,7 +121,7 @@ with sync_playwright() as p:
     c = b.new_context(viewport={'width': 390, 'height': 844})
     c.add_init_script("if(!sessionStorage.getItem('seeded')){localStorage.setItem('personal-io:v1', %s);sessionStorage.setItem('seeded','1')}" % json.dumps(json.dumps(meet)))
     x = c.new_page(); x.clock.set_fixed_time(datetime.datetime(2026, 11, 16, 11, 20)); x.on('pageerror', lambda e: errors.append(str(e)))
-    x.goto(BASE); x.wait_for_selector('.dayline')   # no address: the app opens on Today
+    x.goto(BASE + '#today'); x.wait_for_selector('.dayline')   # v2.6: with no address the app opens on Life Planning
     v = x.inner_text('.today-main'); assert 'All done' not in x.inner_text('#view') and v.count('Advisor meeting') == 1, v
     print('all v2.2 checks passed')
 print('PAGE ERRORS', errors)

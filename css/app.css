@@ -880,3 +880,32 @@ select.pl-pill { appearance: none; -webkit-appearance: none; padding-right: 12px
   /* a short phone: a slightly smaller board so his own pieces stay above the bottom bar */
   .board { max-width: min(100%, calc(100vh - 355px)); margin: 0 auto; }
 }
+
+/* ----- Life Planning (v2.6): where I'm going, what I'm doing, the two connections ----- */
+.lp-goals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lp-goal { border-top: 1px solid var(--line-2); padding: 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.lp-goal:first-child { border-top: none; }
+.lp-goal-top { display: flex; gap: 14px; align-items: flex-start; }
+.lp-num { flex: 0 0 28px; height: 28px; border-radius: 14px; border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink-2); }
+.lp-num:empty { border: none; }
+.lp-goal-text { min-width: 0; }
+.lp-goal-text h3 { font-size: 18px; font-weight: 400; margin: 2px 0 0; overflow-wrap: anywhere; }
+.lp-why { margin: 4px 0 0; color: var(--ink-2); font-size: 15px; }
+.lp-why-empty { font-style: italic; }
+.lp-measure { margin: 0 0 0 42px; font-size: 13px; color: var(--ink-2); letter-spacing: 0.02em; }
+.lp-tasks { list-style: none; margin: 0 0 0 42px; padding: 0; display: flex; flex-direction: column; }
+.lp-task { background: none; border: none; padding: 6px 0; min-height: 36px; font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.lp-task:hover { color: var(--primary-ink); }
+.lp-actions { margin-left: 42px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.lp-actions .btn-link { min-height: 36px; }
+.lp-new { display: flex; justify-content: center; }
+.lp-connect { list-style: none; margin: 0; padding: 0; }
+.lp-connect li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line-2); flex-wrap: wrap; }
+.lp-connect li:first-child { border-top: none; }
+.lp-c-name { flex: 0 0 80px; }
+.lp-c-state { flex: 1 1 auto; color: var(--ink-2); font-size: 15px; }
+.lp-help { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+/* The morning question */
+.morning-q { font-size: 18px; line-height: 1.5; margin: 6px 0 18px; }
+.morning-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; }

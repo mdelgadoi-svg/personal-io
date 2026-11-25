@@ -6,6 +6,10 @@ Marcelo's decisions, written so every build session starts from the same page. R
 
 People with ADHD will procrastinate. Give that time a calm place inside the app (games that are active and end), and an agent that watches the whole day and walks the person back to the plan, kindly, before play turns into hours.
 
+## Nov 25 update: the order changed (his decision)
+
+Life Planning comes first: plan where he is going, connect calendar and email, see what he is doing for each goal. Today's Planning comes after and always follows the goals chosen in Life Planning. Procrastination is frozen: no more work there. Email comes in through his own Claude (connected to Gmail and Calendar), not through the app. v2.6 made the first step: Life Planning is the first page, and one morning question replaced the welcome window. Next candidates, for his vote: the weekly loop (1 to 3 weekly actions under the goals, each with an if-then plan, and a 5-minute review), then Phase B.
+
 ## The three sections (the new top level)
 
 | Section | What is in it |

@@ -114,14 +114,14 @@ with sync_playwright() as p:
     pp.click('[data-action="sync-now"]'); pp.wait_for_timeout(800)
     print('phone now has Computer only:', any(t['title'] == 'Computer only' for t in data(pp)['tasks']))
 
-    # morning: the phone is behind and closes the welcome before syncing; the plan made on the computer survives
+    # morning: the phone is behind and closes the morning question before syncing; the plan made on the computer survives
     pc.click('[data-action="plan-day"][data-day="tomorrow"]')
     pc.click('[data-action="add-to-day"][data-id="b"]'); pc.wait_for_timeout(2500)
     pp2 = page(phone, hour=8); pp2.clock.set_fixed_time(datetime.datetime(2026, 11, 2, 8, 0))
     pp.close()
     pp2.add_init_script("localStorage.removeItem('personal-io:google-session')")
     pp2.goto(BASE + '#today'); pp2.wait_for_timeout(500)
-    if pp2.locator('[data-action="welcome-start"]').count(): pp2.click('[data-action="welcome-start"]'); pp2.wait_for_timeout(300)
+    if pp2.locator('[data-action="morning-close"]').count(): pp2.click('[data-action="morning-close"]'); pp2.wait_for_timeout(300)
     pp2.click('#sync-pill [data-action="sync-now"]'); pp2.wait_for_timeout(2500)
     d = data(pp2)['days'].get(TOM, {})
     print('phone morning plan after sync:', d.get('taskIds'), '| drive plan:', json.loads(drive['f1']['text'])['days'].get(TOM, {}).get('taskIds'))

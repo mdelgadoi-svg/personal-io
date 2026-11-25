@@ -39,7 +39,7 @@ with sync_playwright() as p:
     pg = page(b, state())
     pg.goto(BASE + '#play'); pg.wait_for_selector('.play')
     cur = lambda: pg.locator('.bottom-nav a[aria-current="page"]').inner_text().strip()
-    assert [a.strip() for a in pg.locator('.bottom-nav a').all_inner_texts()] == ['Procrastination', "Today's Planning", 'Life Planning', 'Calendar']
+    assert [a.strip() for a in pg.locator('.bottom-nav a').all_inner_texts()] == ['Life Planning', "Today's Planning", 'Procrastination', 'Calendar']
     assert cur() == 'Procrastination' and pg.inner_text('.play h1') == 'Procrastination'
     assert 'Send application' in pg.inner_text('.play-next'), 'the next task is above the games'
     assert pg.evaluate('document.documentElement.scrollWidth') <= 390
