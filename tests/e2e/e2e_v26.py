@@ -30,8 +30,8 @@ with sync_playwright() as p:
         assert pg.inner_text('#view h1') == 'Life Planning', 'Life Planning is the first page'
         nav = '.tabs a' if w > 800 else '.bottom-nav a'
         assert [a.strip().upper() for a in pg.locator(nav).all_inner_texts()][0] == 'LIFE PLANNING'
-        pg.click('[data-action="morning-calendar"]'); pg.wait_for_selector('.plan')
-        assert pg.evaluate('location.hash') == '#plan' and 'Plan my day' in pg.inner_text('#view h1')
+        pg.click('[data-action="morning-calendar"]'); pg.wait_for_selector('.today')
+        assert pg.evaluate('location.hash') == '#today', 'Review today opens the day itself'
         m = [x for x in data(pg)['moments'] if x['kind'] == 'morning']; assert len(m) == 1 and m[0]['chose'] == 'calendar', m
         pg.reload(); pg.wait_for_timeout(9000)
         assert pg.locator('[data-form="morning"]').count() == 0, 'asked once a day'
@@ -40,8 +40,9 @@ with sync_playwright() as p:
         v = pg.inner_text('#view')
         assert 'A job in the Bay Area' in v and 'Close to the fund' in v
         first = pg.locator('.lp-goal').first.inner_text()
-        assert '1 started this week' in first and '1 done' in first and '1 waiting' in first, first
-        assert 'Why does it matter to you?' in pg.locator('.lp-goal').nth(1).inner_text()
+        assert '1 started this week' in first and '1 done' in first and 'waiting' not in first, first
+        second = pg.locator('.lp-goal').nth(1).inner_text()
+        assert 'Why does it matter to you?' in second and '0 ' not in second, 'no zeros, nothing that reads like a score'
         assert pg.locator('[data-action="copy-life-prompt"]').count() == 1
         assert pg.evaluate('document.documentElement.scrollWidth') <= w, 'no sideways scroll'
         assert '★' not in v and '🤔' not in v, 'no symbol code on Life Planning'
@@ -52,6 +53,20 @@ with sync_playwright() as p:
     pg.goto(BASE + '#today'); pg.wait_for_selector('[data-form="morning"]'); pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
     assert pg.evaluate('location.hash') == '#today' and pg.locator('dialog[open]').count() == 0
     assert data(pg)['moments'][-1]['chose'] is None
+    pg.context.close()
+    # at night: no question; the answer on another device counts for the day
+    pg = page(b, 390, 844); pg.clock.set_fixed_time(datetime.datetime(2026, 11, 25, 22, 0))
+    pg.goto(BASE); pg.wait_for_timeout(9000); assert pg.locator('[data-form="morning"]').count() == 0, 'no question at 10 PM'
+    pg.context.close()
+    answered = {**st, "moments": [{"id": "m1", "at": "2026-11-25T15:00:00Z", "upd": "2026-11-25T15:00:00Z", "kind": "morning", "chose": "plan"}]}
+    pg = page(b, 390, 844, answered)
+    pg.goto(BASE); pg.wait_for_timeout(9000); assert pg.locator('[data-form="morning"]').count() == 0, 'answered today on the other device'
+    pg.context.close()
+    # after days away: Life Planning shows the goals and their why, not the waiting work
+    away = {**st, "lastOpenDate": "2026-11-18"}
+    pg = page(b, 390, 844, away)
+    pg.goto(BASE); pg.wait_for_selector('[data-form="morning"]'); pg.click('[data-action="morning-close"]'); pg.wait_for_timeout(300)
+    v = pg.inner_text('#view'); assert 'A job in the Bay Area' in v and 'PPM homework' not in v and 'Send 2 outreach' not in v, v
     pg.context.close()
     # a brand-new start: no question, just Life Planning
     fresh = {**st, "goals": [st['goals'][2]], "tasks": []}

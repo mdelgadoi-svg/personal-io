@@ -1312,7 +1312,7 @@ function renderToday() {
 // The return is still kept (quietly, or as a real change after days away) so a gentle day stays small.
 function maybeWelcome() {
   const today = todayKey();
-  if (state.lastOpenDate === today) return;
+  if (state.lastOpenDate === today) { if (ui.morningDue === today) maybeMorning(); return; }
   const last = R.lastActiveDay(today, { lastOpen: state.lastOpenDate, days: state.days, log: state.log });
   state.lastOpenDate = today;
   if (last) {
@@ -1321,7 +1321,18 @@ function maybeWelcome() {
     state.returns.push({ date: today, lastActive: last, gapDays: gap, hour: new Date().getHours(), noted: false, ticked: 0, plannedAfter: false });
     save(state, { quiet: gap < S().gentleGapDays });
   } else save(state, { quiet: true });
-  // A brand-new start (no goals of his own, no tasks) has nothing to review: Life Planning is already the page.
+  ui.morningDue = today; // asked once, at the first open; a night open keeps it waiting in this window until 5 AM
+  maybeMorning();
+}
+
+// The question itself: once a day (answered on any device counts), only between 5 AM and 9 PM,
+// never over another window, and not on a brand-new start (no goals of his own, no tasks).
+function maybeMorning() {
+  const today = todayKey();
+  const h = new Date().getHours();
+  if (ui.morningDue !== today || ui.morning || modal.open || h < 5 || h >= 21) return;
+  ui.morningDue = null;
+  if ((state.moments || []).some((m) => m.kind === 'morning' && m.at && R.toDateKey(new Date(m.at)) === today)) return;
   if (!state.tasks.length && !state.goals.some((g) => g.id !== 'life')) return;
   ui.morning = { id: newId(), at: new Date().toISOString() };
   openModal(morningHTML());
@@ -1329,7 +1340,7 @@ function maybeWelcome() {
 
 function morningHTML() {
   const h = new Date().getHours();
-  const hello = h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.';
+  const hello = h < 12 ? 'Good morning.' : 'Good afternoon.';
   return `
   <div class="modal welcome morning" data-form="morning">
     <div class="modal-head"><h2 id="modal-title">${hello}</h2>
@@ -1353,8 +1364,12 @@ function closeMorning(chose) {
     save(state, { quiet: true });
   }
   if (modal.open) closeModal();
-  if (chose === 'calendar') { ui.planDay = 'today'; ui.planDayAt = Date.now(); if (location.hash === '#plan') render(); else location.hash = '#plan'; return; }
-  if (chose === 'plan') { if (location.hash === '#goals') render(); else location.hash = '#goals'; return; }
+  if (chose === 'calendar') { if (location.hash === '#today') render(); else location.hash = '#today'; return; }
+  if (chose === 'plan') {
+    if (currentTab() === 'goals') { render(); document.querySelector('.lp-goals')?.scrollIntoView({ block: 'start' }); }
+    else location.hash = '#goals';
+    return;
+  }
   renderWhenFree();
 }
 
@@ -1760,14 +1775,20 @@ function openStarter(t, { auto = false, from = null } = {}) {
 // It counts the time in each section while the app is on screen, keeps one "visit" record per sitting,
 // and says one kind line when planning goes on without a start. The games ask it how to play.
 
-const follow = { section: null, last: 0, sitMs: 0, sinceStartMs: 0, said: false };
+const follow = { section: null, last: 0, sitMs: 0, sinceStartMs: 0, said: false, lastInput: 0 };
+
+['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => { follow.lastInput = Date.now(); }, { capture: true, passive: true }));
 
 function followTick(section = follow.section) {
   const now = Date.now();
   const visible = document.visibilityState === 'visible';
   if (follow.section && follow.last) {
     const delta = Math.min(Math.max(now - follow.last, 0), 90000); // a sleeping phone does not count
-    if (visible || delta < 2000) { follow.sitMs += delta; follow.sinceStartMs += delta; }
+    if (visible || delta < 2000) {
+      follow.sitMs += delta;
+      // Life Planning is the home page now: a tab left open there is not planning. Count it only within 2 min of a tap or key.
+      if (follow.section !== 'life' || now - follow.lastInput < 120000) follow.sinceStartMs += delta;
+    }
   }
   follow.last = now;
   Play.tick();
@@ -2153,13 +2174,16 @@ function reviewPasted() {
 // what he is doing for each this week (the measure on the map), and the two connections.
 function renderGoals() {
   const key = todayKey();
+  const gentle = gentleOn(key); // after days away: the goals and their why, no list of waiting work
   const real = state.goals.filter((g) => g.id !== 'life');
   const life = state.goals.find((g) => g.id === 'life');
   const goalCard = (g, i) => {
     const w = R.goalWeek(g.id, state.tasks, state.moments, key);
     const open = state.tasks.filter((t) => t.goalId === g.id && t.status === 'open');
+    const { matters, rest } = R.planList(open, state.goals); // the app's own order, without pushing overdue work first
     const isLife = g.id === 'life';
-    const measure = [`${w.started} started this week`, `${w.done} done`, `${w.open} waiting`].join(' · ');
+    // Only what moved this week: no zeros, nothing that reads like a score.
+    const measure = [w.started ? `${w.started} started this week` : '', w.done ? `${w.done} done` : ''].filter(Boolean).join(' · ');
     return `<li class="lp-goal">
       <div class="lp-goal-top">
         <span class="lp-num" aria-hidden="true">${isLife ? '' : i + 1}</span>
@@ -2168,8 +2192,8 @@ function renderGoals() {
           ${g.why ? `<p class="lp-why">${esc(g.why)}</p>` : isLife ? '' : '<p class="lp-why lp-why-empty">Why does it matter to you? Tap Edit to say it.</p>'}
         </div>
       </div>
-      <p class="lp-measure">${measure}</p>
-      ${open.length ? `<ul class="lp-tasks">${R.sortForPlanning(open).slice(0, 3).map((t) => `<li><button type="button" class="lp-task" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></li>`).join('')}</ul>` : ''}
+      ${measure ? `<p class="lp-measure">${measure}</p>` : ''}
+      ${open.length && !gentle ? `<ul class="lp-tasks">${[...matters, ...rest].slice(0, 3).map((t) => `<li><button type="button" class="lp-task" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></li>`).join('')}</ul>` : ''}
       <div class="lp-actions">
         <button type="button" class="btn-link" data-action="new-task" data-goal="${g.id}">+ Task</button>
         ${!isLife && i > 0 ? `<button type="button" class="btn-link" data-action="goal-up" data-id="${g.id}" aria-label="Move ${esc(g.title)} up">Move up</button>` : ''}
@@ -2177,16 +2201,18 @@ function renderGoals() {
       </div>
     </li>`;
   };
-  const calOn = G.usingBridge() || G.isConfigured();
+  const calOn = G.usingBridge() || (G.isConfigured() && G.isConnected());
+  const calSignIn = !calOn && G.isConfigured();
   const connect = `<ul class="lp-connect">
       <li><span class="lp-c-name">Calendar</span>
-        <span class="lp-c-state">${calOn ? 'Connected' : 'Not yet'}</span>
-        ${calOn ? '' : '<button type="button" class="btn btn-small" data-action="open-settings">Connect</button>'}</li>
+        <span class="lp-c-state">${calOn ? 'Connected' : calSignIn ? 'Signed out' : 'Not yet'}</span>
+        ${calOn ? '' : calSignIn ? '<button type="button" class="btn btn-small" data-action="sync-now">Sign in</button>'
+          : '<button type="button" class="btn btn-small" data-action="open-settings">Connect</button>'}</li>
       <li><span class="lp-c-name">Email</span>
         <span class="lp-c-state">Through your Claude</span>
         <button type="button" class="btn btn-small" data-action="copy-life-prompt">Copy the prompt</button></li>
     </ul>
-    <p class="lp-help">Paste it into Claude with Gmail and Google Calendar on. It reads your week, suggests 1 to 3 actions for your goals, and puts the ones you choose on your calendar. They show up in Today.</p>`;
+    <p class="lp-help">Paste it into Claude with Gmail and Google Calendar on. It reads your week, suggests 1 to 3 actions for your goals, and puts the ones you choose on your calendar${calOn ? '. They show up in Today' : ', which shows them in Today once it is connected'}.</p>`;
   return `<div class="plan life">
     <h1 class="plan-title">Life Planning</h1>
     <h2 class="pl-head">Where I'm going</h2>
@@ -2978,7 +3004,7 @@ function useDriveCopy(data, remote, message, driveData = data) {
   const firstTime = !getSync().base;
   const openedToday = state.lastOpenDate;
   // Section time and the Follower's lines are saved quietly here; keep the ones the other copy does not have.
-  const mine = (state.moments || []).filter((m) => m.kind === 'visit' || m.kind === 'nudge');
+  const mine = (state.moments || []).filter((m) => m.kind === 'visit' || m.kind === 'nudge' || m.kind === 'morning');
   state = normalize(data);
   const have = new Set((state.moments || []).map((m) => m.id));
   state.moments = [...(state.moments || []), ...mine.filter((m) => !have.has(m.id))];
