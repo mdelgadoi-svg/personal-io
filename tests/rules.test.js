@@ -635,3 +635,61 @@ test('play numbers: sittings, and how many were followed by a real start within 
   assert.ok(text.includes("12 min in Today's Planning"), text);
   assert.ok(text.split(' ').length < 120, 'the summary stays small');
 });
+
+// ---------- v2.5: the goal oval ----------
+import { goalTag, goalPickedBy, tasksNeedingGoal } from '../js/rules.js';
+
+test('the goal oval shows the goal number, life, or ? when nobody picked', () => {
+  const goals = [{ id: 'job' }, { id: 'life' }, { id: 'school' }];
+  assert.equal(goalTag({ goalId: 'job', goalBy: 'me' }, goals), '1');
+  assert.equal(goalTag({ goalId: 'school', goalBy: 'ai' }, goals), '2'); // life is not counted
+  assert.equal(goalTag({ goalId: 'life', goalBy: 'me' }, goals), 'life');
+  assert.equal(goalTag({ goalId: 'life', goalBy: null }, goals), '?');
+  assert.equal(goalTag({ goalId: 'job', goalBy: null }, goals), '?'); // a guess from the add line is not a pick
+  assert.equal(goalTag({ goalId: 'gone', goalBy: 'me' }, goals), '?');
+  // Before v2.5: a real goal counts as his, life as unknown.
+  assert.equal(goalPickedBy({ goalId: 'school' }), 'me');
+  assert.equal(goalPickedBy({ goalId: 'life' }), null);
+  const ids = tasksNeedingGoal([{ id: 'a', status: 'open', goalId: 'life' }, { id: 'b', status: 'done', goalId: 'life' },
+    { id: 'c', status: 'open', goalId: 'job' }, { id: 'd', status: 'open', goalId: 'life', goalBy: 'ai' }]).map((t) => t.id);
+  assert.deepEqual(ids, ['a']);
+});
+
+// ---------- v2.5: chess clock and the Follower's words ----------
+import { newClock, clockLeft, clockSwitch, clockPause, clockResume, clockFlag, clockText, followerChat } from '../js/rules.js';
+
+test('the chess clock runs only for the side to move, pauses, and flags at zero', () => {
+  let c = clockResume(newClock(5), 0);
+  assert.deepEqual(clockLeft(c, 60000), { w: 240000, b: 300000 });
+  c = clockSwitch(c, 60000); // he moved after a minute
+  assert.deepEqual(clockLeft(c, 62000), { w: 240000, b: 298000 });
+  c = clockSwitch(c, 62000);
+  c = clockPause(c, 72000); // he left: 10 s used
+  assert.deepEqual(clockLeft(c, 999999), { w: 230000, b: 298000 });
+  c = clockResume(c, 1000000);
+  assert.equal(clockFlag(c, 1000000 + 229000), null);
+  assert.equal(clockFlag(c, 1000000 + 230000), 'w');
+  assert.equal(clockText(65000), '1:05');
+  assert.equal(clockText(9001), '0:10');
+  assert.equal(clockText(-5), '0:00');
+});
+
+test('the Follower says time played, what is next and when, and stays kind', () => {
+  assert.deepEqual(followerChat({ playedMin: 0, nowMin: 600, next: null }), ["Hi. I'm keeping an eye on the time for you.", 'Nothing is waiting. Enjoy the game.']);
+  const soon = followerChat({ playedMin: 12, nowMin: 600, next: { title: 'ETA homework', startMin: 640 }, mode: 'tight', why: 'soon' });
+  assert.equal(soon[0], 'You have played 12 min today.');
+  assert.equal(soon[1], 'Next: ETA homework at 10:40 AM, in 40 min.');
+  assert.match(soon[2], /One quick game/);
+  assert.match(followerChat({ nowMin: 700, next: { title: 'Rent', startMin: 650 } })[1], /was planned for 10:50 AM/);
+  followerChat({ playedMin: 50, nowMin: 0, next: { title: 'x' }, mode: 'tight', why: 'much' }).forEach((l) => assert.ok(!/—/.test(l)));
+});
+
+test('v2.5 fixes: a paused clock stays paused when the computer answers; a deleted goal is asked again', () => {
+  let c = clockResume(newClock(5), 0);
+  c = clockSwitch(c, 10000);      // he moved
+  c = clockPause(c, 11000);       // and left while the computer thinks
+  c = clockSwitch(c, 12000);      // the computer's answer lands while he is away
+  assert.equal(c.since, null);
+  assert.deepEqual(clockLeft(c, 9999999), { w: 290000, b: 299000 });
+  assert.deepEqual(tasksNeedingGoal([{ id: 'x', status: 'open', goalId: 'gone', goalBy: 'me' }], [{ id: 'job' }]).map((t) => t.id), ['x']);
+});

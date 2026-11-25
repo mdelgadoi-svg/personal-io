@@ -200,3 +200,75 @@ export async function suggestForTask(input) {
   const toGetItDone = (parsed.toGetItDone || []).map(String).map((s) => s.trim()).filter(Boolean).slice(0, 4);
   return { firstSteps, toGetItDone: toGetItDone.length ? toGetItDone : [FALLBACK_NEEDS] };
 }
+
+// v2.5: picks each task's goal. Only the task titles and the goal titles and whys are sent.
+// tasks: [{ id, title }], goals: [{ id, title, why }]. Returns { taskId: goalId | null }.
+// null means the task does not clearly belong to one goal (the app shows "goal: ?").
+export async function pickGoals(tasks, goals) {
+  const key = getKey();
+  if (!key || !tasks.length || !goals.length) return {};
+  const goalIds = goals.map((g) => g.id);
+  const prompt = `You sort a person's tasks into his goals. For each task, pick the one goal it clearly serves.
+If a task could fit two goals equally, or none, answer "none". Do not guess.
+
+Goals:
+${goals.map((g) => `- id "${g.id}": ${g.title}${g.why ? ` (why: ${g.why})` : ''}`).join('\n')}
+
+Tasks:
+${tasks.map((t) => `- id "${t.id}": ${t.title}`).join('\n')}`;
+  const body = {
+    model: MODEL,
+    max_tokens: 4000,
+    output_config: {
+      effort: 'low',
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            picks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { id: { type: 'string' }, goal: { type: 'string', enum: [...goalIds, 'none'] } },
+                required: ['id', 'goal'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['picks'],
+          additionalProperties: false,
+        },
+      },
+    },
+    messages: [{ role: 'user', content: prompt }],
+  };
+  const send = (withFallback) => fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+      ...(withFallback ? { 'anthropic-beta': 'server-side-fallback-2026-07-01' } : {}),
+    },
+    // If the model declines, the API retries on its fallback model in the same call.
+    body: JSON.stringify(withFallback ? { ...body, fallbacks: 'default' } : body),
+  });
+  let res = await send(true);
+  if (res.status === 400) res = await send(false); // an account without the fallback option: ask plainly
+  if (!res.ok) {
+    const err = new Error(res.status === 401 ? 'Claude did not accept the API key. Check it in Settings.' : 'Claude could not answer right now.');
+    err.code = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  if (data.stop_reason === 'refusal' || data.stop_reason === 'max_tokens') return {};
+  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const out = {};
+  const wanted = new Set(tasks.map((t) => t.id));
+  (JSON.parse(text).picks || []).forEach((p) => {
+    if (wanted.has(p.id)) out[p.id] = goalIds.includes(p.goal) ? p.goal : null;
+  });
+  return out;
+}

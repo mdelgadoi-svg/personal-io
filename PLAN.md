@@ -43,7 +43,7 @@ One agent, always in the loop, across all three sections. Version 1 is plain rul
 
 ### Phase A: Procrastination + the Follower (built in v2.4, Nov 17; in his hands for a week of use)
 - The three sections in the header and bottom bar, plus Calendar.
-- **Chess** against a simple computer player with a few levels. No clock, no rating, a natural end. Rules from an open-license library copied into the repo as plain files (for example chess.js, BSD license, credited); the board and the computer player are our own small code.
+- **Chess** against a simple computer player with a few levels. No rating, a natural end. (v2.5, his notes of Nov 19: a clock he picks, 5, 10 or 15 minutes each, the time of day, the captured pieces, and the Follower box beside the game.) Rules from an open-license library copied into the repo as plain files (for example chess.js, BSD license, credited); the board and the computer player are our own small code.
 - **Sudoku** with its own small generator (no outside code needed), easy to medium grids.
 - **The Follower v1** as above, all rules in `rules.js` with unit tests.
 - Done when: he can play both games on phone and computer, the level follows his day (strong when something is close, easy when he is free), the next task is there after every game, and the numbers below are logged.
